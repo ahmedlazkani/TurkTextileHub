@@ -49,21 +49,19 @@ def save_supplier(supplier_data: dict) -> bool:
     المُخرجات:
         bool: True إذا تم الحفظ بنجاح (رمز 201)، False في أي حالة أخرى
     """
-    # بناء رابط نقطة النهاية لجدول suppliers
-    url = f"{SUPABASE_URL}/rest/v1/suppliers/"
+    # بناء رابط نقطة النهاية لجدول bot_registrations
+    url = f"{SUPABASE_URL}/rest/v1/bot_registrations"
 
     # ===================================================
     # تجهيز البيانات المراد إرسالها إلى Supabase
-    # القيم الثابتة تُضاف هنا لتهيئة السجل الجديد
+    # جدول bot_registrations مخصص للبوت بدون قيود Foreign Key
     # ===================================================
     payload = {
-        "user_id": supplier_data.get("telegram_id"),   # نحفظ telegram_id في user_id
-        "business_name": supplier_data.get("company_name"),
-        "whatsapp": supplier_data.get("phone"),
-        "verification_status": "pending",
-        "reputation_score": 0,
-        "total_products": 0,
-        "total_rfqs": 0,
+        "telegram_id": supplier_data.get("telegram_id"),
+        "company_name": supplier_data.get("company_name"),
+        "contact_name": supplier_data.get("contact_name"),
+        "phone": supplier_data.get("phone"),
+        "status": "pending",
     }
 
     try:
@@ -98,7 +96,7 @@ def check_supplier_exists(telegram_id: str) -> bool:
     """
     يتحقق من وجود مورد مسجل مسبقاً باستخدام معرّف تليجرام.
 
-    يُرسل طلب GET للبحث عن سجل يطابق telegram_id في عمود user_id.
+    يُرسل طلب GET للبحث عن سجل يطابق telegram_id في جدول bot_registrations.
 
     المعاملات:
         telegram_id (str): معرّف المستخدم في تليجرام (كنص)
@@ -107,10 +105,10 @@ def check_supplier_exists(telegram_id: str) -> bool:
         bool: True إذا كان المورد مسجلاً بالفعل، False إذا لم يكن أو حدث خطأ
     """
     # ===================================================
-    # بناء رابط الاستعلام مع فلتر user_id
+    # بناء رابط الاستعلام مع فلتر telegram_id من جدول bot_registrations
     # نستخدم eq. لمطابقة القيمة الدقيقة وselect=id لتحميل أقل قدر من البيانات
     # ===================================================
-    url = f"{SUPABASE_URL}/rest/v1/suppliers?user_id=eq.{telegram_id}&select=id"
+    url = f"{SUPABASE_URL}/rest/v1/bot_registrations?telegram_id=eq.{telegram_id}&select=id"
 
     try:
         # إرسال طلب GET للبحث عن المورد

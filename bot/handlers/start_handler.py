@@ -91,10 +91,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     welcome_text = get_string(lang, "welcome")
     role_text = get_string(lang, "role_selection")
 
-    if user_name:
-        welcome_message = f"{welcome_text}\n\n{user_name}\n\n{role_text}"
-    else:
-        welcome_message = f"{welcome_text}\n\n{role_text}"
+    # بناء رسالة الترحيب بدون اسم المستخدم
+    welcome_message = f"{welcome_text}\n\n{role_text}"
 
     # إرسال رسالة الترحيب مع الأزرار المحسّنة
     await update.message.reply_text(
@@ -138,9 +136,9 @@ async def change_language(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    # تعديل الرسالة الحالية بعرض خيارات اللغة
+    # تعديل الرسالة الحالية بعرض خيارات اللغة مع النص الصحيح
     await query.edit_message_text(
-        text=get_string(lang, "role_selection"),
+        text=get_string(lang, "select_language"),
         reply_markup=reply_markup
     )
 
@@ -215,10 +213,8 @@ async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     welcome_text = get_string(lang, "welcome")
     role_text = get_string(lang, "role_selection")
 
-    if user_name:
-        welcome_message = f"{welcome_text}\n\n{user_name}\n\n{role_text}"
-    else:
-        welcome_message = f"{welcome_text}\n\n{role_text}"
+    # بناء رسالة الترحيب بدون اسم المستخدم
+    welcome_message = f"{welcome_text}\n\n{role_text}"
 
     # تعديل الرسالة بالقائمة الرئيسية باللغة الجديدة
     await query.edit_message_text(
