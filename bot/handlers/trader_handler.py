@@ -1,6 +1,7 @@
 # ===================================================
 # bot/handlers/trader_handler.py
 # معالج محادثة متعدد الخطوات لتسجيل التجار
+# المرحلة الخامسة: إضافة إشعار الأدمن عند كل تسجيل ناجح
 # تدفق: الاسم الكامل ← رقم الهاتف ← الدولة ← نوع المنتج
 # KAYISOFT - إسطنبول، تركيا
 # ===================================================
@@ -12,6 +13,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 
 from bot import states
 from bot.services import database_service
+from bot.services import notification_service
 from bot.services.language_service import get_string
 
 # سجل خاص بهذا المعالج
@@ -255,14 +257,15 @@ async def received_trader_country(update: Update, context: ContextTypes.DEFAULT_
 
 async def received_trader_product(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    يستقبل نوع المنتج المفضل عبر InlineKeyboard ويُنهي التسجيل.
+    يستقبل نوع المنتج عبر InlineKeyboard، يحفظ البيانات في Supabase، ويُرسل إشعاراً للأدمن.
 
     الخطوات:
         1. استقبال callback_data لمعرفة المنتج المختار
         2. الرد على الزر لإزالة حالة التحميل
         3. تجميع جميع بيانات التاجر وحفظها في Supabase
-        4. إرسال رسالة النجاح مع أزرار العودة للقائمة الرئيسية
-        5. إنهاء المحادثة
+        4. إرسال إشعار فوري للأدمن عند نجاح الحفظ
+        5. إرسال رسالة النجاح مع أزرار العودة للقائمة الرئيسية
+        6. إنهاء المحادثة
 
     المعاملات:
         update: كائن التحديث (يحتوي على callback_query)
@@ -325,9 +328,15 @@ async def received_trader_product(update: Update, context: ContextTypes.DEFAULT_
 
     if success:
         logger.info(
-            "✅ تم حفظ بيانات التاجر بنجاح: telegram_id=%s",
+            "تم حفظ بيانات التاجر بنجاح: telegram_id=%s",
             trader_data["telegram_id"]
         )
+        # ===================================================
+        # إرسال إشعار للأدمن بالتسجيل الجديد
+        # الفشل لا يوقف البوت - يُسجَّل الخطأ فقط داخل الخدمة
+        # ===================================================
+        notification_service.notify_new_trader(trader_data)
+
         # إرسال رسالة نجاح التسجيل مع أزرار العودة
         await query.edit_message_text(
             text=get_string(lang, "trader_success"),
@@ -335,7 +344,7 @@ async def received_trader_product(update: Update, context: ContextTypes.DEFAULT_
         )
     else:
         logger.error(
-            "❌ فشل حفظ بيانات التاجر: telegram_id=%s",
+            "فشل حفظ بيانات التاجر: telegram_id=%s",
             trader_data["telegram_id"]
         )
         # إرسال رسالة الخطأ العامة مع أزرار العودة

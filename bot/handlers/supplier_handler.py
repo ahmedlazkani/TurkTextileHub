@@ -1,7 +1,7 @@
 # ===================================================
 # bot/handlers/supplier_handler.py
 # معالج محادثة متعدد الخطوات لتسجيل الموردين
-# المرحلة الثالثة: ربط قاعدة بيانات Supabase
+# المرحلة الخامسة: إضافة إشعار الأدمن عند كل تسجيل ناجح
 # يتعامل مع تدفق: اسم الشركة ← اسم جهة الاتصال ← رقم الهاتف
 # KAYISOFT - إسطنبول، تركيا
 # ===================================================
@@ -13,6 +13,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 
 from bot import states
 from bot.services import database_service
+from bot.services import notification_service
 from bot.services.language_service import get_string
 
 # سجل خاص بهذا المعالج
@@ -21,17 +22,16 @@ logger = logging.getLogger(__name__)
 
 async def start_registration(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    يبدأ تدفق تسجيل المورد عند الضغط على زر "مورد".
+    يبدأ تدفق تسجيل المورد عند الضغط على زر 'مورد'.
 
     الخطوات:
-        1. استخراج لغة المستخدم من بيانات المستخدم في تليجرام
-        2. حفظ اللغة في context.user_data للاستخدام في الخطوات التالية
-        3. الرد على الزر (query.answer) لإزالة حالة التحميل
-        4. تعديل الرسالة الأصلية برسالة بداية التسجيل
-        5. إرسال سؤال اسم الشركة
+        1. استخراج لغة المستخدم من بيانات تليجرام وحفظها
+        2. الرد على الزر لإزالة حالة التحميل
+        3. تعديل الرسالة الأصلية برسالة بداية التسجيل
+        4. إرسال سؤال اسم الشركة
 
     المعاملات:
-        update: كائن التحديث من تليجرام (يحتوي على callback_query)
+        update: كائن التحديث (يحتوي على callback_query)
         context: سياق البوت (يُستخدم لحفظ بيانات المستخدم)
 
     المُخرجات:
@@ -87,7 +87,6 @@ async def received_company_name(update: Update, context: ContextTypes.DEFAULT_TY
     المُخرجات:
         int: states.CONTACT_NAME للانتقال إلى مرحلة اسم جهة الاتصال
     """
-    # استرجاع اللغة المحفوظة مع العربية كقيمة افتراضية
     lang = context.user_data.get("lang", "ar")
 
     # ===================================================
@@ -101,7 +100,6 @@ async def received_company_name(update: Update, context: ContextTypes.DEFAULT_TY
         text=get_string(lang, "prompt_contact_name")
     )
 
-    # الانتقال إلى مرحلة استقبال اسم جهة الاتصال
     return states.CONTACT_NAME
 
 
@@ -121,7 +119,6 @@ async def received_contact_name(update: Update, context: ContextTypes.DEFAULT_TY
     المُخرجات:
         int: states.PHONE_NUMBER للانتقال إلى مرحلة رقم الهاتف
     """
-    # استرجاع اللغة المحفوظة مع العربية كقيمة افتراضية
     lang = context.user_data.get("lang", "ar")
 
     # ===================================================
@@ -135,21 +132,20 @@ async def received_contact_name(update: Update, context: ContextTypes.DEFAULT_TY
         text=get_string(lang, "prompt_phone")
     )
 
-    # الانتقال إلى مرحلة استقبال رقم الهاتف
     return states.PHONE_NUMBER
 
 
 async def received_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    يستقبل رقم الهاتف ويُنهي عملية التسجيل مع الحفظ في Supabase.
+    يستقبل رقم الهاتف، يحفظ البيانات في Supabase، ويُرسل إشعاراً للأدمن.
 
     الخطوات:
-        1. قراءة رقم الهاتف المُرسل من المستخدم
-        2. حفظ رقم الهاتف في context.user_data
-        3. تجميع جميع بيانات المورد في قاموس
-        4. التحقق إذا كان المورد مسجلاً مسبقاً في Supabase
-        5. حفظ البيانات في Supabase إذا لم يكن مسجلاً
-        6. إرسال الرسالة المناسبة وإنهاء المحادثة
+        1. قراءة رقم الهاتف وحفظه
+        2. تجميع بيانات المورد الكاملة
+        3. التحقق من التسجيل المسبق
+        4. حفظ البيانات في Supabase إذا كان المستخدم جديداً
+        5. إرسال إشعار فوري للأدمن عند نجاح الحفظ
+        6. إرسال الرسالة المناسبة للمستخدم وإنهاء المحادثة
 
     المعاملات:
         update: كائن التحديث (يحتوي على message.text)
@@ -158,7 +154,6 @@ async def received_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     المُخرجات:
         int: ConversationHandler.END لإنهاء تدفق المحادثة
     """
-    # استرجاع اللغة المحفوظة مع العربية كقيمة افتراضية
     lang = context.user_data.get("lang", "ar")
 
     # ===================================================
@@ -198,6 +193,12 @@ async def received_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 "تم حفظ بيانات المورد بنجاح: telegram_id=%s",
                 supplier_data["telegram_id"]
             )
+            # ===================================================
+            # إرسال إشعار للأدمن بالتسجيل الجديد
+            # الفشل لا يوقف البوت - يُسجَّل الخطأ فقط داخل الخدمة
+            # ===================================================
+            notification_service.notify_new_supplier(supplier_data)
+
             await update.message.reply_text(
                 text=get_string(lang, "registration_success")
             )
@@ -230,7 +231,6 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     المُخرجات:
         int: ConversationHandler.END لإنهاء تدفق المحادثة
     """
-    # استرجاع اللغة المحفوظة مع العربية كقيمة افتراضية
     lang = context.user_data.get("lang", "ar")
 
     # إرسال رسالة الإلغاء مع إرشاد للبدء من جديد
@@ -238,5 +238,4 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         text=get_string(lang, "cancel")
     )
 
-    # إنهاء تدفق المحادثة
     return ConversationHandler.END

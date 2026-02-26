@@ -1,0 +1,18 @@
+# ===================================================
+# railway.toml
+# ملف إعداد Railway للنشر الدائم للبوت TurkTextileHub
+# يُحدد طريقة البناء وأمر التشغيل وسياسة إعادة التشغيل
+# KAYISOFT - إسطنبول، تركيا
+# ===================================================
+
+[build]
+# استخدام nixpacks لبناء البيئة تلقائياً من requirements.txt
+builder = "nixpacks"
+
+[deploy]
+# أمر تشغيل البوت كوحدة Python
+startCommand = "python -m bot.main"
+# إعادة التشغيل عند الفشل فقط (وليس عند الإيقاف المتعمد)
+restartPolicyType = "on_failure"
+# الحد الأقصى لمحاولات إعادة التشغيل التلقائي
+restartPolicyMaxRetries = 10
