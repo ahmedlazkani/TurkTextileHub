@@ -17,6 +17,9 @@ BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
+# معرّف تليجرام الخاص بالأدمن - لاستقبال إشعارات التسجيل الجديدة
+ADMIN_TELEGRAM_ID = int(os.getenv("ADMIN_TELEGRAM_ID", "5733520948"))
+
 # التحقق من وجود التوكن - إذا كان فارغاً يتوقف البوت
 if not BOT_TOKEN:
     raise ValueError(
