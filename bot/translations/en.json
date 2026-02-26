@@ -11,5 +11,19 @@
   "cancel": "Operation cancelled. Type /start to begin again.",
   "trader_coming_soon": "🛒 Trader registration coming soon!",
   "error_general": "An error occurred. Please try again or type /start.",
-  "already_registered": "⚠️ You are already registered as a supplier on our platform."
+  "already_registered": "⚠️ You are already registered as a supplier on our platform.",
+  "trader_welcome": "🛒 Welcome to trader registration!\n\nWe need some information to get in touch with you.",
+  "ask_trader_name": "👤 What is your full name?",
+  "ask_trader_phone": "📱 What is your phone number?\n\nExample: +905551234567",
+  "ask_trader_country": "🌍 Which country are you from?\n\nExample: Saudi Arabia, UAE, Egypt...",
+  "ask_trader_product": "📦 What type of products are you interested in?\n\nChoose from the list:",
+  "product_ready": "👕 Ready-made clothing",
+  "product_fabric": "🧵 Raw fabric",
+  "product_shoes": "👟 Shoes & accessories",
+  "product_misc": "📦 Miscellaneous products",
+  "trader_success": "✅ You have been successfully registered as a trader!\n\nOur team will soon present you with the best matching suppliers.",
+  "change_language": "🌐 Change language",
+  "register_supplier_btn": "🏭 Register as supplier",
+  "register_trader_btn": "🛒 Register as trader",
+  "typing_indicator": "⏳ Processing..."
 }

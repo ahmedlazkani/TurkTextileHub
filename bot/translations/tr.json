@@ -11,5 +11,19 @@
   "cancel": "İşlem iptal edildi. Yeniden başlamak için /start yazın.",
   "trader_coming_soon": "🛒 Tüccar kaydı yakında geliyor!",
   "error_general": "Bir hata oluştu. Lütfen tekrar deneyin veya /start yazın.",
-  "already_registered": "⚠️ Zaten platformumuzda tedarikçi olarak kayıtlısınız."
+  "already_registered": "⚠️ Zaten platformumuzda tedarikçi olarak kayıtlısınız.",
+  "trader_welcome": "🛒 Tüccar kaydına hoş geldiniz!\n\nSizinle iletişime geçebilmemiz için bazı bilgilere ihtiyacımız var.",
+  "ask_trader_name": "👤 Tam adınız nedir?",
+  "ask_trader_phone": "📱 Telefon numaranız nedir?\n\nÖrnek: +905551234567",
+  "ask_trader_country": "🌍 Hangi ülkedensiniz?\n\nÖrnek: Suudi Arabistan, BAE, Mısır...",
+  "ask_trader_product": "📦 Hangi tür ürünlerle ilgileniyorsunuz?\n\nListeden seçin:",
+  "product_ready": "👕 Hazır giyim",
+  "product_fabric": "🧵 Ham kumaş",
+  "product_shoes": "👟 Ayakkabı ve aksesuar",
+  "product_misc": "📦 Çeşitli ürünler",
+  "trader_success": "✅ Tüccar olarak başarıyla kaydoldunuz!\n\nEkibimiz size uygun tedarikçileri yakında sunacak.",
+  "change_language": "🌐 Dil değiştir",
+  "register_supplier_btn": "🏭 Tedarikçi olarak kaydol",
+  "register_trader_btn": "🛒 Tüccar olarak kaydol",
+  "typing_indicator": "⏳ İşleniyor..."
 }

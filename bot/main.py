@@ -1,7 +1,7 @@
 # ===================================================
 # bot/main.py
 # نقطة الدخول الرئيسية للبوت TurkTextileHub
-# المرحلة الثانية: إضافة ConversationHandler للموردين ومعالج زر التاجر
+# المرحلة الرابعة: إضافة ConversationHandler للتجار + معالج تغيير اللغة
 # KAYISOFT - إسطنبول، تركيا
 # ===================================================
 
@@ -21,8 +21,7 @@ from telegram.ext import (
 
 from bot import states
 from bot.config import BOT_TOKEN
-from bot.handlers import start_handler, supplier_handler
-from bot.services.language_service import get_string
+from bot.handlers import start_handler, supplier_handler, trader_handler
 
 
 # ===================================================
@@ -35,49 +34,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def trader_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    يعالج الضغط على زر "تاجر" ويُظهر رسالة "قادم قريباً".
-
-    الخطوات:
-        1. استخراج callback_query من التحديث
-        2. الرد على الزر لإزالة حالة التحميل
-        3. تحديد لغة المستخدم
-        4. تعديل الرسالة برسالة "تسجيل التجار قادم قريباً"
-
-    المعاملات:
-        update: كائن التحديث (يحتوي على callback_query)
-        context: سياق البوت
-    """
-    query = update.callback_query
-
-    # الرد على الزر لإزالة حالة التحميل الدوارة
-    await query.answer()
-
-    # ===================================================
-    # تحديد لغة المستخدم
-    # ===================================================
-    lang = query.from_user.language_code or "ar"
-
-    if not lang.startswith(("tr", "en")):
-        lang = "ar"
-    elif lang.startswith("tr"):
-        lang = "tr"
-    else:
-        lang = "en"
-
-    # تعديل الرسالة الأصلية برسالة "قادم قريباً"
-    await query.edit_message_text(
-        text=get_string(lang, "trader_coming_soon")
-    )
-
-
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     معالج الأخطاء العالمي - يعالج جميع الأخطاء أثناء تشغيل البوت.
 
     السلوك:
-        - يتجاهل خطأ BadRequest الذي يحتوي على "Query is too old"
+        - يتجاهل خطأ BadRequest الذي يحتوي على 'Query is too old'
         - يسجل جميع الأخطاء الأخرى في السجلات
 
     المعاملات:
@@ -103,47 +65,41 @@ def main() -> None:
     الدالة الرئيسية لتشغيل البوت.
 
     الخطوات:
-        1. إنشاء كائن Application باستخدام التوكن
-        2. بناء ConversationHandler لتدفق تسجيل الموردين
-        3. تسجيل المعالجات بالترتيب الصحيح (مهم جداً)
-        4. تسجيل معالج الأخطاء
+        1. إنشاء كائن Application
+        2. بناء ConversationHandler للموردين
+        3. بناء ConversationHandler للتجار (جديد في المرحلة الرابعة)
+        4. تسجيل المعالجات بالترتيب الصحيح
         5. تشغيل البوت بنظام polling
     """
-    logger.info("جاري تشغيل بوت TurkTextileHub - المرحلة الثانية...")
+    logger.info("جاري تشغيل بوت TurkTextileHub - المرحلة الرابعة...")
 
     # إنشاء كائن Application - نقطة تحكم البوت الرئيسية
     application = Application.builder().token(BOT_TOKEN).build()
 
     # ===================================================
-    # بناء ConversationHandler لتدفق تسجيل الموردين
-    # per_message=False: مهم لتجنب التحذيرات مع entry_points من نوع CallbackQueryHandler
-    # per_chat=True, per_user=True: تتبع المحادثة لكل مستخدم في كل محادثة
+    # ConversationHandler لتسجيل الموردين
+    # per_message=False: مهم لتجنب التحذيرات مع CallbackQueryHandler
     # ===================================================
     supplier_conv = ConversationHandler(
-        # نقطة الدخول: الضغط على زر "مورد"
         entry_points=[
             CallbackQueryHandler(
                 supplier_handler.start_registration,
                 pattern="^supplier$"
             )
         ],
-        # تعريف الحالات وما يعالجها من رسائل نصية
         states={
-            # المرحلة الأولى: استقبال اسم الشركة
             states.COMPANY_NAME: [
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
                     supplier_handler.received_company_name
                 )
             ],
-            # المرحلة الثانية: استقبال اسم جهة الاتصال
             states.CONTACT_NAME: [
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
                     supplier_handler.received_contact_name
                 )
             ],
-            # المرحلة الثالثة: استقبال رقم الهاتف
             states.PHONE_NUMBER: [
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
@@ -151,36 +107,102 @@ def main() -> None:
                 )
             ],
         },
-        # معالج الإلغاء: يعمل عند كتابة /cancel في أي مرحلة
         fallbacks=[
             CommandHandler("cancel", supplier_handler.cancel)
         ],
-        per_message=False,  # مهم: False لتجنب التحذيرات مع CallbackQueryHandler
-        per_chat=True,      # تتبع المحادثة لكل محادثة
-        per_user=True,      # تتبع المحادثة لكل مستخدم
+        per_message=False,
+        per_chat=True,
+        per_user=True,
+    )
+
+    # ===================================================
+    # ConversationHandler لتسجيل التجار (جديد - المرحلة الرابعة)
+    # TRADER_PRODUCT يستخدم CallbackQueryHandler لأزرار الاختيار
+    # ===================================================
+    trader_conv = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                trader_handler.start_trader_registration,
+                pattern="^trader$"
+            )
+        ],
+        states={
+            # مرحلة استقبال الاسم الكامل
+            states.TRADER_FULL_NAME: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    trader_handler.received_trader_name
+                )
+            ],
+            # مرحلة استقبال رقم الهاتف
+            states.TRADER_PHONE: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    trader_handler.received_trader_phone
+                )
+            ],
+            # مرحلة استقبال الدولة
+            states.TRADER_COUNTRY: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    trader_handler.received_trader_country
+                )
+            ],
+            # مرحلة اختيار نوع المنتج عبر InlineKeyboard
+            states.TRADER_PRODUCT: [
+                CallbackQueryHandler(
+                    trader_handler.received_trader_product,
+                    pattern="^product_(ready|fabric|shoes|misc)$"
+                )
+            ],
+        },
+        fallbacks=[
+            CommandHandler("cancel", trader_handler.cancel_trader)
+        ],
+        per_message=False,
+        per_chat=True,
+        per_user=True,
+    )
+
+    # ===================================================
+    # معالج تغيير اللغة (جديد - المرحلة الرابعة)
+    # ===================================================
+    change_lang_handler = CallbackQueryHandler(
+        start_handler.change_language,
+        pattern="^change_language$"
+    )
+
+    # معالج اختيار لغة محددة (ar/tr/en)
+    set_lang_handler = CallbackQueryHandler(
+        start_handler.set_language,
+        pattern="^lang_(ar|tr|en)$"
     )
 
     # ===================================================
     # تسجيل المعالجات بالترتيب الصحيح - الترتيب مهم جداً
-    # supplier_conv يجب أن يُسجَّل قبل أي CallbackQueryHandler منفصل
+    # ConversationHandlers يجب أن تُسجَّل قبل أي CallbackQueryHandler منفصل
     # ===================================================
 
     # 1. معالج أمر /start
     application.add_handler(CommandHandler("start", start_handler.start))
 
-    # 2. محادثة تسجيل الموردين (يجب أن يكون قبل معالج التاجر)
+    # 2. محادثة تسجيل الموردين
     application.add_handler(supplier_conv)
 
-    # 3. معالج زر "تاجر" (بعد supplier_conv)
-    application.add_handler(
-        CallbackQueryHandler(trader_handler, pattern="^trader$")
-    )
+    # 3. محادثة تسجيل التجار (جديد)
+    application.add_handler(trader_conv)
 
-    # 4. معالج الأخطاء العالمي
+    # 4. معالج تغيير اللغة (جديد)
+    application.add_handler(change_lang_handler)
+
+    # 5. معالج اختيار لغة محددة (جديد)
+    application.add_handler(set_lang_handler)
+
+    # 6. معالج الأخطاء العالمي
     application.add_error_handler(error_handler)
 
-    logger.info("تم تسجيل جميع المعالجات بنجاح")
-    logger.info("البوت يعمل الآن في وضع polling...")
+    logger.info("✅ تم تسجيل جميع المعالجات بنجاح")
+    logger.info("🔄 البوت يعمل الآن في وضع polling...")
 
     # تشغيل البوت - يظل يعمل حتى يتم إيقافه يدوياً
     application.run_polling()

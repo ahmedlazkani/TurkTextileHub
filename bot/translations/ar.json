@@ -11,5 +11,19 @@
   "cancel": "تم إلغاء العملية. اكتب /start للبدء من جديد.",
   "trader_coming_soon": "🛒 تسجيل التجار قادم قريباً!",
   "error_general": "حدث خطأ. الرجاء المحاولة مرة أخرى أو كتابة /start",
-  "already_registered": "⚠️ أنت مسجل بالفعل كمورد في منصتنا."
+  "already_registered": "⚠️ أنت مسجل بالفعل كمورد في منصتنا.",
+  "trader_welcome": "🛒 أهلاً بك في تسجيل التجار!\n\nسنحتاج بعض المعلومات للتواصل معك.",
+  "ask_trader_name": "👤 ما هو اسمك الكامل؟",
+  "ask_trader_phone": "📱 ما هو رقم هاتفك؟\n\nمثال: +905551234567",
+  "ask_trader_country": "🌍 من أي دولة أنت؟\n\nمثال: السعودية، الإمارات، مصر...",
+  "ask_trader_product": "📦 ما نوع المنتجات التي تهتم بها؟\n\nاختر من القائمة:",
+  "product_ready": "👕 ملابس جاهزة",
+  "product_fabric": "🧵 أقمشة خام",
+  "product_shoes": "👟 أحذية وإكسسوار",
+  "product_misc": "📦 منتجات متنوعة",
+  "trader_success": "✅ تم تسجيلك بنجاح كتاجر!\n\nسيقنا قريباً لعرض أفضل الموردين المناسبين لك.",
+  "change_language": "🌐 تغيير اللغة",
+  "register_supplier_btn": "🏭 تسجيل كمورد",
+  "register_trader_btn": "🛒 تسجيل كتاجر",
+  "typing_indicator": "⏳ جاري المعالجة..."
 }
