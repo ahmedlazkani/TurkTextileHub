@@ -10,5 +10,6 @@
   "registration_success": "✅ You have been successfully registered as a supplier!\nWe will contact you soon.",
   "cancel": "Operation cancelled. Type /start to begin again.",
   "trader_coming_soon": "🛒 Trader registration coming soon!",
-  "error_general": "An error occurred. Please try again or type /start."
+  "error_general": "An error occurred. Please try again or type /start.",
+  "already_registered": "⚠️ You are already registered as a supplier on our platform."
 }

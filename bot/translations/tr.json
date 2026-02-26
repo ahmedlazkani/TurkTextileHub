@@ -10,5 +10,6 @@
   "registration_success": "✅ Tedarikçi olarak başarıyla kaydoldunuz!\nYakında sizinle iletişime geçeceğiz.",
   "cancel": "İşlem iptal edildi. Yeniden başlamak için /start yazın.",
   "trader_coming_soon": "🛒 Tüccar kaydı yakında geliyor!",
-  "error_general": "Bir hata oluştu. Lütfen tekrar deneyin veya /start yazın."
+  "error_general": "Bir hata oluştu. Lütfen tekrar deneyin veya /start yazın.",
+  "already_registered": "⚠️ Zaten platformumuzda tedarikçi olarak kayıtlısınız."
 }

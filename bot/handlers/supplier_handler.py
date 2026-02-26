@@ -1,6 +1,7 @@
 # ===================================================
 # bot/handlers/supplier_handler.py
 # معالج محادثة متعدد الخطوات لتسجيل الموردين
+# المرحلة الثالثة: ربط قاعدة بيانات Supabase
 # يتعامل مع تدفق: اسم الشركة ← اسم جهة الاتصال ← رقم الهاتف
 # KAYISOFT - إسطنبول، تركيا
 # ===================================================
@@ -11,6 +12,7 @@ from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 
 from bot import states
+from bot.services import database_service
 from bot.services.language_service import get_string
 
 # سجل خاص بهذا المعالج
@@ -139,15 +141,15 @@ async def received_contact_name(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def received_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    يستقبل رقم الهاتف ويُنهي عملية التسجيل.
+    يستقبل رقم الهاتف ويُنهي عملية التسجيل مع الحفظ في Supabase.
 
     الخطوات:
         1. قراءة رقم الهاتف المُرسل من المستخدم
         2. حفظ رقم الهاتف في context.user_data
         3. تجميع جميع بيانات المورد في قاموس
-        4. طباعة البيانات في السجلات (مؤقتاً - سيتم الحفظ في قاعدة البيانات في المرحلة الثالثة)
-        5. إرسال رسالة نجاح التسجيل
-        6. إنهاء المحادثة
+        4. التحقق إذا كان المورد مسجلاً مسبقاً في Supabase
+        5. حفظ البيانات في Supabase إذا لم يكن مسجلاً
+        6. إرسال الرسالة المناسبة وإنهاء المحادثة
 
     المعاملات:
         update: كائن التحديث (يحتوي على message.text)
@@ -166,8 +168,7 @@ async def received_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     context.user_data["phone"] = phone
 
     # ===================================================
-    # تجميع بيانات المورد الكاملة
-    # ملاحظة: سيتم ربط قاعدة البيانات في المرحلة الثالثة
+    # تجميع بيانات المورد الكاملة للحفظ في قاعدة البيانات
     # ===================================================
     supplier_data = {
         "telegram_id": str(update.effective_user.id),
@@ -176,13 +177,38 @@ async def received_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         "phone": context.user_data.get("phone"),
     }
 
-    # طباعة البيانات في السجلات (مؤقتاً بدلاً من حفظها في قاعدة البيانات)
-    logger.info("📋 بيانات مورد جديد: %s", supplier_data)
+    # ===================================================
+    # التحقق أولاً إذا كان المورد مسجلاً مسبقاً في Supabase
+    # ===================================================
+    already_exists = database_service.check_supplier_exists(supplier_data["telegram_id"])
 
-    # إرسال رسالة نجاح التسجيل للمستخدم
-    await update.message.reply_text(
-        text=get_string(lang, "registration_success")
-    )
+    if already_exists:
+        # إرسال رسالة أن المورد مسجل مسبقاً
+        await update.message.reply_text(
+            text=get_string(lang, "already_registered")
+        )
+    else:
+        # ===================================================
+        # حفظ بيانات المورد في قاعدة البيانات Supabase
+        # ===================================================
+        success = database_service.save_supplier(supplier_data)
+
+        if success:
+            logger.info(
+                "تم حفظ بيانات المورد بنجاح: telegram_id=%s",
+                supplier_data["telegram_id"]
+            )
+            await update.message.reply_text(
+                text=get_string(lang, "registration_success")
+            )
+        else:
+            logger.error(
+                "فشل حفظ بيانات المورد: telegram_id=%s",
+                supplier_data["telegram_id"]
+            )
+            await update.message.reply_text(
+                text=get_string(lang, "error_general")
+            )
 
     # إنهاء تدفق المحادثة
     return ConversationHandler.END
