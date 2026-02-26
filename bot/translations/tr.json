@@ -1,0 +1,14 @@
+{
+  "welcome": "TurkTextileHub'a Hoş Geldiniz 🌟\nTürk tekstil ticareti için B2B platformu",
+  "role_selection": "Rolünüzü seçin:",
+  "supplier": "🏭 Tedarikçi",
+  "trader": "🛒 Tüccar",
+  "supplier_registration_start": "Harika! Tedarikçi olarak kaydınızı başlatıyoruz.\nBu yalnızca iki dakika sürecek.",
+  "prompt_company_name": "Şirketinizin veya mağazanızın adı nedir?",
+  "prompt_contact_name": "İletişim için sorumlu kişinin adı nedir?",
+  "prompt_phone": "Telefon numaranız nedir (ülke kodu ile)?\nÖrnek: +905551234567",
+  "registration_success": "✅ Tedarikçi olarak başarıyla kaydoldunuz!\nYakında sizinle iletişime geçeceğiz.",
+  "cancel": "İşlem iptal edildi. Yeniden başlamak için /start yazın.",
+  "trader_coming_soon": "🛒 Tüccar kaydı yakında geliyor!",
+  "error_general": "Bir hata oluştu. Lütfen tekrar deneyin veya /start yazın."
+}

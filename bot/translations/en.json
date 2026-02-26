@@ -1,0 +1,14 @@
+{
+  "welcome": "Welcome to TurkTextileHub 🌟\nB2B platform for Turkish textile trade",
+  "role_selection": "Choose your role:",
+  "supplier": "🏭 Supplier",
+  "trader": "🛒 Trader",
+  "supplier_registration_start": "Great! We'll start your registration as a supplier.\nThis will only take two minutes.",
+  "prompt_company_name": "What is the name of your company or store?",
+  "prompt_contact_name": "What is the name of the contact person?",
+  "prompt_phone": "What is your phone number (with country code)?\nExample: +905551234567",
+  "registration_success": "✅ You have been successfully registered as a supplier!\nWe will contact you soon.",
+  "cancel": "Operation cancelled. Type /start to begin again.",
+  "trader_coming_soon": "🛒 Trader registration coming soon!",
+  "error_general": "An error occurred. Please try again or type /start."
+}
