@@ -323,13 +323,14 @@ def get_products_by_category(category: str) -> list:
 # ===================================================
 # دوال طلبات عروض الأسعار - RFQ
 # المرحلة السابعة: إضافة دوال RFQ
-# ===================================================
+# ==================================================
 
-def get_product_by_id(product_id: int) -> Optional[dict]:
+
+def get_product_by_id(product_id: str) -> Optional[dict]:
     """
     يجلب بيانات منتج واحد بمعرّفه مع بيانات المورد الكاملة (بما فيها telegram_id).
     المعاملات:
-        product_id (int): معرّف المنتج
+        product_id (str): معرّف المنتج (UUID)
     المُخرجات:
         dict: بيانات المنتج مع بيانات المورد، أو None
     """
@@ -383,8 +384,8 @@ def get_trader_by_telegram_id(telegram_id: int) -> Optional[dict]:
 
 
 def add_quote_request(
-    product_id: int,
-    supplier_id: int,
+    product_id: str,
+    supplier_id: str,
     trader_id: int,
     quantity: Optional[str] = None,
     color: Optional[str] = None,
@@ -394,9 +395,9 @@ def add_quote_request(
     """
     يحفظ طلب عرض سعر جديد في جدول quote_requests في Supabase.
     المعاملات:
-        product_id (int): معرّف المنتج
-        supplier_id (int): معرّف المورد
-        trader_id (int): Telegram ID للتاجر
+        product_id (str): معرّف المنتج (UUID)
+        supplier_id (str): معرّف المورد (UUID)
+        trader_id (int): Telegram ID للتاجر (BIGINT)
         quantity (str): الكمية المطلوبة (اختياري)
         color (str): اللون المطلوب (اختياري)
         size (str): المقاس المطلوب (اختياري)
