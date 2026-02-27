@@ -271,7 +271,10 @@ def main() -> None:
     logger.info("✅ تم تسجيل جميع المعالجات بنجاح")
     logger.info("🔄 البوت يعمل الآن في وضع polling...")
 
-    application.run_polling()
+    application.run_polling(
+        drop_pending_updates=True,  # يمنع تعارض نسختين عند إعادة النشر
+        close_loop=False,
+    )
 
 
 # ===================================================

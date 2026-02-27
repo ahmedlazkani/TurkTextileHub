@@ -16,3 +16,5 @@ startCommand = "python -m bot.main"
 restartPolicyType = "on_failure"
 # الحد الأقصى لمحاولات إعادة التشغيل التلقائي
 restartPolicyMaxRetries = 10
+# منع تشغيل أكثر من نسخة واحدة من البوت في نفس الوقت
+numReplicas = 1
