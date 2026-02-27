@@ -209,6 +209,14 @@ def main() -> None:
         CallbackQueryHandler(start_handler.set_language, pattern="^lang_(ar|tr|en)$")
     )
 
+    # معالجات لوحة تحكم المورد — قنواتي والعودة للوحة
+    application.add_handler(
+        CallbackQueryHandler(start_handler.show_my_channels, pattern="^my_channels$")
+    )
+    application.add_handler(
+        CallbackQueryHandler(start_handler.back_to_dashboard, pattern="^back_to_dashboard$")
+    )
+
     # معالج الأخطاء العالمي
     application.add_error_handler(error_handler)
 

@@ -5,7 +5,6 @@
   "register_trader_btn": "🛒 Register as Trader",
   "change_language": "🌐 Change Language",
   "select_language": "🌐 Select your preferred language:",
-
   "supplier_registration_start": "🏭 Great! Let's register you as a supplier on TurkTextileHub.\nPlease answer the following questions:",
   "prompt_company_name": "📋 What is your company or store name?",
   "prompt_contact_name": "👤 What is the name of the contact person?",
@@ -23,8 +22,7 @@
   "already_registered": "⚠️ You are already registered on the platform!\nIf you face any issues, contact our support team.",
   "error_general": "❌ An unexpected error occurred. Please try again later.",
   "cancel": "🚫 Operation cancelled.\nType /start to begin again.",
-
-  "trader_welcome": "🛒 Welcome! Let's register you as a trader on TurkTextileHub.",
+  "trader_welcome": "Welcome back, {name} 👋\nTrader Account 🛍",
   "ask_trader_name": "👤 What is your full name?",
   "ask_trader_phone": "📞 What is your phone number with country code?\nExample: +966 5XX XXX XXXX",
   "ask_trader_country": "🌍 Which country are you from?",
@@ -34,7 +32,6 @@
   "business_distributor": "🚚 Distributor",
   "business_other": "📦 Other",
   "trader_success": "✅ You have been successfully registered as a trader!\nYou'll be able to browse products and request quotes soon.",
-
   "add_product_start": "📸 To add a new product, send me its photos (1 to 5 photos at once).",
   "add_product_get_category": "✨ Great! Now choose the product category:",
   "category_abayas": "👘 Abayas",
@@ -50,7 +47,6 @@
   "add_product_success": "✅ Your product has been published successfully! Traders can see it now.",
   "add_product_no_images": "❌ No images received. Please send at least one photo.",
   "not_registered_supplier": "⚠️ You must be a registered supplier to add products.\nUse /start to register first.",
-
   "browse_start": "🔍 Choose a product category to browse:",
   "show_all_btn": "🌟 Show All",
   "no_products_found": "😔 No products available in this category at the moment.",
@@ -60,5 +56,27 @@
   "request_quote_btn": "📋 Request Quote",
   "back_to_categories_btn": "🔙 Back to Categories",
   "product_counter": "Product {current} of {total}",
-  "quote_request_sent": "✅ Your quote request has been sent to the supplier. They'll contact you soon."
+  "quote_request_sent": "✅ Your quote request has been sent to the supplier. They'll contact you soon.",
+  "btn_channel_connect": "Connect Telegram Channel 🔗",
+  "my_channels_btn": "📢 My Channels",
+  "channels_count_label": "📢 Connected Channels",
+  "my_channels_title": "📢 <b>Your Connected Channels:</b>",
+  "my_channels_empty": "No channels connected yet.\n\nTap \"Connect Telegram Channel\" to link your first channel 🔗",
+  "my_channels_item": "• <b>{title}</b> (@{username})\n   📅 Connected on: {date}",
+  "add_another_channel_btn": "➕ Connect Another Channel",
+  "back_to_dashboard_btn": "🔙 Back to Menu",
+  "supplier_welcome": "Welcome back, {name} 👋",
+  "supplier_account_label": "Supplier Account 🏭",
+  "status_label": "Status: {status}",
+  "status_approved": "✅ Approved",
+  "status_pending": "⏳ Pending Review",
+  "status_rejected": "❌ Rejected",
+  "dashboard_prompt": "What would you like to do?",
+  "btn_add_product": "➕ Add New Product",
+  "btn_change_language": "🌐 Change Language",
+  "choose_language_prompt": "Choose your language:",
+  "language_changed_success": "✅ Language changed successfully",
+  "error_generic": "❌ An error occurred. Please try again.",
+  "error_not_supplier": "❌ Supplier account not found.",
+  "welcome_new_user": "Welcome to TurkTextileHub! 🇹🇷\n\nTurkish B2B Textile Platform."
 }

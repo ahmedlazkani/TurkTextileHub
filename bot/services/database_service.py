@@ -121,7 +121,7 @@ def get_supplier_by_telegram_id(telegram_id: str) -> Optional[dict]:
     المُخرجات:
         dict | None: بيانات المورد أو None إذا لم يُوجد
     """
-    url = f"{SUPABASE_URL}/rest/v1/bot_registrations?telegram_id=eq.{telegram_id}&select=id,company_name"
+    url = f"{SUPABASE_URL}/rest/v1/bot_registrations?telegram_id=eq.{telegram_id}&select=id,company_name,contact_name,status"
 
     try:
         response = requests.get(url, headers=HEADERS, timeout=10)
@@ -563,3 +563,62 @@ def get_all_active_channels() -> list:
     except requests.exceptions.RequestException as e:
         logger.error("❌ خطأ في جلب القنوات النشطة: %s", str(e))
         return []
+
+
+def disconnect_channel(connection_id: str) -> bool:
+    """
+    تعطيل ربط قناة معينة (soft delete).
+
+    يضبط is_active=False وconnection_status='disconnected' مع تسجيل وقت التحديث.
+    لا يحذف السجل من قاعدة البيانات للحفاظ على سجل التاريخ.
+
+    المعاملات:
+        connection_id (str): UUID سجل الربط في جدول channel_connections
+
+    المُخرجات:
+        bool: True عند النجاح، False في حالة الفشل
+    """
+    from datetime import datetime
+    url = f"{SUPABASE_URL}/rest/v1/channel_connections?id=eq.{connection_id}"
+    payload = {
+        "is_active": False,
+        "connection_status": "disconnected",
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    try:
+        response = requests.patch(url, json=payload, headers=HEADERS, timeout=10)
+        response.raise_for_status()
+        logger.info("✅ تم فصل القناة بنجاح - connection_id: %s", connection_id)
+        return True
+    except requests.exceptions.RequestException as e:
+        logger.error("❌ خطأ في فصل القناة %s: %s", connection_id, str(e))
+        return False
+
+
+def enable_channel(connection_id: str) -> bool:
+    """
+    إعادة تفعيل ربط قناة كانت معطّلة.
+
+    يضبط is_active=True وconnection_status='connected'.
+
+    المعاملات:
+        connection_id (str): UUID سجل الربط في جدول channel_connections
+
+    المُخرجات:
+        bool: True عند النجاح، False في حالة الفشل
+    """
+    from datetime import datetime
+    url = f"{SUPABASE_URL}/rest/v1/channel_connections?id=eq.{connection_id}"
+    payload = {
+        "is_active": True,
+        "connection_status": "connected",
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    try:
+        response = requests.patch(url, json=payload, headers=HEADERS, timeout=10)
+        response.raise_for_status()
+        logger.info("✅ تم تفعيل القناة بنجاح - connection_id: %s", connection_id)
+        return True
+    except requests.exceptions.RequestException as e:
+        logger.error("❌ خطأ في تفعيل القناة %s: %s", connection_id, str(e))
+        return False
