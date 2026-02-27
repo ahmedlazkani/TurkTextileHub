@@ -75,6 +75,34 @@ async def start_add_product(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     return states.GETTING_IMAGES
 
 
+async def start_add_product_from_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    يبدأ تدفق إضافة منتج عند الضغط على زر 'إضافة منتج جديد' من لوحة التحكم.
+    يتعامل مع callback_query بدلاً من رسالة نصية.
+    """
+    query = update.callback_query
+    lang = context.user_data.get("lang", "ar")
+    telegram_id = str(query.from_user.id)
+
+    await query.answer()
+    await context.bot.send_chat_action(chat_id=query.message.chat_id, action=ChatAction.TYPING)
+
+    supplier = database_service.get_supplier_by_telegram_id(telegram_id)
+    if not supplier:
+        await query.answer(text=get_string(lang, "not_registered_supplier"), show_alert=True)
+        return ConversationHandler.END
+
+    context.user_data["supplier_id"] = supplier.get("id")
+    context.user_data["supplier_name"] = supplier.get("company_name", "")
+    context.user_data["images"] = []
+
+    await context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text=get_string(lang, "add_product_start")
+    )
+    return states.GETTING_IMAGES
+
+
 async def get_images(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
     يستقبل صور المنتج (1-5 صور) ويحفظ file_id لكل صورة.

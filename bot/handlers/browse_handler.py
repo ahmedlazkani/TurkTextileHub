@@ -96,6 +96,32 @@ async def start_browse(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     return states.BROWSING_CATEGORY
 
 
+async def start_browse_from_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    يبدأ تدفق التصفح عند الضغط على زر 'تصفح المنتجات' من لوحة التحكم.
+    يتعامل مع callback_query بدلاً من رسالة نصية.
+    """
+    query = update.callback_query
+    lang = context.user_data.get("lang", "ar")
+    await query.answer()
+    await context.bot.send_chat_action(chat_id=query.message.chat_id, action=ChatAction.TYPING)
+    categories = database_service.get_all_categories()
+    if not categories:
+        keyboard = [[InlineKeyboardButton(text=get_string(lang, "show_all_btn"), callback_data="browse_cat_all")]]
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=get_string(lang, "browse_start"),
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    else:
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=get_string(lang, "browse_start"),
+            reply_markup=_build_categories_keyboard(lang, categories)
+        )
+    return states.BROWSING_CATEGORY
+
+
 async def browse_by_category(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     lang = context.user_data.get("lang", "ar")
@@ -422,7 +448,10 @@ async def cancel_browse(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 def get_browse_conversation_handler() -> ConversationHandler:
     """يُنشئ ConversationHandler الموحد للتصفح وتدفق RFQ."""
     return ConversationHandler(
-        entry_points=[CommandHandler("browse", start_browse)],
+        entry_points=[
+            CommandHandler("browse", start_browse),
+            CallbackQueryHandler(start_browse_from_button, pattern="^post_reg_browse_products$"),
+        ],
         states={
             states.BROWSING_CATEGORY: [
                 CallbackQueryHandler(browse_by_category, pattern=r"^browse_cat_"),

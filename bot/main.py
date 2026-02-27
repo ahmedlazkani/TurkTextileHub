@@ -1,8 +1,6 @@
 # ===================================================
 # bot/main.py
 # نقطة الدخول الرئيسية للبوت TurkTextileHub
-# المرحلة السابعة: إضافة معالجات أزرار ما بعد التسجيل
-# KAYISOFT - إسطنبول، تركيا
 # ===================================================
 
 import logging
@@ -42,7 +40,6 @@ logger = logging.getLogger(__name__)
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     معالج الأخطاء العالمي.
-
     يتجاهل خطأ 'Query is too old' ويسجل جميع الأخطاء الأخرى.
     """
     error = context.error
@@ -54,50 +51,12 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     logger.error("حدث خطأ أثناء معالجة التحديث:", exc_info=context.error)
 
 
-async def _handle_post_reg_supplier(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    يعالج ضغطة زر 'إضافة منتج الآن' بعد تسجيل المورد.
-    يوجه المورد مباشرةً لتدفق إضافة المنتج.
-    """
-    query = update.callback_query
-    await query.answer()
-    await context.bot.send_message(
-        chat_id=query.message.chat_id,
-        text="استخدم الأمر /add_product لإضافة منتجك الأول الآن!"
-    )
-
-
-async def _handle_post_reg_trader(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    يعالج ضغط أزرار ما بعد التسجيل للتاجر.
-    - browse_products: يوجه لتدفق التصفح
-    - contact_supplier و featured_products: يعرض رسالة 'قيد التطوير'
-    """
-    query = update.callback_query
-    lang = context.user_data.get("lang", "ar")
-    await query.answer()
-
-    from bot.services.language_service import get_string
-
-    if query.data == "post_reg_browse_products":
-        await context.bot.send_message(
-            chat_id=query.message.chat_id,
-            text="استخدم الأمر /browse لتصفح المنتجات المتاحة الآن!"
-        )
-    else:
-        await context.bot.send_message(
-            chat_id=query.message.chat_id,
-            text=get_string(lang, "coming_soon")
-        )
-
-
 def main() -> None:
     """
     الدالة الرئيسية لتشغيل البوت.
-
     تُسجّل جميع المعالجات بالترتيب الصحيح وتشغّل البوت.
     """
-    logger.info("🚀 جاري تشغيل بوت TurkTextileHub - المرحلة السابعة...")
+    logger.info("🚀 جاري تشغيل بوت TurkTextileHub...")
 
     application = Application.builder().token(BOT_TOKEN).build()
 
@@ -174,11 +133,16 @@ def main() -> None:
 
     # ===================================================
     # 3. ConversationHandler: إضافة منتج
-    # التدفق: /add_product ← الصور ← الفئة ← السعر ← معاينة ← نشر
+    # التدفق: /add_product أو زر لوحة التحكم ← الصور ← الفئة ← السعر ← معاينة ← نشر
     # ===================================================
     product_conv = ConversationHandler(
         entry_points=[
-            CommandHandler("add_product", product_handler.start_add_product)
+            CommandHandler("add_product", product_handler.start_add_product),
+            # زر "إضافة منتج جديد" من لوحة تحكم المورد
+            CallbackQueryHandler(
+                product_handler.start_add_product_from_button,
+                pattern="^post_reg_add_product$"
+            ),
         ],
         states={
             states.GETTING_IMAGES: [
@@ -207,7 +171,7 @@ def main() -> None:
 
     # ===================================================
     # 4. ConversationHandler: تصفح المنتجات + RFQ
-    # التدفق: /browse ← اختيار الفئة ← تصفح ← طلب عرض سعر
+    # التدفق: /browse أو زر لوحة التحكم ← اختيار الفئة ← تصفح ← طلب عرض سعر
     # ===================================================
     browse_conv = browse_handler.get_browse_conversation_handler()
 
@@ -223,22 +187,11 @@ def main() -> None:
     application.add_handler(supplier_conv)
     application.add_handler(trader_conv)
 
-    # محادثات المنتجات
+    # محادثات المنتجات والتصفح (تشمل أزرار لوحة التحكم كـ entry_points)
     application.add_handler(product_conv)
     application.add_handler(browse_conv)
 
-    # معالجات أزرار ما بعد التسجيل (مستقلة)
-    application.add_handler(
-        CallbackQueryHandler(_handle_post_reg_supplier, pattern="^post_reg_add_product$")
-    )
-    application.add_handler(
-        CallbackQueryHandler(
-            _handle_post_reg_trader,
-            pattern="^post_reg_(browse_products|contact_supplier|featured_products)$"
-        )
-    )
-
-    # معالجات تغيير اللغة (مستقلة عن ConversationHandlers)
+    # معالجات تغيير اللغة
     application.add_handler(
         CallbackQueryHandler(start_handler.change_language, pattern="^change_language$")
     )
@@ -253,7 +206,7 @@ def main() -> None:
     logger.info("🔄 البوت يعمل الآن في وضع polling...")
 
     application.run_polling(
-        drop_pending_updates=True,  # يمنع تعارض نسختين عند إعادة النشر
+        drop_pending_updates=True,
         close_loop=False,
     )
 
