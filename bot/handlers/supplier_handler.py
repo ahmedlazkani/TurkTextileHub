@@ -1,241 +1,252 @@
 # ===================================================
 # bot/handlers/supplier_handler.py
 # معالج محادثة متعدد الخطوات لتسجيل الموردين
-# المرحلة الخامسة: إضافة إشعار الأدمن عند كل تسجيل ناجح
-# يتعامل مع تدفق: اسم الشركة ← اسم جهة الاتصال ← رقم الهاتف
+# المرحلة السادسة: إضافة خطوتي المدينة وموظف المبيعات
+# التدفق: اسم الشركة ← اسم المسؤول ← المدينة ← الهاتف ← موظف المبيعات ← (يوزرنيم)
 # KAYISOFT - إسطنبول، تركيا
 # ===================================================
 
 import logging
 
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 
 from bot import states
-from bot.services import database_service
-from bot.services import notification_service
-from bot.services.language_service import get_string
+from bot.services import database_service, notification_service
+from bot.services.language_service import get_string, detect_lang
 
-# سجل خاص بهذا المعالج
 logger = logging.getLogger(__name__)
+
+
+def _build_city_keyboard(lang: str) -> InlineKeyboardMarkup:
+    """يبني لوحة مفاتيح اختيار المدينة."""
+    keyboard = [
+        [InlineKeyboardButton(text=get_string(lang, "city_istanbul"), callback_data="city_istanbul")],
+        [InlineKeyboardButton(text=get_string(lang, "city_bursa"), callback_data="city_bursa")],
+        [InlineKeyboardButton(text=get_string(lang, "city_izmir"), callback_data="city_izmir")],
+        [InlineKeyboardButton(text=get_string(lang, "city_other"), callback_data="city_other")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def _build_sales_rep_keyboard(lang: str) -> InlineKeyboardMarkup:
+    """يبني لوحة مفاتيح سؤال موظف المبيعات."""
+    keyboard = [
+        [InlineKeyboardButton(text=get_string(lang, "sales_rep_yes"), callback_data="sales_rep_yes")],
+        [InlineKeyboardButton(text=get_string(lang, "sales_rep_no"), callback_data="sales_rep_no")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
 
 async def start_registration(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
     يبدأ تدفق تسجيل المورد عند الضغط على زر 'مورد'.
 
-    الخطوات:
-        1. استخراج لغة المستخدم من بيانات تليجرام وحفظها
-        2. الرد على الزر لإزالة حالة التحميل
-        3. تعديل الرسالة الأصلية برسالة بداية التسجيل
-        4. إرسال سؤال اسم الشركة
-
-    المعاملات:
-        update: كائن التحديث (يحتوي على callback_query)
-        context: سياق البوت (يُستخدم لحفظ بيانات المستخدم)
+    التحقق من التسجيل المسبق أولاً، ثم بدء الخطوات إذا كان المستخدم جديداً.
 
     المُخرجات:
-        int: states.COMPANY_NAME للانتقال إلى مرحلة استقبال اسم الشركة
+        int: states.COMPANY_NAME أو ConversationHandler.END
     """
     query = update.callback_query
 
-    # ===================================================
-    # استخراج لغة المستخدم وتحديد اللغة المناسبة
-    # ===================================================
-    raw_lang = query.from_user.language_code or "ar"
-
-    if raw_lang.startswith("tr"):
-        lang = "tr"
-    elif raw_lang.startswith("en"):
-        lang = "en"
-    else:
-        lang = "ar"
-
-    # حفظ اللغة في بيانات المستخدم لاستخدامها في جميع الخطوات التالية
+    lang = detect_lang(query.from_user.language_code or "")
     context.user_data["lang"] = lang
 
-    # الرد على الزر لإزالة حالة التحميل الدوارة في تليجرام
     await query.answer()
 
-    # تعديل الرسالة الأصلية برسالة بداية التسجيل كمورد
-    await query.edit_message_text(
-        text=get_string(lang, "supplier_registration_start")
-    )
+    # التحقق من التسجيل المسبق
+    telegram_id = str(query.from_user.id)
 
-    # إرسال سؤال اسم الشركة كرسالة جديدة
-    await query.message.reply_text(
-        text=get_string(lang, "prompt_company_name")
-    )
+    await context.bot.send_chat_action(chat_id=query.message.chat_id, action="typing")
 
-    # الانتقال إلى مرحلة استقبال اسم الشركة
+    if database_service.check_supplier_exists(telegram_id):
+        await query.edit_message_text(text=get_string(lang, "already_registered"))
+        return ConversationHandler.END
+
+    await query.edit_message_text(text=get_string(lang, "supplier_registration_start"))
+    await query.message.reply_text(text=get_string(lang, "prompt_company_name"))
+
     return states.COMPANY_NAME
 
 
 async def received_company_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    يستقبل اسم الشركة من المستخدم وينتقل لمرحلة اسم جهة الاتصال.
-
-    الخطوات:
-        1. قراءة النص المُرسل من المستخدم
-        2. حفظ اسم الشركة في context.user_data
-        3. إرسال سؤال اسم جهة الاتصال
-
-    المعاملات:
-        update: كائن التحديث (يحتوي على message.text)
-        context: سياق البوت
+    يستقبل اسم الشركة وينتقل لمرحلة اسم جهة الاتصال.
 
     المُخرجات:
-        int: states.CONTACT_NAME للانتقال إلى مرحلة اسم جهة الاتصال
+        int: states.CONTACT_NAME
     """
     lang = context.user_data.get("lang", "ar")
 
-    # ===================================================
-    # استقبال وحفظ اسم الشركة
-    # ===================================================
-    company_name = update.message.text
+    company_name = update.message.text.strip()
     context.user_data["company_name"] = company_name
 
-    # إرسال سؤال اسم جهة الاتصال
-    await update.message.reply_text(
-        text=get_string(lang, "prompt_contact_name")
-    )
+    await update.message.reply_text(text=get_string(lang, "prompt_contact_name"))
 
     return states.CONTACT_NAME
 
 
 async def received_contact_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    يستقبل اسم جهة الاتصال وينتقل لمرحلة رقم الهاتف.
-
-    الخطوات:
-        1. قراءة النص المُرسل من المستخدم
-        2. حفظ اسم جهة الاتصال في context.user_data
-        3. إرسال سؤال رقم الهاتف
-
-    المعاملات:
-        update: كائن التحديث (يحتوي على message.text)
-        context: سياق البوت
+    يستقبل اسم جهة الاتصال وينتقل لمرحلة اختيار المدينة.
 
     المُخرجات:
-        int: states.PHONE_NUMBER للانتقال إلى مرحلة رقم الهاتف
+        int: states.SUPPLIER_CITY
     """
     lang = context.user_data.get("lang", "ar")
 
-    # ===================================================
-    # استقبال وحفظ اسم جهة الاتصال
-    # ===================================================
-    contact_name = update.message.text
+    contact_name = update.message.text.strip()
     context.user_data["contact_name"] = contact_name
 
-    # إرسال سؤال رقم الهاتف مع مثال على الصيغة الصحيحة
     await update.message.reply_text(
-        text=get_string(lang, "prompt_phone")
+        text=get_string(lang, "ask_city"),
+        reply_markup=_build_city_keyboard(lang)
     )
+
+    return states.SUPPLIER_CITY
+
+
+async def received_city(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    يستقبل اختيار المدينة من الأزرار وينتقل لمرحلة رقم الهاتف.
+
+    المُخرجات:
+        int: states.PHONE_NUMBER
+    """
+    query = update.callback_query
+    lang = context.user_data.get("lang", "ar")
+
+    await query.answer()
+
+    # تحديد اسم المدينة من callback_data
+    city_map = {
+        "city_istanbul": "Istanbul",
+        "city_bursa": "Bursa",
+        "city_izmir": "Izmir",
+        "city_other": "Other",
+    }
+    city = city_map.get(query.data, query.data)
+    context.user_data["city"] = city
+
+    await query.edit_message_text(text=get_string(lang, "prompt_phone"))
 
     return states.PHONE_NUMBER
 
 
 async def received_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    يستقبل رقم الهاتف، يحفظ البيانات في Supabase، ويُرسل إشعاراً للأدمن.
-
-    الخطوات:
-        1. قراءة رقم الهاتف وحفظه
-        2. تجميع بيانات المورد الكاملة
-        3. التحقق من التسجيل المسبق
-        4. حفظ البيانات في Supabase إذا كان المستخدم جديداً
-        5. إرسال إشعار فوري للأدمن عند نجاح الحفظ
-        6. إرسال الرسالة المناسبة للمستخدم وإنهاء المحادثة
-
-    المعاملات:
-        update: كائن التحديث (يحتوي على message.text)
-        context: سياق البوت
+    يستقبل رقم الهاتف وينتقل لمرحلة السؤال عن موظف المبيعات.
 
     المُخرجات:
-        int: ConversationHandler.END لإنهاء تدفق المحادثة
+        int: states.SALES_REP
     """
     lang = context.user_data.get("lang", "ar")
 
-    # ===================================================
-    # استقبال وحفظ رقم الهاتف
-    # ===================================================
-    phone = update.message.text
+    phone = update.message.text.strip()
     context.user_data["phone"] = phone
 
-    # ===================================================
-    # تجميع بيانات المورد الكاملة للحفظ في قاعدة البيانات
-    # ===================================================
+    await update.message.reply_text(
+        text=get_string(lang, "ask_sales_rep"),
+        reply_markup=_build_sales_rep_keyboard(lang)
+    )
+
+    return states.SALES_REP
+
+
+async def received_sales_rep_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    يستقبل إجابة موظف المبيعات:
+    - إذا "نعم": يطلب يوزرنيم الموظف
+    - إذا "لا": يكمل التسجيل مباشرة
+
+    المُخرجات:
+        int: states.SALES_REP_USERNAME أو ConversationHandler.END
+    """
+    query = update.callback_query
+    lang = context.user_data.get("lang", "ar")
+
+    await query.answer()
+
+    if query.data == "sales_rep_yes":
+        # يطلب يوزرنيم الموظف
+        await query.edit_message_text(text=get_string(lang, "ask_sales_rep_username"))
+        return states.SALES_REP_USERNAME
+    else:
+        # لا يوجد موظف - أكمل التسجيل
+        context.user_data["sales_telegram_id"] = None
+        await query.edit_message_text(text="⏳")
+        return await _finish_supplier_registration(query.message, context, lang)
+
+
+async def received_sales_rep_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    يستقبل يوزرنيم موظف المبيعات ويكمل التسجيل.
+
+    المُخرجات:
+        int: ConversationHandler.END
+    """
+    lang = context.user_data.get("lang", "ar")
+
+    username = update.message.text.strip()
+    context.user_data["sales_telegram_id"] = username
+
+    return await _finish_supplier_registration(update.message, context, lang)
+
+
+async def _finish_supplier_registration(
+    message,
+    context: ContextTypes.DEFAULT_TYPE,
+    lang: str
+) -> int:
+    """
+    دالة داخلية: تجمع بيانات المورد وتحفظها في قاعدة البيانات.
+
+    المعاملات:
+        message: كائن الرسالة لإرسال الرد
+        context: سياق البوت
+        lang (str): كود اللغة
+
+    المُخرجات:
+        int: ConversationHandler.END
+    """
     supplier_data = {
-        "telegram_id": str(update.effective_user.id),
+        "telegram_id": str(context._user_id if hasattr(context, '_user_id') else
+                          message.chat.id),
         "company_name": context.user_data.get("company_name"),
         "contact_name": context.user_data.get("contact_name"),
+        "city": context.user_data.get("city"),
         "phone": context.user_data.get("phone"),
+        "sales_telegram_id": context.user_data.get("sales_telegram_id"),
     }
 
-    # ===================================================
-    # التحقق أولاً إذا كان المورد مسجلاً مسبقاً في Supabase
-    # ===================================================
-    already_exists = database_service.check_supplier_exists(supplier_data["telegram_id"])
+    await context.bot.send_chat_action(chat_id=message.chat_id, action="typing")
 
-    if already_exists:
-        # إرسال رسالة أن المورد مسجل مسبقاً
-        await update.message.reply_text(
-            text=get_string(lang, "already_registered")
+    success = database_service.save_supplier(supplier_data)
+
+    if success:
+        logger.info("✅ تم حفظ بيانات المورد: telegram_id=%s", supplier_data["telegram_id"])
+        notification_service.notify_new_supplier(supplier_data)
+        await context.bot.send_message(
+            chat_id=message.chat_id,
+            text=get_string(lang, "registration_success")
         )
     else:
-        # ===================================================
-        # حفظ بيانات المورد في قاعدة البيانات Supabase
-        # ===================================================
-        success = database_service.save_supplier(supplier_data)
+        logger.error("❌ فشل حفظ بيانات المورد: telegram_id=%s", supplier_data["telegram_id"])
+        await context.bot.send_message(
+            chat_id=message.chat_id,
+            text=get_string(lang, "error_general")
+        )
 
-        if success:
-            logger.info(
-                "تم حفظ بيانات المورد بنجاح: telegram_id=%s",
-                supplier_data["telegram_id"]
-            )
-            # ===================================================
-            # إرسال إشعار للأدمن بالتسجيل الجديد
-            # الفشل لا يوقف البوت - يُسجَّل الخطأ فقط داخل الخدمة
-            # ===================================================
-            notification_service.notify_new_supplier(supplier_data)
-
-            await update.message.reply_text(
-                text=get_string(lang, "registration_success")
-            )
-        else:
-            logger.error(
-                "فشل حفظ بيانات المورد: telegram_id=%s",
-                supplier_data["telegram_id"]
-            )
-            await update.message.reply_text(
-                text=get_string(lang, "error_general")
-            )
-
-    # إنهاء تدفق المحادثة
     return ConversationHandler.END
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    يُلغي عملية التسجيل عند كتابة أمر /cancel.
-
-    الخطوات:
-        1. استرجاع اللغة المحفوظة
-        2. إرسال رسالة إلغاء العملية
-        3. إنهاء المحادثة
-
-    المعاملات:
-        update: كائن التحديث (يُستدعى من CommandHandler)
-        context: سياق البوت
+    يُلغي عملية التسجيل عند كتابة /cancel.
 
     المُخرجات:
-        int: ConversationHandler.END لإنهاء تدفق المحادثة
+        int: ConversationHandler.END
     """
     lang = context.user_data.get("lang", "ar")
-
-    # إرسال رسالة الإلغاء مع إرشاد للبدء من جديد
-    await update.message.reply_text(
-        text=get_string(lang, "cancel")
-    )
-
+    await update.message.reply_text(text=get_string(lang, "cancel"))
     return ConversationHandler.END

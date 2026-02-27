@@ -1,11 +1,12 @@
 # ===================================================
 # bot/services/database_service.py
 # خدمة قاعدة البيانات - التواصل مع Supabase عبر REST API HTTP
-# تستخدم مكتبة requests فقط بدون أي مكتبة خارجية إضافية
+# المرحلة السادسة: إضافة دوال المنتجات (إضافة، تصفح)
 # KAYISOFT - إسطنبول، تركيا
 # ===================================================
 
 import logging
+from typing import Optional
 
 import requests
 
@@ -16,13 +17,19 @@ logger = logging.getLogger(__name__)
 
 # ===================================================
 # رأس الطلبات المشتركة لجميع الاتصالات بـ Supabase
-# يتضمن مفتاح API والتفويض ونوع المحتوى
 # ===================================================
 HEADERS = {
     "apikey": SUPABASE_KEY,
     "Authorization": f"Bearer {SUPABASE_KEY}",
     "Content-Type": "application/json",
     "Prefer": "return=minimal",
+}
+
+HEADERS_RETURN = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type": "application/json",
+    "Prefer": "return=representation",
 }
 
 
@@ -32,230 +39,283 @@ HEADERS = {
 
 def save_supplier(supplier_data: dict) -> bool:
     """
-    يحفظ بيانات المورد الجديد في جدول suppliers في Supabase.
-
-    يُرسل طلب POST إلى REST API ويتحقق من نجاح العملية.
-    لا يُنشئ جدولاً جديداً - الجدول موجود بالفعل في Supabase.
-
-    ملاحظة: نحفظ telegram_id في عمود user_id لعدم وجود عمود مستقل له.
+    يحفظ بيانات المورد الجديد في جدول bot_registrations في Supabase.
 
     المعاملات:
-        supplier_data (dict): قاموس يحتوي على:
-            - telegram_id: معرّف المستخدم في تليجرام
-            - company_name: اسم الشركة أو المتجر
-            - contact_name: اسم جهة الاتصال
-            - phone: رقم الهاتف مع رمز الدولة
+        supplier_data (dict): يحتوي على:
+            - telegram_id, company_name, contact_name, city, phone
+            - sales_telegram_id (اختياري)
 
     المُخرجات:
-        bool: True إذا تم الحفظ بنجاح (رمز 201)، False في أي حالة أخرى
+        bool: True إذا تم الحفظ بنجاح، False في أي حالة أخرى
     """
-    # بناء رابط نقطة النهاية لجدول bot_registrations
     url = f"{SUPABASE_URL}/rest/v1/bot_registrations"
 
-    # ===================================================
-    # تجهيز البيانات المراد إرسالها إلى Supabase
-    # جدول bot_registrations مخصص للبوت بدون قيود Foreign Key
-    # ===================================================
     payload = {
         "telegram_id": supplier_data.get("telegram_id"),
         "company_name": supplier_data.get("company_name"),
         "contact_name": supplier_data.get("contact_name"),
+        "city": supplier_data.get("city"),
         "phone": supplier_data.get("phone"),
+        "sales_telegram_id": supplier_data.get("sales_telegram_id"),
         "status": "pending",
     }
 
+    # إزالة المفاتيح الفارغة
+    payload = {k: v for k, v in payload.items() if v is not None}
+
     try:
-        # إرسال طلب POST لحفظ بيانات المورد
         response = requests.post(url, json=payload, headers=HEADERS, timeout=10)
 
-        # التحقق من نجاح العملية - Supabase يُرجع 201 عند الإنشاء الناجح
         if response.status_code == 201:
-            logger.info(
-                "✅ تم حفظ المورد في Supabase بنجاح: telegram_id=%s",
-                supplier_data.get("telegram_id")
-            )
+            logger.info("✅ تم حفظ المورد بنجاح: telegram_id=%s", supplier_data.get("telegram_id"))
             return True
 
-        # تسجيل تفاصيل الخطأ في حال فشل الطلب
-        logger.error(
-            "❌ فشل حفظ المورد في Supabase: status=%d, response=%s",
-            response.status_code,
-            response.text
-        )
+        logger.error("❌ فشل حفظ المورد: status=%d, response=%s", response.status_code, response.text)
         return False
 
     except requests.exceptions.RequestException as e:
-        # معالجة أخطاء الشبكة والاتصال
-        logger.error(
-            "❌ خطأ في الاتصال بـ Supabase أثناء حفظ المورد: %s", str(e)
-        )
+        logger.error("❌ خطأ في الاتصال بـ Supabase أثناء حفظ المورد: %s", str(e))
         return False
 
 
 def check_supplier_exists(telegram_id: str) -> bool:
     """
-    يتحقق من وجود مورد مسجل مسبقاً باستخدام معرّف تليجرام.
-
-    يُرسل طلب GET للبحث عن سجل يطابق telegram_id في جدول bot_registrations.
+    يتحقق من وجود مورد مسجل مسبقاً.
 
     المعاملات:
-        telegram_id (str): معرّف المستخدم في تليجرام (كنص)
+        telegram_id (str): معرّف المستخدم في تليجرام
 
     المُخرجات:
-        bool: True إذا كان المورد مسجلاً بالفعل، False إذا لم يكن أو حدث خطأ
+        bool: True إذا كان مسجلاً، False إذا لم يكن
     """
-    # ===================================================
-    # بناء رابط الاستعلام مع فلتر telegram_id من جدول bot_registrations
-    # نستخدم eq. لمطابقة القيمة الدقيقة وselect=id لتحميل أقل قدر من البيانات
-    # ===================================================
     url = f"{SUPABASE_URL}/rest/v1/bot_registrations?telegram_id=eq.{telegram_id}&select=id"
 
     try:
-        # إرسال طلب GET للبحث عن المورد
         response = requests.get(url, headers=HEADERS, timeout=10)
 
-        # التحقق من نجاح الطلب
         if response.status_code == 200:
             results = response.json()
-
-            # إذا كانت القائمة غير فارغة فالمورد مسجل مسبقاً
             if results:
-                logger.info(
-                    "⚠️ المورد مسجل مسبقاً في Supabase: telegram_id=%s",
-                    telegram_id
-                )
+                logger.info("⚠️ المورد مسجل مسبقاً: telegram_id=%s", telegram_id)
                 return True
-
-            # القائمة فارغة - المورد غير مسجل
             return False
 
-        # تسجيل خطأ في حال فشل الطلب والرجوع بـ False
-        logger.error(
-            "❌ خطأ في التحقق من وجود المورد: status=%d, response=%s",
-            response.status_code,
-            response.text
-        )
+        logger.error("❌ خطأ في التحقق من المورد: status=%d", response.status_code)
         return False
 
     except requests.exceptions.RequestException as e:
-        # معالجة أخطاء الشبكة والاتصال
-        logger.error(
-            "❌ خطأ في الاتصال بـ Supabase أثناء التحقق من المورد: %s", str(e)
-        )
+        logger.error("❌ خطأ في الاتصال أثناء التحقق من المورد: %s", str(e))
         return False
 
 
+def get_supplier_by_telegram_id(telegram_id: str) -> Optional[dict]:
+    """
+    يجلب بيانات المورد من جدول suppliers باستخدام telegram_id.
+
+    يُستخدم لجلب supplier_id اللازم لإضافة المنتجات.
+
+    المعاملات:
+        telegram_id (str): معرّف المستخدم في تليجرام
+
+    المُخرجات:
+        dict | None: بيانات المورد أو None إذا لم يُوجد
+    """
+    url = f"{SUPABASE_URL}/rest/v1/suppliers?user_id=eq.{telegram_id}&select=id,company_name"
+
+    try:
+        response = requests.get(url, headers=HEADERS, timeout=10)
+
+        if response.status_code == 200:
+            results = response.json()
+            if results:
+                return results[0]
+            return None
+
+        logger.error("❌ خطأ في جلب بيانات المورد: status=%d", response.status_code)
+        return None
+
+    except requests.exceptions.RequestException as e:
+        logger.error("❌ خطأ في الاتصال أثناء جلب المورد: %s", str(e))
+        return None
+
+
 # ===================================================
-# دوال التجار (المرحلة الرابعة)
+# دوال التجار
 # ===================================================
 
 def save_trader(trader_data: dict) -> bool:
     """
-    يحفظ بيانات التاجر الجديد في جدول bot_trader_registrations في Supabase.
-
-    يُرسل طلب POST إلى REST API ويتحقق من نجاح العملية.
-    الجدول bot_trader_registrations يجب أن يكون موجوداً مسبقاً في Supabase.
+    يحفظ بيانات التاجر الجديد في جدول bot_trader_registrations.
 
     المعاملات:
-        trader_data (dict): قاموس يحتوي على:
-            - telegram_id: معرّف المستخدم في تليجرام (text)
-            - full_name: الاسم الكامل للتاجر (text)
-            - phone: رقم الهاتف مع رمز الدولة (text)
-            - country: دولة التاجر (text)
-            - product_interest: نوع المنتج المفضل (text)
+        trader_data (dict): يحتوي على:
+            - telegram_id, full_name, phone, country, business_type
 
     المُخرجات:
-        bool: True إذا تم الحفظ بنجاح (رمز 201)، False في أي حالة أخرى
+        bool: True إذا تم الحفظ بنجاح، False في أي حالة أخرى
     """
-    # بناء رابط نقطة النهاية لجدول التجار
     url = f"{SUPABASE_URL}/rest/v1/bot_trader_registrations"
 
-    # ===================================================
-    # تجهيز البيانات المراد إرسالها إلى Supabase
-    # status يُضبط على 'pending' تلقائياً للتجار الجدد
-    # ===================================================
     payload = {
         "telegram_id": trader_data.get("telegram_id"),
         "full_name": trader_data.get("full_name"),
         "phone": trader_data.get("phone"),
         "country": trader_data.get("country"),
-        "product_interest": trader_data.get("product_interest"),
+        "business_type": trader_data.get("business_type"),
         "status": "pending",
     }
 
     try:
-        # إرسال طلب POST لحفظ بيانات التاجر
         response = requests.post(url, json=payload, headers=HEADERS, timeout=10)
 
-        # التحقق من نجاح العملية - Supabase يُرجع 201 عند الإنشاء الناجح
         if response.status_code == 201:
-            logger.info(
-                "✅ تم حفظ التاجر في Supabase بنجاح: telegram_id=%s",
-                trader_data.get("telegram_id")
-            )
+            logger.info("✅ تم حفظ التاجر بنجاح: telegram_id=%s", trader_data.get("telegram_id"))
             return True
 
-        # تسجيل تفاصيل الخطأ في حال فشل الطلب
-        logger.error(
-            "❌ فشل حفظ التاجر في Supabase: status=%d, response=%s",
-            response.status_code,
-            response.text
-        )
+        logger.error("❌ فشل حفظ التاجر: status=%d, response=%s", response.status_code, response.text)
         return False
 
     except requests.exceptions.RequestException as e:
-        # معالجة أخطاء الشبكة والاتصال
-        logger.error(
-            "❌ خطأ في الاتصال بـ Supabase أثناء حفظ التاجر: %s", str(e)
-        )
+        logger.error("❌ خطأ في الاتصال أثناء حفظ التاجر: %s", str(e))
         return False
 
 
 def check_trader_exists(telegram_id: str) -> bool:
     """
-    يتحقق من وجود تاجر مسجل مسبقاً باستخدام معرّف تليجرام.
-
-    يُرسل طلب GET للبحث عن سجل في جدول bot_trader_registrations.
+    يتحقق من وجود تاجر مسجل مسبقاً.
 
     المعاملات:
-        telegram_id (str): معرّف المستخدم في تليجرام (كنص)
+        telegram_id (str): معرّف المستخدم في تليجرام
 
     المُخرجات:
-        bool: True إذا كان التاجر مسجلاً بالفعل، False إذا لم يكن أو حدث خطأ
+        bool: True إذا كان مسجلاً، False إذا لم يكن
     """
-    # بناء رابط الاستعلام مع فلتر telegram_id
     url = f"{SUPABASE_URL}/rest/v1/bot_trader_registrations?telegram_id=eq.{telegram_id}&select=id"
 
     try:
-        # إرسال طلب GET للبحث عن التاجر
         response = requests.get(url, headers=HEADERS, timeout=10)
 
-        # التحقق من نجاح الطلب
         if response.status_code == 200:
             results = response.json()
-
-            # إذا كانت القائمة غير فارغة فالتاجر مسجل مسبقاً
             if results:
-                logger.info(
-                    "⚠️ التاجر مسجل مسبقاً في Supabase: telegram_id=%s",
-                    telegram_id
-                )
+                logger.info("⚠️ التاجر مسجل مسبقاً: telegram_id=%s", telegram_id)
                 return True
-
-            # القائمة فارغة - التاجر غير مسجل
             return False
 
-        # تسجيل خطأ في حال فشل الطلب
-        logger.error(
-            "❌ خطأ في التحقق من وجود التاجر: status=%d, response=%s",
-            response.status_code,
-            response.text
-        )
+        logger.error("❌ خطأ في التحقق من التاجر: status=%d", response.status_code)
         return False
 
     except requests.exceptions.RequestException as e:
-        # معالجة أخطاء الشبكة والاتصال
-        logger.error(
-            "❌ خطأ في الاتصال بـ Supabase أثناء التحقق من التاجر: %s", str(e)
-        )
+        logger.error("❌ خطأ في الاتصال أثناء التحقق من التاجر: %s", str(e))
         return False
+
+
+# ===================================================
+# دوال المنتجات (جديد - المرحلة السادسة)
+# ===================================================
+
+def add_product(product_data: dict) -> bool:
+    """
+    يحفظ بيانات المنتج الجديد في جدول products في Supabase.
+
+    المعاملات:
+        product_data (dict): يحتوي على:
+            - supplier_id (UUID): معرّف المورد في جدول suppliers
+            - category (str): فئة المنتج
+            - price (str): السعر (اختياري)
+            - images (list): مصفوفة file_id للصور
+
+    المُخرجات:
+        bool: True إذا تم الحفظ بنجاح، False في أي حالة أخرى
+    """
+    url = f"{SUPABASE_URL}/rest/v1/products"
+
+    payload = {
+        "supplier_id": product_data.get("supplier_id"),
+        "category": product_data.get("category"),
+        "price": product_data.get("price"),
+        "images": product_data.get("images", []),
+        "is_active": True,
+    }
+
+    # إزالة price إذا كانت None
+    if payload["price"] is None:
+        payload.pop("price")
+
+    try:
+        response = requests.post(url, json=payload, headers=HEADERS, timeout=10)
+
+        if response.status_code == 201:
+            logger.info("✅ تم حفظ المنتج بنجاح للمورد: %s", product_data.get("supplier_id"))
+            return True
+
+        logger.error("❌ فشل حفظ المنتج: status=%d, response=%s", response.status_code, response.text)
+        return False
+
+    except requests.exceptions.RequestException as e:
+        logger.error("❌ خطأ في الاتصال أثناء حفظ المنتج: %s", str(e))
+        return False
+
+
+def get_all_categories() -> list:
+    """
+    يجلب قائمة بجميع الفئات المتاحة من المنتجات النشطة.
+
+    المُخرجات:
+        list: قائمة الفئات الفريدة، أو قائمة فارغة في حال الخطأ
+    """
+    url = f"{SUPABASE_URL}/rest/v1/products?is_active=eq.true&select=category"
+
+    try:
+        response = requests.get(url, headers=HEADERS, timeout=10)
+
+        if response.status_code == 200:
+            results = response.json()
+            # استخراج الفئات الفريدة
+            categories = list({item["category"] for item in results if item.get("category")})
+            return sorted(categories)
+
+        logger.error("❌ خطأ في جلب الفئات: status=%d", response.status_code)
+        return []
+
+    except requests.exceptions.RequestException as e:
+        logger.error("❌ خطأ في الاتصال أثناء جلب الفئات: %s", str(e))
+        return []
+
+
+def get_products_by_category(category: str) -> list:
+    """
+    يجلب المنتجات النشطة حسب الفئة مع بيانات المورد.
+
+    المعاملات:
+        category (str): اسم الفئة، أو "all" لجلب جميع المنتجات
+
+    المُخرجات:
+        list: قائمة المنتجات مع بياناتها، أو قائمة فارغة في حال الخطأ
+    """
+    if category == "all":
+        url = f"{SUPABASE_URL}/rest/v1/products?is_active=eq.true&select=*,suppliers(company_name)"
+    else:
+        # ترميز المسافات في اسم الفئة
+        encoded_category = category.replace(" ", "%20")
+        url = (
+            f"{SUPABASE_URL}/rest/v1/products"
+            f"?is_active=eq.true&category=eq.{encoded_category}"
+            f"&select=*,suppliers(company_name)"
+        )
+
+    try:
+        response = requests.get(url, headers=HEADERS, timeout=10)
+
+        if response.status_code == 200:
+            products = response.json()
+            logger.info("✅ تم جلب %d منتج من فئة: %s", len(products), category)
+            return products
+
+        logger.error("❌ خطأ في جلب المنتجات: status=%d", response.status_code)
+        return []
+
+    except requests.exceptions.RequestException as e:
+        logger.error("❌ خطأ في الاتصال أثناء جلب المنتجات: %s", str(e))
+        return []

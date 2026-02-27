@@ -1,7 +1,7 @@
 # ===================================================
 # bot/main.py
 # نقطة الدخول الرئيسية للبوت TurkTextileHub
-# المرحلة الرابعة: إضافة ConversationHandler للتجار + معالج تغيير اللغة
+# المرحلة السادسة: إضافة ConversationHandlers للمنتجات والتصفح
 # KAYISOFT - إسطنبول، تركيا
 # ===================================================
 
@@ -21,11 +21,16 @@ from telegram.ext import (
 
 from bot import states
 from bot.config import BOT_TOKEN
-from bot.handlers import start_handler, supplier_handler, trader_handler
-
+from bot.handlers import (
+    start_handler,
+    supplier_handler,
+    trader_handler,
+    product_handler,
+    browse_handler,
+)
 
 # ===================================================
-# إعداد نظام السجلات لمتابعة عمل البوت
+# إعداد نظام السجلات
 # ===================================================
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -36,180 +41,193 @@ logger = logging.getLogger(__name__)
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    معالج الأخطاء العالمي - يعالج جميع الأخطاء أثناء تشغيل البوت.
+    معالج الأخطاء العالمي.
 
-    السلوك:
-        - يتجاهل خطأ BadRequest الذي يحتوي على 'Query is too old'
-        - يسجل جميع الأخطاء الأخرى في السجلات
-
-    المعاملات:
-        update: كائن التحديث (قد يكون None في بعض الحالات)
-        context: سياق البوت الذي يحتوي على معلومات الخطأ
+    يتجاهل خطأ 'Query is too old' ويسجل جميع الأخطاء الأخرى.
     """
     error = context.error
 
-    # تجاهل خطأ الاستعلامات القديمة - يحدث عند الضغط على أزرار منتهية الصلاحية
     if isinstance(error, BadRequest) and "Query is too old" in str(error):
         logger.info("تم تجاهل استعلام قديم (Query is too old)")
         return
 
-    # تسجيل جميع الأخطاء الأخرى مع تفاصيل كاملة
-    logger.error(
-        "حدث خطأ أثناء معالجة التحديث:",
-        exc_info=context.error
-    )
+    logger.error("حدث خطأ أثناء معالجة التحديث:", exc_info=context.error)
 
 
 def main() -> None:
     """
     الدالة الرئيسية لتشغيل البوت.
 
-    الخطوات:
-        1. إنشاء كائن Application
-        2. بناء ConversationHandler للموردين
-        3. بناء ConversationHandler للتجار (جديد في المرحلة الرابعة)
-        4. تسجيل المعالجات بالترتيب الصحيح
-        5. تشغيل البوت بنظام polling
+    تُسجّل جميع المعالجات بالترتيب الصحيح وتشغّل البوت.
     """
-    logger.info("جاري تشغيل بوت TurkTextileHub - المرحلة الرابعة...")
+    logger.info("🚀 جاري تشغيل بوت TurkTextileHub - المرحلة السادسة...")
 
-    # إنشاء كائن Application - نقطة تحكم البوت الرئيسية
     application = Application.builder().token(BOT_TOKEN).build()
 
     # ===================================================
-    # ConversationHandler لتسجيل الموردين
-    # per_message=False: مهم لتجنب التحذيرات مع CallbackQueryHandler
+    # 1. ConversationHandler: تسجيل الموردين
+    # التدفق: اسم الشركة ← المسؤول ← المدينة ← الهاتف ← موظف المبيعات ← (يوزرنيم)
     # ===================================================
     supplier_conv = ConversationHandler(
         entry_points=[
-            CallbackQueryHandler(
-                supplier_handler.start_registration,
-                pattern="^supplier$"
-            )
+            CallbackQueryHandler(supplier_handler.start_registration, pattern="^supplier$")
         ],
         states={
             states.COMPANY_NAME: [
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
-                    supplier_handler.received_company_name
-                )
+                MessageHandler(filters.TEXT & ~filters.COMMAND, supplier_handler.received_company_name)
             ],
             states.CONTACT_NAME: [
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
-                    supplier_handler.received_contact_name
+                MessageHandler(filters.TEXT & ~filters.COMMAND, supplier_handler.received_contact_name)
+            ],
+            states.SUPPLIER_CITY: [
+                CallbackQueryHandler(
+                    supplier_handler.received_city,
+                    pattern="^city_(istanbul|bursa|izmir|other)$"
                 )
             ],
             states.PHONE_NUMBER: [
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
-                    supplier_handler.received_phone
+                MessageHandler(filters.TEXT & ~filters.COMMAND, supplier_handler.received_phone)
+            ],
+            states.SALES_REP: [
+                CallbackQueryHandler(
+                    supplier_handler.received_sales_rep_answer,
+                    pattern="^sales_rep_(yes|no)$"
                 )
             ],
+            states.SALES_REP_USERNAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, supplier_handler.received_sales_rep_username)
+            ],
         },
-        fallbacks=[
-            CommandHandler("cancel", supplier_handler.cancel)
-        ],
+        fallbacks=[CommandHandler("cancel", supplier_handler.cancel)],
         per_message=False,
         per_chat=True,
         per_user=True,
     )
 
     # ===================================================
-    # ConversationHandler لتسجيل التجار (جديد - المرحلة الرابعة)
-    # TRADER_PRODUCT يستخدم CallbackQueryHandler لأزرار الاختيار
+    # 2. ConversationHandler: تسجيل التجار
+    # التدفق: الاسم ← الهاتف ← الدولة ← نوع النشاط
     # ===================================================
     trader_conv = ConversationHandler(
         entry_points=[
-            CallbackQueryHandler(
-                trader_handler.start_trader_registration,
-                pattern="^trader$"
-            )
+            CallbackQueryHandler(trader_handler.start_trader_registration, pattern="^trader$")
         ],
         states={
-            # مرحلة استقبال الاسم الكامل
             states.TRADER_FULL_NAME: [
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
-                    trader_handler.received_trader_name
-                )
+                MessageHandler(filters.TEXT & ~filters.COMMAND, trader_handler.received_trader_name)
             ],
-            # مرحلة استقبال رقم الهاتف
             states.TRADER_PHONE: [
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
-                    trader_handler.received_trader_phone
-                )
+                MessageHandler(filters.TEXT & ~filters.COMMAND, trader_handler.received_trader_phone)
             ],
-            # مرحلة استقبال الدولة
             states.TRADER_COUNTRY: [
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
-                    trader_handler.received_trader_country
-                )
+                MessageHandler(filters.TEXT & ~filters.COMMAND, trader_handler.received_trader_country)
             ],
-            # مرحلة اختيار نوع المنتج عبر InlineKeyboard
-            states.TRADER_PRODUCT: [
+            states.TRADER_BUSINESS_TYPE: [
                 CallbackQueryHandler(
-                    trader_handler.received_trader_product,
-                    pattern="^product_(ready|fabric|shoes|misc)$"
+                    trader_handler.received_trader_business_type,
+                    pattern="^business_(online|physical|distributor|other)$"
                 )
             ],
         },
-        fallbacks=[
-            CommandHandler("cancel", trader_handler.cancel_trader)
-        ],
+        fallbacks=[CommandHandler("cancel", trader_handler.cancel_trader)],
         per_message=False,
         per_chat=True,
         per_user=True,
     )
 
     # ===================================================
-    # معالج تغيير اللغة (جديد - المرحلة الرابعة)
+    # 3. ConversationHandler: إضافة منتج (جديد)
+    # التدفق: /add_product ← الصور ← الفئة ← السعر ← معاينة ← نشر
     # ===================================================
-    change_lang_handler = CallbackQueryHandler(
-        start_handler.change_language,
-        pattern="^change_language$"
+    product_conv = ConversationHandler(
+        entry_points=[
+            CommandHandler("add_product", product_handler.start_add_product)
+        ],
+        states={
+            states.GETTING_IMAGES: [
+                MessageHandler(filters.PHOTO, product_handler.get_images)
+            ],
+            states.GETTING_CATEGORY: [
+                CallbackQueryHandler(
+                    product_handler.get_category,
+                    pattern="^cat_(abayas|dresses|hijab|sets|other)$"
+                )
+            ],
+            states.GETTING_PRICE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, product_handler.get_price),
+                CallbackQueryHandler(product_handler.skip_price, pattern="^price_skip$"),
+            ],
+            states.CONFIRM_ADD_PRODUCT: [
+                CallbackQueryHandler(product_handler.finish_add_product, pattern="^product_confirm_yes$"),
+                CallbackQueryHandler(product_handler.cancel_add_product, pattern="^product_confirm_no$"),
+            ],
+        },
+        fallbacks=[CommandHandler("cancel", product_handler.cancel_add_product)],
+        per_message=False,
+        per_chat=True,
+        per_user=True,
     )
 
-    # معالج اختيار لغة محددة (ar/tr/en)
-    set_lang_handler = CallbackQueryHandler(
-        start_handler.set_language,
-        pattern="^lang_(ar|tr|en)$"
+    # ===================================================
+    # 4. ConversationHandler: تصفح المنتجات (جديد)
+    # التدفق: /browse ← اختيار الفئة ← التنقل بين المنتجات
+    # ===================================================
+    browse_conv = ConversationHandler(
+        entry_points=[
+            CommandHandler("browse", browse_handler.start_browse)
+        ],
+        states={
+            states.BROWSING_CATEGORY: [
+                CallbackQueryHandler(browse_handler.browse_by_category, pattern="^browse_cat_"),
+            ],
+            states.BROWSING_PRODUCTS: [
+                CallbackQueryHandler(browse_handler.next_product, pattern="^browse_next$"),
+                CallbackQueryHandler(browse_handler.prev_product, pattern="^browse_prev$"),
+                CallbackQueryHandler(browse_handler.request_quote, pattern="^browse_request_quote$"),
+                CallbackQueryHandler(browse_handler.back_to_categories, pattern="^browse_back$"),
+            ],
+        },
+        fallbacks=[CommandHandler("cancel", browse_handler.cancel_browse)],
+        per_message=False,
+        per_chat=True,
+        per_user=True,
     )
 
     # ===================================================
-    # تسجيل المعالجات بالترتيب الصحيح - الترتيب مهم جداً
-    # ConversationHandlers يجب أن تُسجَّل قبل أي CallbackQueryHandler منفصل
+    # تسجيل المعالجات بالترتيب الصحيح
+    # ConversationHandlers أولاً، ثم المعالجات المستقلة
     # ===================================================
 
-    # 1. معالج أمر /start
+    # أمر /start
     application.add_handler(CommandHandler("start", start_handler.start))
 
-    # 2. محادثة تسجيل الموردين
+    # محادثات التسجيل
     application.add_handler(supplier_conv)
-
-    # 3. محادثة تسجيل التجار (جديد)
     application.add_handler(trader_conv)
 
-    # 4. معالج تغيير اللغة (جديد)
-    application.add_handler(change_lang_handler)
+    # محادثات المنتجات (جديد)
+    application.add_handler(product_conv)
+    application.add_handler(browse_conv)
 
-    # 5. معالج اختيار لغة محددة (جديد)
-    application.add_handler(set_lang_handler)
+    # معالجات تغيير اللغة (مستقلة عن ConversationHandlers)
+    application.add_handler(
+        CallbackQueryHandler(start_handler.change_language, pattern="^change_language$")
+    )
+    application.add_handler(
+        CallbackQueryHandler(start_handler.set_language, pattern="^lang_(ar|tr|en)$")
+    )
 
-    # 6. معالج الأخطاء العالمي
+    # معالج الأخطاء العالمي
     application.add_error_handler(error_handler)
 
     logger.info("✅ تم تسجيل جميع المعالجات بنجاح")
     logger.info("🔄 البوت يعمل الآن في وضع polling...")
 
-    # تشغيل البوت - يظل يعمل حتى يتم إيقافه يدوياً
     application.run_polling()
 
 
 # ===================================================
-# نقطة الدخول - يتم التشغيل فقط عند تنفيذ الملف مباشرة
+# نقطة الدخول
 # ===================================================
 if __name__ == "__main__":
     main()
