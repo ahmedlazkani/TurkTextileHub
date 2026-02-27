@@ -206,29 +206,10 @@ def main() -> None:
     )
 
     # ===================================================
-    # 4. ConversationHandler: تصفح المنتجات
-    # التدفق: /browse ← اختيار الفئة ← التنقل بين المنتجات
+    # 4. ConversationHandler: تصفح المنتجات + RFQ
+    # التدفق: /browse ← اختيار الفئة ← تصفح ← طلب عرض سعر
     # ===================================================
-    browse_conv = ConversationHandler(
-        entry_points=[
-            CommandHandler("browse", browse_handler.start_browse)
-        ],
-        states={
-            states.BROWSING_CATEGORY: [
-                CallbackQueryHandler(browse_handler.browse_by_category, pattern="^browse_cat_"),
-            ],
-            states.BROWSING_PRODUCTS: [
-                CallbackQueryHandler(browse_handler.next_product, pattern="^browse_next$"),
-                CallbackQueryHandler(browse_handler.prev_product, pattern="^browse_prev$"),
-                CallbackQueryHandler(browse_handler.request_quote, pattern="^browse_request_quote$"),
-                CallbackQueryHandler(browse_handler.back_to_categories, pattern="^browse_back$"),
-            ],
-        },
-        fallbacks=[CommandHandler("cancel", browse_handler.cancel_browse)],
-        per_message=False,
-        per_chat=True,
-        per_user=True,
-    )
+    browse_conv = browse_handler.get_browse_conversation_handler()
 
     # ===================================================
     # تسجيل المعالجات بالترتيب الصحيح

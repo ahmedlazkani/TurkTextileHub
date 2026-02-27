@@ -61,5 +61,21 @@
   "featured_products_btn": "⭐ Öne Çıkan Ürünler",
   "coming_soon": "🚧 Bu özellik geliştirme aşamasındadır ve yakında kullanıma sunulacaktır!",
   "registration_success": "✅ Tedarikçi olarak başarıyla kaydoldunuz!\n\n📦 Sonraki adım: Ürünlerinizi şimdi ekleyin!",
-  "trader_success": "✅ Tüccar olarak başarıyla kaydoldunuz!\n\n🎯 Şimdi ne yapabilirsiniz?"
+  "trader_success": "✅ Tüccar olarak başarıyla kaydoldunuz!\n\n🎯 Şimdi ne yapabilirsiniz?",
+  "skip_button": "⏭ Atla",
+  "confirm_send_button": "✅ Talebi Gönder",
+  "cancel_button": "❌ İptal",
+  "not_specified": "Belirtilmedi",
+  "rfq_ask_quantity": "📦 *{product_name}* ürününden kaç adet gerekiyor?\n\nMiktarı yazın veya Atla'ya basın:",
+  "rfq_ask_color": "🎨 İstediğiniz renk nedir?\n\nRengi yazın veya Atla'ya basın:",
+  "rfq_ask_size": "📐 İstediğiniz beden nedir?\n\nBedeni yazın veya Atla'ya basın:",
+  "rfq_ask_delivery_date": "📅 Teslimat ne zaman gerekiyor?\n\nTarihi yazın veya Atla'ya basın:",
+  "rfq_summary": "📋 <b>Fiyat Teklifi Özeti</b>\n\n🛍 <b>Ürün:</b> {product_name}\n📦 <b>Miktar:</b> {quantity}\n🎨 <b>Renk:</b> {color}\n📐 <b>Beden:</b> {size}\n📅 <b>Teslimat:</b> {delivery_date}\n\nTalebi tedarikçiye göndermek istiyor musunuz?",
+  "rfq_sent_success": "✅ Talebiniz tedarikçiye başarıyla gönderildi!\nYakında sizinle iletişime geçecekler.",
+  "rfq_notification_failed": "✅ Talebiniz kaydedildi.\nTedarikçi yakında sizinle iletişime geçecek.",
+  "rfq_save_error": "❌ Talep kaydedilirken bir hata oluştu. Lütfen tekrar deneyin.",
+  "rfq_cancelled": "❌ Fiyat teklifi talebi iptal edildi.",
+  "error_invalid_product": "⚠️ Ürün bulunamadı. Lütfen ürünlere tekrar göz atın.",
+  "error_product_not_found": "⚠️ Ürün şu anda mevcut değil.",
+  "error_trader_not_found": "⚠️ Fiyat sormak için önce tüccar olarak kayıt olmalısınız.\n/register_trader kullanın"
 }

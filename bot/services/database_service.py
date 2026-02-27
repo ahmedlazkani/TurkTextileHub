@@ -319,3 +319,122 @@ def get_products_by_category(category: str) -> list:
     except requests.exceptions.RequestException as e:
         logger.error("❌ خطأ في الاتصال أثناء جلب المنتجات: %s", str(e))
         return []
+
+# ===================================================
+# دوال طلبات عروض الأسعار - RFQ
+# المرحلة السابعة: إضافة دوال RFQ
+# ===================================================
+
+def get_product_by_id(product_id: int) -> Optional[dict]:
+    """
+    يجلب بيانات منتج واحد بمعرّفه مع بيانات المورد الكاملة (بما فيها telegram_id).
+    المعاملات:
+        product_id (int): معرّف المنتج
+    المُخرجات:
+        dict: بيانات المنتج مع بيانات المورد، أو None
+    """
+    url = (
+        f"{SUPABASE_URL}/rest/v1/products"
+        f"?id=eq.{product_id}"
+        f"&is_active=eq.true"
+        f"&select=*,suppliers(id,company_name,telegram_id,phone)"
+    )
+    try:
+        response = requests.get(url, headers=HEADERS, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            if data:
+                logger.info("✅ تم جلب المنتج: id=%s", product_id)
+                return data[0]
+        logger.error("❌ خطأ في جلب المنتج %s: status=%d", product_id, response.status_code)
+        return None
+    except requests.exceptions.RequestException as e:
+        logger.error("❌ خطأ في الاتصال أثناء جلب المنتج: %s", str(e))
+        return None
+
+
+def get_trader_by_telegram_id(telegram_id: int) -> Optional[dict]:
+    """
+    يجلب بيانات التاجر باستخدام Telegram ID من جدول bot_trader_registrations.
+    المعاملات:
+        telegram_id (int): معرّف تيليجرام للتاجر
+    المُخرجات:
+        dict: بيانات التاجر (id, full_name, phone, telegram_id)، أو None
+    """
+    url = (
+        f"{SUPABASE_URL}/rest/v1/bot_trader_registrations"
+        f"?telegram_id=eq.{telegram_id}"
+        f"&select=id,full_name,phone,telegram_id"
+    )
+    try:
+        response = requests.get(url, headers=HEADERS, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            if data:
+                trader = data[0]
+                trader["name"] = trader.get("full_name", "غير معروف")
+                logger.info("✅ تم جلب بيانات التاجر: telegram_id=%s", telegram_id)
+                return trader
+        logger.error("❌ خطأ في جلب التاجر %s: status=%d", telegram_id, response.status_code)
+        return None
+    except requests.exceptions.RequestException as e:
+        logger.error("❌ خطأ في الاتصال أثناء جلب التاجر: %s", str(e))
+        return None
+
+
+def add_quote_request(
+    product_id: int,
+    supplier_id: int,
+    trader_id: int,
+    quantity: Optional[str] = None,
+    color: Optional[str] = None,
+    size: Optional[str] = None,
+    delivery_date: Optional[str] = None,
+) -> Optional[dict]:
+    """
+    يحفظ طلب عرض سعر جديد في جدول quote_requests في Supabase.
+    المعاملات:
+        product_id (int): معرّف المنتج
+        supplier_id (int): معرّف المورد
+        trader_id (int): Telegram ID للتاجر
+        quantity (str): الكمية المطلوبة (اختياري)
+        color (str): اللون المطلوب (اختياري)
+        size (str): المقاس المطلوب (اختياري)
+        delivery_date (str): تاريخ التسليم المطلوب (اختياري)
+    المُخرجات:
+        dict: بيانات الطلب المحفوظ، أو None عند الفشل
+    """
+    data = {
+        "product_id": product_id,
+        "supplier_id": supplier_id,
+        "trader_id": trader_id,
+        "status": "pending",
+    }
+    if quantity:
+        data["quantity"] = quantity
+    if color:
+        data["color"] = color
+    if size:
+        data["size"] = size
+    if delivery_date:
+        data["delivery_date"] = delivery_date
+
+    url = f"{SUPABASE_URL}/rest/v1/quote_requests"
+    try:
+        response = requests.post(url, headers=HEADERS_RETURN, json=data, timeout=10)
+        if response.status_code in (200, 201):
+            result = response.json()
+            saved = result[0] if result else data
+            logger.info(
+                "✅ تم حفظ طلب عرض السعر: product_id=%s, trader_id=%s",
+                product_id, trader_id
+            )
+            return saved
+        logger.error(
+            "❌ خطأ في حفظ طلب عرض السعر: status=%d, body=%s",
+            response.status_code, response.text
+        )
+        return None
+    except requests.exceptions.RequestException as e:
+        logger.error("❌ خطأ في الاتصال أثناء حفظ طلب عرض السعر: %s", str(e))
+        return None

@@ -132,3 +132,84 @@ def notify_new_product(supplier_data: dict, product_data: dict) -> bool:
     )
 
     return _send_admin_message(message_text)
+
+# ===================================================
+# إشعارات طلبات عروض الأسعار - RFQ
+# المرحلة السابعة
+# ===================================================
+
+def notify_quote_request_to_supplier(
+    supplier_telegram_id: int,
+    trader_name: str,
+    trader_phone: str,
+    trader_telegram_id: int,
+    product_id: int,
+    product_name: str,
+    product_url,
+    supplier_id: int,
+    quantity=None,
+    color=None,
+    size=None,
+    delivery_date=None,
+) -> bool:
+    """
+    يرسل إشعار طلب عرض السعر للمورد مع زر تواصل مع التاجر.
+    المُخرجات:
+        bool: True إذا نجح الإرسال، False إذا فشل
+    """
+    try:
+        lines = [
+            "🔔 <b>طلب عرض سعر جديد!</b>",
+            "",
+            f"👤 <b>التاجر:</b> {trader_name}",
+            f"📱 <b>الهاتف:</b> {trader_phone}",
+            f"🛍 <b>المنتج:</b> {product_name} (#{product_id})",
+            "",
+            "📋 <b>تفاصيل الطلب:</b>",
+        ]
+
+        if quantity:
+            lines.append(f"  📦 الكمية: {quantity}")
+        if color:
+            lines.append(f"  🎨 اللون: {color}")
+        if size:
+            lines.append(f"  📐 المقاس: {size}")
+        if delivery_date:
+            lines.append(f"  📅 تاريخ التسليم: {delivery_date}")
+
+        if not any([quantity, color, size, delivery_date]):
+            lines.append("  (لم يتم تحديد تفاصيل إضافية)")
+
+        message_text = "\n".join(lines)
+
+        reply_markup = {
+            "inline_keyboard": [
+                [
+                    {
+                        "text": "📞 تواصل مع التاجر",
+                        "url": f"tg://user?id={trader_telegram_id}",
+                    }
+                ]
+            ]
+        }
+
+        response = requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            json={
+                "chat_id": supplier_telegram_id,
+                "text": message_text,
+                "parse_mode": "HTML",
+                "reply_markup": reply_markup,
+            },
+            timeout=10,
+        )
+        response.raise_for_status()
+        logger.info(
+            "✅ تم إرسال إشعار RFQ للمورد %s للمنتج %s من التاجر %s",
+            supplier_telegram_id, product_id, trader_telegram_id
+        )
+        return True
+
+    except Exception as e:
+        logger.error("❌ خطأ في إرسال إشعار RFQ للمورد: %s", str(e))
+        return False
