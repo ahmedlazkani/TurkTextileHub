@@ -439,3 +439,127 @@ def add_quote_request(
     except requests.exceptions.RequestException as e:
         logger.error("❌ خطأ في الاتصال أثناء حفظ طلب عرض السعر: %s", str(e))
         return None
+
+# ===================================================
+# دوال ربط القنوات (channel_connections)
+# الخطوة 5: /connect_channel
+# ===================================================
+
+def save_channel_connection(data: dict) -> bool:
+    """
+    يحفظ ربط قناة جديدة في جدول channel_connections.
+
+    المعاملات:
+        data (dict): يحتوي على:
+            - supplier_id (str): UUID المورد
+            - channel_id (int): معرّف القناة في تليجرام
+            - channel_username (str): اسم القناة بدون @
+            - channel_title (str): عنوان القناة
+
+    المُخرجات:
+        bool: True إذا تم الحفظ بنجاح، False في أي حالة أخرى
+    """
+    url = f"{SUPABASE_URL}/rest/v1/channel_connections"
+    payload = {
+        "supplier_id": data.get("supplier_id"),
+        "channel_id": data.get("channel_id"),
+        "channel_username": data.get("channel_username"),
+        "channel_title": data.get("channel_title"),
+        "is_active": True,
+        "connection_status": "connected",
+    }
+    try:
+        response = requests.post(url, json=payload, headers=HEADERS, timeout=10)
+        if response.status_code == 201:
+            logger.info(
+                "✅ تم حفظ ربط القناة: @%s للمورد: %s",
+                data.get("channel_username"),
+                data.get("supplier_id")
+            )
+            return True
+        logger.error(
+            "❌ فشل حفظ ربط القناة: status=%d, body=%s",
+            response.status_code, response.text
+        )
+        return False
+    except requests.exceptions.RequestException as e:
+        logger.error("❌ خطأ في الاتصال أثناء حفظ ربط القناة: %s", str(e))
+        return False
+
+
+def get_supplier_channels(supplier_id: str) -> list:
+    """
+    يجلب قائمة القنوات المربوطة بمورد معين.
+
+    المعاملات:
+        supplier_id (str): UUID المورد
+
+    المُخرجات:
+        list: قائمة القنوات، أو قائمة فارغة عند الفشل
+    """
+    url = (
+        f"{SUPABASE_URL}/rest/v1/channel_connections"
+        f"?supplier_id=eq.{supplier_id}"
+        f"&is_active=eq.true"
+        f"&select=id,channel_id,channel_username,channel_title,connection_status,created_at"
+    )
+    try:
+        response = requests.get(url, headers=HEADERS, timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        logger.error("❌ خطأ في جلب قنوات المورد: status=%d", response.status_code)
+        return []
+    except requests.exceptions.RequestException as e:
+        logger.error("❌ خطأ في الاتصال أثناء جلب قنوات المورد: %s", str(e))
+        return []
+
+
+def get_channel_by_id(channel_id: int) -> Optional[dict]:
+    """
+    يتحقق من وجود ربط لقناة معينة (لمنع الربط المزدوج).
+
+    المعاملات:
+        channel_id (int): معرّف القناة في تليجرام
+
+    المُخرجات:
+        dict | None: بيانات الربط الموجود، أو None إذا لم يوجد
+    """
+    url = (
+        f"{SUPABASE_URL}/rest/v1/channel_connections"
+        f"?channel_id=eq.{channel_id}"
+        f"&is_active=eq.true"
+        f"&select=id,supplier_id,channel_username"
+        f"&limit=1"
+    )
+    try:
+        response = requests.get(url, headers=HEADERS, timeout=10)
+        if response.status_code == 200:
+            results = response.json()
+            return results[0] if results else None
+        return None
+    except requests.exceptions.RequestException as e:
+        logger.error("❌ خطأ في التحقق من ربط القناة: %s", str(e))
+        return None
+
+
+def get_all_active_channels() -> list:
+    """
+    يجلب جميع القنوات المربوطة والنشطة (للاستخدام في مستمع المنشورات).
+
+    المُخرجات:
+        list: قائمة القنوات مع supplier_id لكل منها
+    """
+    url = (
+        f"{SUPABASE_URL}/rest/v1/channel_connections"
+        f"?is_active=eq.true"
+        f"&connection_status=eq.connected"
+        f"&select=id,channel_id,channel_username,channel_title,supplier_id,last_post_id"
+    )
+    try:
+        response = requests.get(url, headers=HEADERS, timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        return []
+    except requests.exceptions.RequestException as e:
+        logger.error("❌ خطأ في جلب القنوات النشطة: %s", str(e))
+        return []

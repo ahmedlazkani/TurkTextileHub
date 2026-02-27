@@ -25,6 +25,7 @@ from bot.handlers import (
     trader_handler,
     product_handler,
     browse_handler,
+    channel_handler,
 )
 
 # ===================================================
@@ -176,6 +177,12 @@ def main() -> None:
     browse_conv = browse_handler.get_browse_conversation_handler()
 
     # ===================================================
+    # 5. ConversationHandler: ربط القناة
+    # التدفق: /connect_channel ← تعليمات ← اسم القناة ← تحقق ثلاثي ← تأكيد ← حفظ
+    # ===================================================
+    channel_conv = channel_handler.get_channel_conversation_handler()
+
+    # ===================================================
     # تسجيل المعالجات بالترتيب الصحيح
     # ConversationHandlers أولاً، ثم المعالجات المستقلة
     # ===================================================
@@ -190,6 +197,9 @@ def main() -> None:
     # محادثات المنتجات والتصفح (تشمل أزرار لوحة التحكم كـ entry_points)
     application.add_handler(product_conv)
     application.add_handler(browse_conv)
+
+    # محادثة ربط القناة (للموردين المعتمدين فقط)
+    application.add_handler(channel_conv)
 
     # معالجات تغيير اللغة
     application.add_handler(
