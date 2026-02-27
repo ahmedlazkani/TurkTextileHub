@@ -5,7 +5,6 @@
   "register_trader_btn": "🛒 Tüccar Olarak Kayıt",
   "change_language": "🌐 Dil Değiştir",
   "select_language": "🌐 Tercih ettiğiniz dili seçin:",
-
   "supplier_registration_start": "🏭 Harika! TurkTextileHub'a tedarikçi olarak kaydolmaya başlayalım.\nLütfen aşağıdaki soruları cevaplayın:",
   "prompt_company_name": "📋 Şirketinizin veya mağazanızın adı nedir?",
   "prompt_contact_name": "👤 İletişim kişisinin adı nedir?",
@@ -19,11 +18,9 @@
   "sales_rep_yes": "✅ Evet, var",
   "sales_rep_no": "📱 Hayır, kendim alacağım",
   "ask_sales_rep_username": "👤 Onun Telegram kullanıcı adını girin (Örnek: @username):",
-  "registration_success": "✅ Tedarikçi olarak başarıyla kaydoldunuz!\nEkibimiz hesabınızı etkinleştirmek için yakında sizinle iletişime geçecek.",
   "already_registered": "⚠️ Platformda zaten kayıtlısınız!\nHerhangi bir sorunla karşılaşırsanız destek ekibimizle iletişime geçin.",
   "error_general": "❌ Beklenmeyen bir hata oluştu. Lütfen daha sonra tekrar deneyin.",
   "cancel": "🚫 İşlem iptal edildi.\nYeniden başlamak için /start yazın.",
-
   "trader_welcome": "🛒 Hoş geldiniz! TurkTextileHub'a tüccar olarak kaydolalım.",
   "ask_trader_name": "👤 Tam adınız nedir?",
   "ask_trader_phone": "📞 Ülke kodu ile telefon numaranız nedir?\nÖrnek: +966 5XX XXX XXXX",
@@ -33,8 +30,6 @@
   "business_physical": "👗 Giyim Mağazası",
   "business_distributor": "🚚 Distribütör",
   "business_other": "📦 Diğer",
-  "trader_success": "✅ Tüccar olarak başarıyla kaydoldunuz!\nYakında ürünlere göz atabilecek ve fiyat teklifi talep edebileceksiniz.",
-
   "add_product_start": "📸 Yeni bir ürün eklemek için fotoğraflarını gönderin (1 ila 5 fotoğraf aynı anda).",
   "add_product_get_category": "✨ Harika! Şimdi ürün kategorisini seçin:",
   "category_abayas": "👘 Abayalar",
@@ -50,7 +45,6 @@
   "add_product_success": "✅ Ürününüz başarıyla yayınlandı! Tüccarlar artık görebilir.",
   "add_product_no_images": "❌ Fotoğraf gönderilmedi. Lütfen en az bir fotoğraf gönderin.",
   "not_registered_supplier": "⚠️ Ürün eklemek için kayıtlı bir tedarikçi olmalısınız.\nÖnce kayıt olmak için /start kullanın.",
-
   "browse_start": "🔍 Göz atmak istediğiniz ürün kategorisini seçin:",
   "show_all_btn": "🌟 Tümünü Göster",
   "no_products_found": "😔 Bu kategoride şu anda mevcut ürün bulunmamaktadır.",
@@ -60,5 +54,12 @@
   "request_quote_btn": "📋 Fiyat Teklifi İste",
   "back_to_categories_btn": "🔙 Kategorilere Dön",
   "product_counter": "Ürün {current} / {total}",
-  "quote_request_sent": "✅ Fiyat teklifi talebiniz tedarikçiye iletildi. Yakında sizinle iletişime geçecekler."
+  "quote_request_sent": "✅ Fiyat teklifi talebiniz tedarikçiye iletildi. Yakında sizinle iletişime geçecekler.",
+  "add_product_now_btn": "➕ Şimdi Ürün Ekle",
+  "browse_products_btn": "🔍 Ürünlere Göz At",
+  "contact_supplier_btn": "📞 Tedarikçiyle İletişime Geç",
+  "featured_products_btn": "⭐ Öne Çıkan Ürünler",
+  "coming_soon": "🚧 Bu özellik geliştirme aşamasındadır ve yakında kullanıma sunulacaktır!",
+  "registration_success": "✅ Tedarikçi olarak başarıyla kaydoldunuz!\n\n📦 Sonraki adım: Ürünlerinizi şimdi ekleyin!",
+  "trader_success": "✅ Tüccar olarak başarıyla kaydoldunuz!\n\n🎯 Şimdi ne yapabilirsiniz?"
 }

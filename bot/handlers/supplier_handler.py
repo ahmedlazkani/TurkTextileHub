@@ -221,14 +221,31 @@ async def _finish_supplier_registration(
 
     await context.bot.send_chat_action(chat_id=message.chat_id, action="typing")
 
-    success = database_service.save_supplier(supplier_data)
+    # بناء أزرار ما بعد التسجيل للمورد
+    post_reg_keyboard = [
+        [
+            InlineKeyboardButton(
+                text=get_string(lang, "add_product_now_btn"),
+                callback_data="post_reg_add_product"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=get_string(lang, "change_language"),
+                callback_data="change_language"
+            )
+        ],
+    ]
+    post_reg_markup = InlineKeyboardMarkup(post_reg_keyboard)
 
+    success = database_service.save_supplier(supplier_data)
     if success:
         logger.info("✅ تم حفظ بيانات المورد: telegram_id=%s", supplier_data["telegram_id"])
         notification_service.notify_new_supplier(supplier_data)
         await context.bot.send_message(
             chat_id=message.chat_id,
-            text=get_string(lang, "registration_success")
+            text=get_string(lang, "registration_success"),
+            reply_markup=post_reg_markup
         )
     else:
         logger.error("❌ فشل حفظ بيانات المورد: telegram_id=%s", supplier_data["telegram_id"])
@@ -236,7 +253,6 @@ async def _finish_supplier_registration(
             chat_id=message.chat_id,
             text=get_string(lang, "error_general")
         )
-
     return ConversationHandler.END
 
 

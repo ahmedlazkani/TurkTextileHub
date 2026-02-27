@@ -146,16 +146,30 @@ async def received_trader_business_type(update: Update, context: ContextTypes.DE
         "business_type": business_type,
     }
 
-    # بناء أزرار العودة للقائمة الرئيسية
+    # بناء أزرار ما بعد التسجيل للتاجر (محفزة وموجهة)
     keyboard = [
-        [InlineKeyboardButton(
-            text=get_string(lang, "register_supplier_btn"),
-            callback_data="supplier"
-        )],
-        [InlineKeyboardButton(
-            text=get_string(lang, "change_language"),
-            callback_data="change_language"
-        )],
+        [
+            InlineKeyboardButton(
+                text=get_string(lang, "browse_products_btn"),
+                callback_data="post_reg_browse_products"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=get_string(lang, "contact_supplier_btn"),
+                callback_data="post_reg_contact_supplier"
+            ),
+            InlineKeyboardButton(
+                text=get_string(lang, "featured_products_btn"),
+                callback_data="post_reg_featured_products"
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                text=get_string(lang, "change_language"),
+                callback_data="change_language"
+            )
+        ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
