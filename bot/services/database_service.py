@@ -121,7 +121,7 @@ def get_supplier_by_telegram_id(telegram_id: str) -> Optional[dict]:
     المُخرجات:
         dict | None: بيانات المورد أو None إذا لم يُوجد
     """
-    url = f"{SUPABASE_URL}/rest/v1/suppliers?user_id=eq.{telegram_id}&select=id,company_name"
+    url = f"{SUPABASE_URL}/rest/v1/bot_registrations?telegram_id=eq.{telegram_id}&select=id,company_name"
 
     try:
         response = requests.get(url, headers=HEADERS, timeout=10)
