@@ -389,7 +389,7 @@ def get_trader_by_telegram_id(telegram_id: int) -> Optional[dict]:
     url = (
         f"{SUPABASE_URL}/rest/v1/bot_trader_registrations"
         f"?telegram_id=eq.{telegram_id}"
-        f"&select=id,full_name,phone,telegram_id"
+        f"&select=id,full_name,phone,telegram_id,status"
     )
     try:
         response = requests.get(url, headers=HEADERS, timeout=10)
@@ -953,8 +953,11 @@ def check_rate_limit(supplier_id: str, max_posts: int = 10) -> bool:
         logger.debug(f"✅ rate limit OK للمورد {supplier_id}")
         return True
     except Exception as e:
-        logger.error(f"❌ check_rate_limit({supplier_id}): {e}")
-        return True  # السماح بالمرور عند خطأ التحقق
+        logger.critical(
+            f"🚨 check_rate_limit({supplier_id}) فشل بسبب: {e} — "
+            f"تم رفض المنشور بشكل احتياطي"
+        )
+        return False  # رفض آمن عند الشك (بدلاً من السماح بتجاوز الحد عند العطل)
 
 
 # ══════════════════════════════════════════════════════

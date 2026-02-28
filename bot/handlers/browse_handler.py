@@ -118,6 +118,27 @@ async def request_quote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         )
         return ConversationHandler.END
 
+    # ═══ تحقق من حالة حساب التاجر ═══
+    trader_status = trader.get("status", "pending")
+    if trader_status == "pending":
+        logger.warning(f"⚠️ التاجر {user_id} لا يزال حسابه قيد المراجعة")
+        await query.edit_message_text(
+            f"⏳ {get_string(lang, 'status_pending')}\n\n"
+            f"لا يمكن تقديم طلب عرض سعر حتى يتم اعتماد حسابك من قِبَل الإدارة.",
+            parse_mode="Markdown"
+        )
+        return ConversationHandler.END
+    elif trader_status == "rejected":
+        logger.warning(f"⚠️ التاجر {user_id} حسابه مرفوض")
+        await query.edit_message_text(
+            f"❌ {get_string(lang, 'status_rejected')}\n\n"
+            f"حسابك مرفوض. للاستفسار تواصل مع الدعم.",
+            parse_mode="Markdown"
+        )
+        return ConversationHandler.END
+    # trader_status == "approved" → متاحة المتابعة
+    logger.info(f"✅ حالة التاجر {user_id}: {trader_status} — مسموح بطلب RFQ")
+
     # 4. احفظ المنتج والتاجر في RFQ_DATA_KEY
     context.user_data[RFQ_DATA_KEY] = {
         "product":       product,

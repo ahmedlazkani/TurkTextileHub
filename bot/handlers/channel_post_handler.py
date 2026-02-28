@@ -274,11 +274,22 @@ async def handle_post_approval(update: Update, context: ContextTypes.DEFAULT_TYP
         6. أرسل إشعاراً للأدمن
     """
     query = update.callback_query
+
+    # ═══ تحقق أمني: فقط الأدمن المعتمد يمكنه الموافقة ═══
+    caller_id = query.from_user.id if query.from_user else None
+    if caller_id != config.ADMIN_TELEGRAM_ID:
+        logger.warning(
+            f"🚫 محاولة موافقة غير مصرح بها من المستخدم {caller_id} "
+            f"(الأدمن المعتمد: {config.ADMIN_TELEGRAM_ID})"
+        )
+        await query.answer("⛔ غير مصرح لك بهذا الإجراء", show_alert=True)
+        return
+
     await query.answer()
 
     # 1. استخرج pending_post_id (UUID كـ string)
     pending_post_id = query.data.replace("approve_post_", "", 1)
-    logger.info(f"✅ طلب موافقة على المنشور: {pending_post_id}")
+    logger.info(f"✅ طلب موافقة على المنشور: {pending_post_id} من الأدمن {caller_id}")
 
     # 2. جلب pending_post
     try:
@@ -338,11 +349,22 @@ async def handle_post_rejection(update: Update, context: ContextTypes.DEFAULT_TY
         2. عدّل الرسالة: أضف ❌ "تم تجاهل المنشور"
     """
     query = update.callback_query
+
+    # ═══ تحقق أمني: فقط الأدمن المعتمد يمكنه الرفض ═══
+    caller_id = query.from_user.id if query.from_user else None
+    if caller_id != config.ADMIN_TELEGRAM_ID:
+        logger.warning(
+            f"🚫 محاولة رفض غير مصرح بها من المستخدم {caller_id} "
+            f"(الأدمن المعتمد: {config.ADMIN_TELEGRAM_ID})"
+        )
+        await query.answer("⛔ غير مصرح لك بهذا الإجراء", show_alert=True)
+        return
+
     await query.answer()
 
     # 1. حدّث الحالة إلى rejected
     pending_post_id = query.data.replace("reject_post_", "", 1)
-    logger.info(f"❌ رفض المنشور: {pending_post_id}")
+    logger.info(f"❌ رفض المنشور: {pending_post_id} من الأدمن {caller_id}")
 
     try:
         database_service.update_pending_post_status(pending_post_id, "rejected")
