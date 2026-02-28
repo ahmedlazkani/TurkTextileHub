@@ -175,7 +175,7 @@ def main() -> None:
     # 4. ConversationHandler: تصفح المنتجات + RFQ
     # التدفق: /browse أو زر لوحة التحكم ← اختيار الفئة ← تصفح ← طلب عرض سعر
     # ===================================================
-    browse_conv = browse_handler.get_browse_conversation_handler()
+    browse_conv = browse_handler.get_rfq_conversation_handler()
 
     # ===================================================
     # 5. ConversationHandler: ربط القناة

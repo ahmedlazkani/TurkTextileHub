@@ -1073,3 +1073,55 @@ def update_pending_post_extracted_data(pending_post_id: str, extracted_data: dic
     except Exception as e:
         logger.error(f"❌ update_pending_post_extracted_data({pending_post_id}): {e}")
         return False
+
+# ===================================================
+# دوال طلبات عروض الأسعار - RFQ (إضافات)
+# ===================================================
+
+def get_all_quote_requests(limit: int = 100, offset: int = 0) -> list:
+    """
+    يجلب جميع طلبات عروض الأسعار من قاعدة البيانات (للوحة التحكم).
+    المعاملات:
+        limit  (int): عدد السجلات المطلوبة (افتراضي: 100)
+        offset (int): البداية للتصفح الصفحي (افتراضي: 0)
+    المُخرجات: قائمة بجميع طلبات عروض الأسعار مرتبة تنازلياً بالتاريخ
+    """
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/quote_requests"
+        params = {
+            "select": "*, products(title, category, image_urls)",
+            "order": "created_at.desc",
+            "limit": str(limit),
+            "offset": str(offset),
+        }
+        response = requests.get(url, headers=HEADERS, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        logger.debug(f"✅ جُلب {len(data)} طلب عرض سعر")
+        return data if isinstance(data, list) else []
+    except Exception as e:
+        logger.error(f"❌ get_all_quote_requests: {e}")
+        return []
+
+
+def update_quote_request_status(quote_id: str, status: str) -> bool:
+    """
+    يحدّث حالة طلب عرض السعر.
+    المعاملات:
+        quote_id (str UUID): معرف الطلب
+        status   (str)     : الحالة الجديدة — pending|answered|closed
+    المُخرجات: True عند النجاح، False عند الفشل
+    """
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/quote_requests"
+        params = {"id": f"eq.{quote_id}"}
+        payload = {"status": status}
+        response = requests.patch(
+            url, headers=HEADERS_RETURN, params=params, json=payload, timeout=10
+        )
+        response.raise_for_status()
+        logger.info(f"✅ quote_request {quote_id} → {status}")
+        return True
+    except Exception as e:
+        logger.error(f"❌ update_quote_request_status({quote_id}, {status}): {e}")
+        return False
