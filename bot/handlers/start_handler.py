@@ -162,6 +162,33 @@ def _supplier_dashboard_text(
     return "\n".join(lines)
 
 
+def _build_new_user_keyboard(lang: str) -> InlineKeyboardMarkup:
+    """
+    لوحة أزرار الترحيب للمستخدم الجديد غير المسجل.
+    تعرض زرَّي: تسجيل كمورد / تسجيل كتاجر + تغيير اللغة.
+    """
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                get_string(lang, "register_supplier_btn"),
+                callback_data="supplier"
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                get_string(lang, "register_trader_btn"),
+                callback_data="trader"
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                get_string(lang, "btn_change_language"),
+                callback_data=CB_CHANGE_LANGUAGE
+            ),
+        ],
+    ])
+
+
 def _build_language_keyboard() -> InlineKeyboardMarkup:
     """
     بناء لوحة مفاتيح اختيار اللغة.
@@ -245,9 +272,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
             return
 
-        # زائر جديد غير مسجل
+        # زائر جديد غير مسجل — يعرض أزرار التسجيل
         await update.message.reply_text(
             get_string(lang, "welcome_new_user"),
+            reply_markup=_build_new_user_keyboard(lang),
             parse_mode="HTML",
         )
 
