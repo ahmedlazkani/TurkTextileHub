@@ -1,6 +1,27 @@
+# Environment variables — يحتوي على مفاتيح سرية لا تُرفع على GitHub
 .env
+.env.local
+.env.production
+
+# Python cache
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# OS files
 .DS_Store
+Thumbs.db
+
+# Logs
 nohup.out
+*.log
+
+# Editor
+.vscode/
+*.swp
