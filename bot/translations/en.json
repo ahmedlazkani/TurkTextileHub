@@ -130,5 +130,11 @@
   "product": "Product",
   "unknown_product": "Unknown product",
   "product_not_found": "Product not found.",
-  "trader_not_registered": "Your account is not registered as a trader."
+  "trader_not_registered": "Your account is not registered as a trader.",
+  "btn_reapply": "🔄 Reapply",
+  "btn_contact_admin": "📩 Contact Admin",
+  "reapply_request_sent": "✅ <b>Reapplication Sent</b>\n\nOur team will review your request and contact you soon.",
+  "reapply_request_admin": "🔄 <b>Reapplication Request</b>\n\n👤 <b>Supplier:</b> {supplier_name}\n🆔 <b>Telegram ID:</b> <code>{telegram_id}</code>\n📱 <b>Username:</b> {username}\n\nPlease review in the admin panel.",
+  "contact_admin_sent": "✅ <b>Message Sent to Admin</b>\n\nOur support team will contact you soon.",
+  "contact_admin_request": "📩 <b>Message from Rejected Supplier</b>\n\n👤 <b>Supplier:</b> {supplier_name}\n🆔 <b>Telegram ID:</b> <code>{telegram_id}</code>\n📱 <b>Username:</b> {username}\n\nRequests to contact admin."
 }

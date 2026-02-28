@@ -201,6 +201,8 @@ def main() -> None:
 
     # محادثة ربط القناة (للموردين المعتمدين فقط)
     application.add_handler(channel_conv)
+    # معالجات مستقلة للقناة (زر أحتاج مساعدة خارج سياق المحادثة)
+    channel_handler.register_channel_standalone_handlers(application)
 
     # معالجات تغيير اللغة
     application.add_handler(
@@ -216,6 +218,13 @@ def main() -> None:
     )
     application.add_handler(
         CallbackQueryHandler(start_handler.back_to_dashboard, pattern="^back_to_dashboard$")
+    )
+    # معالجات أزرار المورد المرفوض (إعادة التقديم / مراسلة الأدمن)
+    application.add_handler(
+        CallbackQueryHandler(start_handler.supplier_reapply, pattern="^supplier_reapply$")
+    )
+    application.add_handler(
+        CallbackQueryHandler(start_handler.supplier_contact_admin, pattern="^supplier_contact_admin$")
     )
 
     # ===================================================

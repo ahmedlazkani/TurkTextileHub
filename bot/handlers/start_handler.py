@@ -39,6 +39,8 @@ CB_CHANGE_LANGUAGE = "change_language"
 CB_SET_LANG_AR = "set_lang_ar"
 CB_SET_LANG_TR = "set_lang_tr"
 CB_SET_LANG_EN = "set_lang_en"
+CB_REAPPLY = "supplier_reapply"
+CB_CONTACT_ADMIN = "supplier_contact_admin"
 
 
 # ─────────────────────────────────────────────
@@ -63,13 +65,28 @@ def _build_supplier_dashboard(
     """
     keyboard = []
 
-    # زر إضافة منتج — متاح للجميع
-    keyboard.append([
-        InlineKeyboardButton(
-            get_string(lang, "btn_add_product"),
-            callback_data=CB_ADD_PRODUCT,
-        )
-    ])
+    if status == "rejected":
+        # المورد المرفوض: أزرار إعادة التقديم ومراسلة الأدمن فقط
+        keyboard.append([
+            InlineKeyboardButton(
+                get_string(lang, "btn_reapply"),
+                callback_data=CB_REAPPLY,
+            )
+        ])
+        keyboard.append([
+            InlineKeyboardButton(
+                get_string(lang, "btn_contact_admin"),
+                callback_data=CB_CONTACT_ADMIN,
+            )
+        ])
+    else:
+        # المورد المعلق أو المعتمد: زر إضافة منتج
+        keyboard.append([
+            InlineKeyboardButton(
+                get_string(lang, "btn_add_product"),
+                callback_data=CB_ADD_PRODUCT,
+            )
+        ])
 
     # أزرار حصرية للموردين المعتمدين فقط
     if status == "approved":
@@ -426,6 +443,88 @@ async def show_my_channels(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await query.message.reply_text(get_string(lang, "error_generic"))
 
 
+async def supplier_reapply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    معالج زر 'إعادة التقديم' للمورد المرفوض.
+    يرسل إشعاراً للأدمن ويطمئن المورد.
+    """
+    query = update.callback_query
+    await query.answer()
+    lang = context.user_data.get("lang", "ar")
+    telegram_id = str(update.effective_user.id)
+    username = update.effective_user.username or "لا يوجد"
+
+    try:
+        supplier = get_supplier_by_telegram_id(telegram_id)
+        supplier_name = supplier.get("contact_name", "غير محدد") if supplier else "غير محدد"
+
+        # إشعار الأدمن
+        import os
+        admin_id = os.getenv("ADMIN_TELEGRAM_ID", "")
+        if admin_id:
+            try:
+                await context.bot.send_message(
+                    chat_id=int(admin_id),
+                    text=get_string("ar", "reapply_request_admin").format(
+                        supplier_name=supplier_name,
+                        telegram_id=telegram_id,
+                        username=f"@{username}"
+                    ),
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                logger.warning(f"فشل إرسال إشعار إعادة التقديم: {e}")
+
+        await query.message.reply_text(
+            get_string(lang, "reapply_request_sent"),
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"خطأ في supplier_reapply: {e}", exc_info=True)
+        await query.message.reply_text(get_string(lang, "error_generic"))
+
+
+async def supplier_contact_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    معالج زر 'مراسلة الأدمن' للمورد المرفوض.
+    يرسل إشعاراً للأدمن ويطمئن المورد.
+    """
+    query = update.callback_query
+    await query.answer()
+    lang = context.user_data.get("lang", "ar")
+    telegram_id = str(update.effective_user.id)
+    username = update.effective_user.username or "لا يوجد"
+
+    try:
+        supplier = get_supplier_by_telegram_id(telegram_id)
+        supplier_name = supplier.get("contact_name", "غير محدد") if supplier else "غير محدد"
+
+        # إشعار الأدمن
+        import os
+        admin_id = os.getenv("ADMIN_TELEGRAM_ID", "")
+        if admin_id:
+            try:
+                await context.bot.send_message(
+                    chat_id=int(admin_id),
+                    text=get_string("ar", "contact_admin_request").format(
+                        supplier_name=supplier_name,
+                        telegram_id=telegram_id,
+                        username=f"@{username}"
+                    ),
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                logger.warning(f"فشل إرسال إشعار مراسلة الأدمن: {e}")
+
+        await query.message.reply_text(
+            get_string(lang, "contact_admin_sent"),
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"خطأ في supplier_contact_admin: {e}", exc_info=True)
+        await query.message.reply_text(get_string(lang, "error_generic"))
+
+
 async def back_to_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     العودة إلى لوحة تحكم المورد.
@@ -496,4 +595,10 @@ def register_start_handlers(application) -> None:
     )
     application.add_handler(
         CallbackQueryHandler(back_to_dashboard, pattern="^back_to_dashboard$")
+    )
+    application.add_handler(
+        CallbackQueryHandler(supplier_reapply, pattern=f"^{CB_REAPPLY}$")
+    )
+    application.add_handler(
+        CallbackQueryHandler(supplier_contact_admin, pattern=f"^{CB_CONTACT_ADMIN}$")
     )

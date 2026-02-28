@@ -145,5 +145,11 @@
   "product": "Ürün",
   "unknown_product": "Belirsiz ürün",
   "product_not_found": "Ürün bulunamadı.",
-  "trader_not_registered": "Hesabınız tüccar olarak kayıtlı değil."
+  "trader_not_registered": "Hesabınız tüccar olarak kayıtlı değil.",
+  "btn_reapply": "🔄 Yeniden Başvur",
+  "btn_contact_admin": "📩 Admin ile İletişim",
+  "reapply_request_sent": "✅ <b>Yeniden Başvuru Gönderildi</b>\n\nEkibimiz başvurunuzu inceleyecek ve kısa sürede sizinle iletişime geçecek.",
+  "reapply_request_admin": "🔄 <b>Yeniden Başvuru Talebi</b>\n\n👤 <b>Tedarikçi:</b> {supplier_name}\n🆔 <b>Telegram ID:</b> <code>{telegram_id}</code>\n📱 <b>Kullanıcı adı:</b> {username}\n\nLütfen admin panelinde inceleyin.",
+  "contact_admin_sent": "✅ <b>Mesajınız Admin'e Gönderildi</b>\n\nDestek ekibimiz en kısa sürede sizinle iletişime geçecek.",
+  "contact_admin_request": "📩 <b>Reddedilen Tedarikçiden Mesaj</b>\n\n👤 <b>Tedarikçi:</b> {supplier_name}\n🆔 <b>Telegram ID:</b> <code>{telegram_id}</code>\n📱 <b>Kullanıcı adı:</b> {username}\n\nAdmin ile iletişim talep ediyor."
 }

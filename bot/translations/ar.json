@@ -169,5 +169,11 @@
   "product": "المنتج",
   "unknown_product": "منتج غير محدد",
   "product_not_found": "المنتج غير موجود.",
-  "trader_not_registered": "حسابك غير مسجّل كتاجر. تواصل مع الدعم."
+  "trader_not_registered": "حسابك غير مسجّل كتاجر. تواصل مع الدعم.",
+  "btn_reapply": "🔄 إعادة التقديم",
+  "btn_contact_admin": "📩 مراسلة الأدمن",
+  "reapply_request_sent": "✅ <b>تم إرسال طلب إعادة التقديم</b>\n\nسيراجع فريقنا طلبك ويتواصل معك قريباً.",
+  "reapply_request_admin": "🔄 <b>طلب إعادة تقديم</b>\n\n👤 <b>المورد:</b> {supplier_name}\n🆔 <b>Telegram ID:</b> <code>{telegram_id}</code>\n📱 <b>Username:</b> {username}\n\nيرجى مراجعة الطلب في لوحة التحكم.",
+  "contact_admin_sent": "✅ <b>تم إرسال رسالتك للأدمن</b>\n\nسيتواصل معك فريق الدعم في أقرب وقت.",
+  "contact_admin_request": "📩 <b>رسالة من مورد مرفوض</b>\n\n👤 <b>المورد:</b> {supplier_name}\n🆔 <b>Telegram ID:</b> <code>{telegram_id}</code>\n📱 <b>Username:</b> {username}\n\nيطلب التواصل مع الأدمن."
 }

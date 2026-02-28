@@ -490,10 +490,17 @@ async def channel_need_help(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         logger.warning("⚠️ فشل إرسال إشعار طلب المساعدة: %s", e)
 
     # رسالة طمأنة للمورد
-    await query.edit_message_text(
-        text=get_string(lang, "channel_help_sent_to_admin"),
-        parse_mode="HTML"
-    )
+    try:
+        await query.edit_message_text(
+            text=get_string(lang, "channel_help_sent_to_admin"),
+            parse_mode="HTML"
+        )
+    except Exception:
+        # fallback: إذا فشل edit (رسالة قديمة أو خارج سياق المحادثة)
+        await query.message.reply_text(
+            text=get_string(lang, "channel_help_sent_to_admin"),
+            parse_mode="HTML"
+        )
     return ConversationHandler.END
 
 
@@ -602,4 +609,18 @@ def get_channel_conversation_handler() -> ConversationHandler:
         per_user=True,
         name="channel_connection_conversation",
         persistent=False,
+    )
+
+
+def register_channel_standalone_handlers(application) -> None:
+    """
+    تسجيل معالجات channel_handler المستقلة (خارج ConversationHandler).
+    يُستدعى من main.py بعد تسجيل channel_conv.
+
+    يضمن أن زر 'أحتاج مساعدة' يعمل حتى خارج سياق المحادثة
+    (مثلاً بعد إعادة تشغيل البوت أو انتهاء الجلسة).
+    """
+    application.add_handler(
+        CallbackQueryHandler(channel_need_help, pattern="^channel_need_help$"),
+        group=1,
     )
