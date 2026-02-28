@@ -68,6 +68,7 @@ async def start_add_product(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     # حفظ بيانات المورد للاستخدام لاحقاً
     context.user_data["supplier_id"] = supplier.get("id")
     context.user_data["supplier_name"] = supplier.get("company_name", "")
+    context.user_data["telegram_id"] = telegram_id  # لجلب suppliers.id الصحيح لاحقاً
     context.user_data["images"] = []  # تهيئة قائمة الصور
 
     await update.message.reply_text(text=get_string(lang, "add_product_start"))
@@ -94,6 +95,7 @@ async def start_add_product_from_button(update: Update, context: ContextTypes.DE
 
     context.user_data["supplier_id"] = supplier.get("id")
     context.user_data["supplier_name"] = supplier.get("company_name", "")
+    context.user_data["telegram_id"] = telegram_id  # لجلب suppliers.id الصحيح لاحقاً
     context.user_data["images"] = []
 
     await context.bot.send_message(
@@ -274,7 +276,7 @@ async def finish_add_product(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await context.bot.send_chat_action(chat_id=query.message.chat_id, action=ChatAction.TYPING)
 
     product_data = {
-        "supplier_id": context.user_data.get("supplier_id"),
+        "telegram_id": context.user_data.get("telegram_id"),  # لجلب suppliers.id الصحيح
         "category": context.user_data.get("category"),
         "price": context.user_data.get("price"),
         "images": context.user_data.get("images", []),
@@ -283,7 +285,7 @@ async def finish_add_product(update: Update, context: ContextTypes.DEFAULT_TYPE)
     success = database_service.add_product(product_data)
 
     if success:
-        logger.info("✅ تم نشر منتج جديد للمورد: %s", product_data["supplier_id"])
+        logger.info("✅ تم نشر منتج جديد للمورد: %s", context.user_data.get("telegram_id"))
 
         # إشعار الأدمن
         supplier_info = {

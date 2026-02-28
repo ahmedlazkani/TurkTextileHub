@@ -215,44 +215,68 @@ def check_trader_exists(telegram_id: str) -> bool:
 # دوال المنتجات (جديد - المرحلة السادسة)
 # ===================================================
 
+def get_supplier_uuid_by_telegram_id(telegram_id: str) -> Optional[str]:
+    """
+    يجلب UUID المورد من جدول suppliers باستخدام sales_telegram_id.
+    يُستخدم لربط bot_registrations بجدول suppliers عند إضافة المنتجات.
+    """
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/suppliers?sales_telegram_id=eq.{telegram_id}&select=id&limit=1"
+        response = requests.get(url, headers=HEADERS, timeout=10)
+        if response.status_code == 200:
+            results = response.json()
+            if results:
+                return results[0]["id"]
+        logger.warning("⚠️ لم يُوجد سجل في suppliers لـ telegram_id=%s", telegram_id)
+        return None
+    except requests.exceptions.RequestException as e:
+        logger.error("❌ خطأ في جلب supplier UUID: %s", str(e))
+        return None
+
+
 def add_product(product_data: dict) -> bool:
     """
     يحفظ بيانات المنتج الجديد في جدول products في Supabase.
-
-    المعاملات:
-        product_data (dict): يحتوي على:
-            - supplier_id (UUID): معرّف المورد في جدول suppliers
-            - category (str): فئة المنتج
-            - price (str): السعر (اختياري)
-            - images (list): مصفوفة file_id للصور
-
-    المُخرجات:
-        bool: True إذا تم الحفظ بنجاح، False في أي حالة أخرى
+    يجلب supplier_id من جدول suppliers باستخدام telegram_id إذا لم يُوفَّر مباشرة.
     """
+    import re as _re
+    # جلب supplier_id من جدول suppliers
+    supplier_id = product_data.get("supplier_id")
+    telegram_id = product_data.get("telegram_id")
+    if not supplier_id and telegram_id:
+        supplier_id = get_supplier_uuid_by_telegram_id(str(telegram_id))
+    if not supplier_id:
+        logger.error("❌ لا يوجد supplier_id صالح لإضافة المنتج")
+        return False
+
     url = f"{SUPABASE_URL}/rest/v1/products"
+    price_raw = product_data.get("price")
+    price_val = None
+    if price_raw:
+        nums = _re.findall(r"\d+\.?\d*", str(price_raw))
+        if nums:
+            try:
+                price_val = float(nums[0])
+            except ValueError:
+                pass
 
     payload = {
-        "supplier_id": product_data.get("supplier_id"),
-        "category": product_data.get("category"),
-        "price": product_data.get("price"),
-        "images": product_data.get("images", []),
-        "is_active": True,
+        "supplier_id": supplier_id,
+        "title": product_data.get("title") or "منتج جديد",
+        "category": product_data.get("category") or "other",
+        "image_urls": product_data.get("images", []),
+        "status": "active",
     }
-
-    # إزالة price إذا كانت None
-    if payload["price"] is None:
-        payload.pop("price")
+    if price_val is not None:
+        payload["price"] = price_val
 
     try:
         response = requests.post(url, json=payload, headers=HEADERS, timeout=10)
-
         if response.status_code == 201:
-            logger.info("✅ تم حفظ المنتج بنجاح للمورد: %s", product_data.get("supplier_id"))
+            logger.info("✅ تم حفظ المنتج بنجاح للمورد: %s", supplier_id)
             return True
-
         logger.error("❌ فشل حفظ المنتج: status=%d, response=%s", response.status_code, response.text)
         return False
-
     except requests.exceptions.RequestException as e:
         logger.error("❌ خطأ في الاتصال أثناء حفظ المنتج: %s", str(e))
         return False
