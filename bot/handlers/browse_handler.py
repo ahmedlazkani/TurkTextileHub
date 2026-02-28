@@ -40,7 +40,7 @@ from telegram.ext import (
 )
 
 from bot.services import database_service, notification_service
-from bot.services.language_service import get_text
+from bot.services.language_service import get_string
 from bot import states
 
 logger = logging.getLogger(__name__)
@@ -100,7 +100,7 @@ async def request_quote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     if not product:
         logger.warning(f"⚠️ المنتج {product_id} غير موجود")
         await query.edit_message_text(
-            get_text("product_not_found", lang)
+            get_string(lang, "product_not_found")
         )
         return ConversationHandler.END
 
@@ -114,7 +114,7 @@ async def request_quote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     if not trader:
         logger.warning(f"⚠️ التاجر {user_id} غير مسجّل")
         await query.edit_message_text(
-            get_text("trader_not_registered", lang)
+            get_string(lang, "trader_not_registered")
         )
         return ConversationHandler.END
 
@@ -128,14 +128,14 @@ async def request_quote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         "delivery_date": None,
     }
 
-    product_title = product.get("title") or product.get("name") or get_text("unknown_product", lang)
+    product_title = product.get("title") or product.get("name") or get_string(lang, "unknown_product")
     logger.info(f"✅ RFQ بدأ | منتج: {product_title} | تاجر: {trader.get('id')}")
 
     # 5. ابدأ بسؤال الكمية
     await query.edit_message_text(
-        f"📋 *{get_text('rfq_started', lang)}*\n"
-        f"🏷 {get_text('product', lang)}: *{product_title}*\n\n"
-        f"1️⃣ {get_text('rfq_ask_quantity', lang)}",
+        f"📋 *{get_string(lang, 'rfq_started')}*\n"
+        f"🏷 {get_string(lang, 'product')}: *{product_title}*\n\n"
+        f"1️⃣ {get_string(lang, 'rfq_ask_quantity')}",
         parse_mode="Markdown",
     )
 
@@ -156,15 +156,15 @@ async def handle_quote_quantity(update: Update, context: ContextTypes.DEFAULT_TY
     quantity = update.message.text.strip()
 
     if not quantity:
-        await update.message.reply_text(get_text("rfq_quantity_required", lang))
+        await update.message.reply_text(get_string(lang, "rfq_quantity_required"))
         return states.GETTING_QUOTE_QUANTITY
 
     context.user_data[RFQ_DATA_KEY]["quantity"] = quantity
     logger.debug(f"✅ RFQ الكمية: {quantity}")
 
     await update.message.reply_text(
-        f"✅ {get_text('rfq_quantity_saved', lang)}: *{quantity}*\n\n"
-        f"2️⃣ {get_text('rfq_ask_color', lang)}",
+        f"✅ {get_string(lang, 'rfq_quantity_saved')}: *{quantity}*\n\n"
+        f"2️⃣ {get_string(lang, 'rfq_ask_color')}",
         parse_mode="Markdown",
     )
     return states.GETTING_QUOTE_COLOR
@@ -184,15 +184,15 @@ async def handle_quote_color(update: Update, context: ContextTypes.DEFAULT_TYPE)
     color = update.message.text.strip()
 
     if not color:
-        await update.message.reply_text(get_text("rfq_color_required", lang))
+        await update.message.reply_text(get_string(lang, "rfq_color_required"))
         return states.GETTING_QUOTE_COLOR
 
     context.user_data[RFQ_DATA_KEY]["color"] = color
     logger.debug(f"✅ RFQ اللون: {color}")
 
     await update.message.reply_text(
-        f"✅ {get_text('rfq_color_saved', lang)}: *{color}*\n\n"
-        f"3️⃣ {get_text('rfq_ask_size', lang)}",
+        f"✅ {get_string(lang, 'rfq_color_saved')}: *{color}*\n\n"
+        f"3️⃣ {get_string(lang, 'rfq_ask_size')}",
         parse_mode="Markdown",
     )
     return states.GETTING_QUOTE_SIZE
@@ -212,16 +212,16 @@ async def handle_quote_size(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     size = update.message.text.strip()
 
     if not size:
-        await update.message.reply_text(get_text("rfq_size_required", lang))
+        await update.message.reply_text(get_string(lang, "rfq_size_required"))
         return states.GETTING_QUOTE_SIZE
 
     context.user_data[RFQ_DATA_KEY]["size"] = size
     logger.debug(f"✅ RFQ المقاس: {size}")
 
     await update.message.reply_text(
-        f"✅ {get_text('rfq_size_saved', lang)}: *{size}*\n\n"
-        f"4️⃣ {get_text('rfq_ask_delivery_date', lang)}\n"
-        f"_({get_text('rfq_date_format_hint', lang)})_",
+        f"✅ {get_string(lang, 'rfq_size_saved')}: *{size}*\n\n"
+        f"4️⃣ {get_string(lang, 'rfq_ask_delivery_date')}\n"
+        f"_({get_string(lang, 'rfq_date_format_hint')})_",
         parse_mode="Markdown",
     )
     return states.GETTING_QUOTE_DELIVERY_DATE
@@ -241,7 +241,7 @@ async def handle_quote_delivery_date(update: Update, context: ContextTypes.DEFAU
     delivery_date = update.message.text.strip()
 
     if not delivery_date:
-        await update.message.reply_text(get_text("rfq_date_required", lang))
+        await update.message.reply_text(get_string(lang, "rfq_date_required"))
         return states.GETTING_QUOTE_DELIVERY_DATE
 
     context.user_data[RFQ_DATA_KEY]["delivery_date"] = delivery_date
@@ -250,26 +250,26 @@ async def handle_quote_delivery_date(update: Update, context: ContextTypes.DEFAU
     # بناء ملخص التأكيد
     rfq = context.user_data[RFQ_DATA_KEY]
     product = rfq["product"]
-    product_title = product.get("title") or product.get("name") or get_text("unknown_product", lang)
+    product_title = product.get("title") or product.get("name") or get_string(lang, "unknown_product")
 
     summary = (
-        f"📋 *{get_text('rfq_confirm_title', lang)}*\n\n"
-        f"🏷 {get_text('product', lang)}: *{product_title}*\n"
-        f"📦 {get_text('rfq_quantity', lang)}: *{rfq['quantity']}*\n"
-        f"🎨 {get_text('rfq_color', lang)}: *{rfq['color']}*\n"
-        f"📐 {get_text('rfq_size', lang)}: *{rfq['size']}*\n"
-        f"📅 {get_text('rfq_delivery_date', lang)}: *{delivery_date}*\n\n"
-        f"{get_text('rfq_confirm_prompt', lang)}"
+        f"📋 *{get_string(lang, 'rfq_confirm_title')}*\n\n"
+        f"🏷 {get_string(lang, 'product')}: *{product_title}*\n"
+        f"📦 {get_string(lang, 'rfq_quantity')}: *{rfq['quantity']}*\n"
+        f"🎨 {get_string(lang, 'rfq_color')}: *{rfq['color']}*\n"
+        f"📐 {get_string(lang, 'rfq_size')}: *{rfq['size']}*\n"
+        f"📅 {get_string(lang, 'rfq_delivery_date')}: *{delivery_date}*\n\n"
+        f"{get_string(lang, 'rfq_confirm_prompt')}"
     )
 
     keyboard = InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
-                f"✅ {get_text('rfq_confirm_btn', lang)}",
+                f"✅ {get_string(lang, 'rfq_confirm_btn')}",
                 callback_data="rfq_confirm",
             ),
             InlineKeyboardButton(
-                f"❌ {get_text('rfq_cancel_btn', lang)}",
+                f"❌ {get_string(lang, 'rfq_cancel_btn')}",
                 callback_data="rfq_cancel",
             ),
         ]
@@ -310,7 +310,7 @@ async def confirm_quote_request(update: Update, context: ContextTypes.DEFAULT_TY
         context.user_data.pop(RFQ_DATA_KEY, None)
         logger.info(f"❌ RFQ ملغى | user={query.from_user.id}")
         await query.edit_message_text(
-            f"❌ {get_text('rfq_cancelled', lang)}"
+            f"❌ {get_string(lang, 'rfq_cancelled')}"
         )
         return ConversationHandler.END
 
@@ -318,7 +318,7 @@ async def confirm_quote_request(update: Update, context: ContextTypes.DEFAULT_TY
     rfq = context.user_data.get(RFQ_DATA_KEY)
     if not rfq:
         logger.error("❌ RFQ_DATA_KEY مفقود عند التأكيد")
-        await query.edit_message_text(get_text("rfq_session_expired", lang))
+        await query.edit_message_text(get_string(lang, "rfq_session_expired"))
         return ConversationHandler.END
 
     product = rfq["product"]
@@ -328,7 +328,7 @@ async def confirm_quote_request(update: Update, context: ContextTypes.DEFAULT_TY
     supplier_id: Optional[str] = product.get("supplier_id")
     if not supplier_id:
         logger.error(f"❌ supplier_id مفقود في المنتج {product.get('id')}")
-        await query.edit_message_text(get_text("rfq_error", lang))
+        await query.edit_message_text(get_string(lang, "rfq_error"))
         return ConversationHandler.END
 
     # 3. trader_id = UUID في جدول traders، trader_telegram_id = Telegram ID
@@ -337,7 +337,7 @@ async def confirm_quote_request(update: Update, context: ContextTypes.DEFAULT_TY
 
     if not trader_id or not trader_telegram_id:
         logger.error(f"❌ بيانات التاجر ناقصة: id={trader_id}, telegram_id={trader_telegram_id}")
-        await query.edit_message_text(get_text("rfq_error", lang))
+        await query.edit_message_text(get_string(lang, "rfq_error"))
         return ConversationHandler.END
 
     # 4. حفظ الطلب في DB
@@ -358,7 +358,7 @@ async def confirm_quote_request(update: Update, context: ContextTypes.DEFAULT_TY
         logger.info(f"✅ طلب RFQ حُفظ | id={quote_id} | product={product.get('id')}")
     except Exception as e:
         logger.error(f"❌ خطأ في حفظ طلب RFQ: {e}")
-        await query.edit_message_text(get_text("rfq_save_error", lang))
+        await query.edit_message_text(get_string(lang, "rfq_save_error"))
         return ConversationHandler.END
 
     # 5. إرسال إشعار للمورد
@@ -384,12 +384,12 @@ async def confirm_quote_request(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data.pop(RFQ_DATA_KEY, None)
 
     # رسالة النجاح للتاجر
-    product_title = product.get("title") or product.get("name") or get_text("unknown_product", lang)
+    product_title = product.get("title") or product.get("name") or get_string(lang, "unknown_product")
     await query.edit_message_text(
-        f"✅ *{get_text('rfq_success_title', lang)}*\n\n"
-        f"🏷 {get_text('product', lang)}: *{product_title}*\n"
-        f"🔖 {get_text('rfq_reference', lang)}: `{quote_id}`\n\n"
-        f"ℹ️ {get_text('rfq_success_note', lang)}",
+        f"✅ *{get_string(lang, 'rfq_success_title')}*\n\n"
+        f"🏷 {get_string(lang, 'product')}: *{product_title}*\n"
+        f"🔖 {get_string(lang, 'rfq_reference')}: `{quote_id}`\n\n"
+        f"ℹ️ {get_string(lang, 'rfq_success_note')}",
         parse_mode="Markdown",
     )
     return ConversationHandler.END
@@ -410,7 +410,7 @@ async def cancel_rfq(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logger.info(f"🚫 RFQ ملغى بـ /cancel | user={update.effective_user.id}")
 
     if update.message:
-        await update.message.reply_text(f"❌ {get_text('rfq_cancelled', lang)}")
+        await update.message.reply_text(f"❌ {get_string(lang, 'rfq_cancelled')}")
     return ConversationHandler.END
 
 
