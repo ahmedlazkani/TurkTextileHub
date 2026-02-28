@@ -213,3 +213,95 @@ def notify_quote_request_to_supplier(
     except Exception as e:
         logger.error("❌ خطأ في إرسال إشعار RFQ للمورد: %s", str(e))
         return False
+
+
+# ══════════════════════════════════════════════════════
+# إشعارات الخطوة 6 — مستمع القناة
+# ══════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════
+# مساعد داخلي — إرسال رسالة تليجرام
+# ══════════════════════════════════════════════════════
+
+def _send_message(chat_id: int, text: str, parse_mode: str = "HTML") -> bool:
+    """
+    المدخلات:
+        chat_id    (int): معرف المحادثة
+        text       (str): نص الرسالة
+        parse_mode (str): نمط التنسيق (HTML افتراضياً)
+    المخرجات: True عند النجاح، False عند الفشل
+    المنطق: دالة مساعدة داخلية لإرسال رسائل عبر Telegram Bot API مباشرة
+    """
+    try:
+        response = requests.post(
+            f"{_TELEGRAM_API_BASE}/sendMessage",
+            json={"chat_id": chat_id, "text": text, "parse_mode": parse_mode},
+            timeout=10,
+        )
+        response.raise_for_status()
+        logger.debug(f"✅ رسالة أُرسلت إلى {chat_id}")
+        return True
+    except Exception as e:
+        logger.error(f"❌ خطأ في إرسال رسالة تليجرام إلى {chat_id}: {e}")
+        return False
+
+
+# ══════════════════════════════════════════════════════
+# إشعار الأدمن عند نشر منتج من قناة
+# ══════════════════════════════════════════════════════
+
+def notify_channel_post_approved(
+    admin_id: int,
+    supplier_name: str,
+    product_title: str,
+) -> bool:
+    """
+    المدخلات:
+        admin_id      (int): معرف الأدمن في تليجرام
+        supplier_name (str): اسم شركة المورد
+        product_title (str): عنوان المنتج المنشور
+    المخرجات: True عند نجاح الإرسال، False عند الفشل
+    المنطق: يُرسل إشعاراً للأدمن عند موافقة المورد على نشر منتج من قناته
+    """
+    text = (
+        f"✅ <b>منتج جديد منشور!</b>\n\n"
+        f"🏢 المورد: <b>{supplier_name}</b>\n"
+        f"📦 المنتج: <b>{product_title}</b>\n\n"
+        f"وافق المورد على نشر المنتج من قناته تلقائياً."
+    )
+    logger.info(f"📣 إشعار أدمن: {supplier_name} — {product_title}")
+    return _send_message(admin_id, text)
+
+
+# ══════════════════════════════════════════════════════
+# تحذير المورد عند تجاوز الحد اليومي
+# ══════════════════════════════════════════════════════
+
+def notify_rate_limit_exceeded(
+    supplier_telegram_id: int,
+    lang: str = "ar",
+) -> bool:
+    """
+    المدخلات:
+        supplier_telegram_id (int): معرف المورد في تليجرام
+        lang                 (str): لغة الرسالة — ar|tr|en (افتراضي: ar)
+    المخرجات: True عند نجاح الإرسال، False عند الفشل
+    المنطق: يُرسل تحذيراً للمورد عند تجاوز الحد اليومي للمنشورات (10 منشورات/يوم)
+    """
+    messages = {
+        "ar": (
+            "⚠️ لقد تجاوزت الحد اليومي (10 منشورات). يتجدد الحد غداً.\n\n"
+            "📌 للحصول على حد أعلى، تواصل مع الدعم."
+        ),
+        "tr": (
+            "⚠️ Günlük limitinizi aştınız (10 gönderi). Limit yarın yenilenir.\n\n"
+            "📌 Daha yüksek bir limit için destek ile iletişime geçin."
+        ),
+        "en": (
+            "⚠️ You've exceeded the daily limit (10 posts). The limit resets tomorrow.\n\n"
+            "📌 Contact support for a higher limit."
+        ),
+    }
+    text = messages.get(lang, messages["ar"])
+    logger.warning(f"⚠️ تحذير rate limit للمورد {supplier_telegram_id}")
+    return _send_message(supplier_telegram_id, text)

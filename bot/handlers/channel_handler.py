@@ -124,31 +124,36 @@ async def start_connect_channel(update: Update, context: ContextTypes.DEFAULT_TY
     lang = context.user_data.get("lang", "ar")
     telegram_id = str(update.effective_user.id)
 
+    # تحديد ما إذا كان الطلب من زر (callback) أم من أمر نصي
+    is_callback = update.callback_query is not None
+    if is_callback:
+        # إظهار رد فعل فوري للمستخدم عند ضغط الزر
+        await update.callback_query.answer("🔗 جاري تحميل إعداد القناة...")
+
     await context.bot.send_chat_action(
         chat_id=update.effective_chat.id,
         action=ChatAction.TYPING
     )
 
+    # دالة مساعدة لإرسال الرد بغض النظر عن نوع التحديث
+    async def reply(text, reply_markup=None, parse_mode=None):
+        target = update.callback_query.message if is_callback else update.message
+        await target.reply_text(text=text, reply_markup=reply_markup, parse_mode=parse_mode)
+
     # التحقق من أن المستخدم مورد مسجل
     supplier = database_service.get_supplier_by_telegram_id(telegram_id)
     if not supplier:
-        await update.message.reply_text(
-            text=get_string(lang, "not_registered_supplier"),
-        )
+        await reply(text=get_string(lang, "not_registered_supplier"))
         return ConversationHandler.END
 
     # التحقق من حالة الحساب
     supplier_status = supplier.get("status", "pending")
     if supplier_status == "pending":
-        await update.message.reply_text(
-            text=get_string(lang, "channel_supplier_pending"),
-        )
+        await reply(text=get_string(lang, "channel_supplier_pending"))
         return ConversationHandler.END
 
     if supplier_status == "rejected":
-        await update.message.reply_text(
-            text=get_string(lang, "channel_supplier_rejected"),
-        )
+        await reply(text=get_string(lang, "channel_supplier_rejected"))
         return ConversationHandler.END
 
     # حفظ بيانات المورد في السياق
@@ -162,10 +167,8 @@ async def start_connect_channel(update: Update, context: ContextTypes.DEFAULT_TY
             f"  • {ch.get('channel_title', '')} (@{ch.get('channel_username', '')})"
             for ch in existing
         ])
-        await update.message.reply_text(
-            text=get_string(lang, "channel_already_connected").format(
-                channels=channel_list
-            ),
+        await reply(
+            text=get_string(lang, "channel_already_connected").format(channels=channel_list),
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton(
                     text=get_string(lang, "channel_add_another_btn"),
@@ -180,7 +183,8 @@ async def start_connect_channel(update: Update, context: ContextTypes.DEFAULT_TY
         return states.CHANNEL_CONFIRM_ADD_ANOTHER
 
     # عرض الخطوة التعليمية الأولى
-    return await _show_step_one(update.message, context, lang)
+    msg = update.callback_query.message if is_callback else update.message
+    return await _show_step_one(msg, context, lang)
 
 
 async def _show_step_one(message, context: ContextTypes.DEFAULT_TYPE, lang: str) -> int:

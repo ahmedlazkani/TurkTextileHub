@@ -622,3 +622,454 @@ def enable_channel(connection_id: str) -> bool:
     except requests.exceptions.RequestException as e:
         logger.error("❌ خطأ في تفعيل القناة %s: %s", connection_id, str(e))
         return False
+
+
+# ══════════════════════════════════════════════════════
+# دوال الخطوة 6 — مستمع القناة
+# ══════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════
+# 1. جلب اتصال القناة النشط
+# ══════════════════════════════════════════════════════
+
+def get_active_connection_by_channel_id(channel_id: int) -> Optional[dict]:
+    """
+    المدخلات: channel_id (bigint) — معرف قناة تليجرام
+    المخرجات: dict بيانات الاتصال النشط أو None إذا لم يوجد
+    المنطق: يبحث في channel_connections عن سجل بـ is_active=true و connection_status=active
+    """
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/channel_connections"
+        params = {
+            "channel_id":         f"eq.{channel_id}",
+            "is_active":          "eq.true",
+            "connection_status":  "eq.active",
+            "select":             "*",
+            "limit":              "1",
+        }
+        response = requests.get(url, headers=HEADERS, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        if data:
+            logger.debug(f"✅ اتصال نشط للقناة {channel_id}: {data[0]['id']}")
+            return data[0]
+        logger.debug(f"لا يوجد اتصال نشط للقناة {channel_id}")
+        return None
+    except Exception as e:
+        logger.error(f"❌ get_active_connection_by_channel_id({channel_id}): {e}")
+        raise
+
+
+# ══════════════════════════════════════════════════════
+# 2. التحقق من تكرار المنشور
+# ══════════════════════════════════════════════════════
+
+def is_duplicate_post(channel_id: int, message_id: int) -> bool:
+    """
+    المدخلات:
+        channel_id (int): معرف القناة
+        message_id (int): معرف الرسالة
+    المخرجات: True إذا كان موجوداً بالفعل في pending_posts، False إذا كان جديداً
+    المنطق: يتحقق من وجود (channel_id, message_id) في جدول pending_posts
+    """
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/pending_posts"
+        params = {
+            "channel_id":  f"eq.{channel_id}",
+            "message_id":  f"eq.{message_id}",
+            "select":      "id",
+            "limit":       "1",
+        }
+        response = requests.get(url, headers=HEADERS, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        is_dup = len(data) > 0
+        if is_dup:
+            logger.debug(f"🔁 منشور مكرر: channel_id={channel_id}, message_id={message_id}")
+        return is_dup
+    except Exception as e:
+        logger.error(f"❌ is_duplicate_post({channel_id}, {message_id}): {e}")
+        return False
+
+
+# ══════════════════════════════════════════════════════
+# 3. حفظ منشور معلق
+# ══════════════════════════════════════════════════════
+
+def save_pending_post(post_data: dict) -> Optional[dict]:
+    """
+    المدخلات:
+        post_data (dict): يحتوي على:
+            supplier_id   (str UUID)
+            channel_id    (int)
+            message_id    (int)
+            raw_text      (str)
+            image_urls    (list): قائمة file_ids للصور
+            video_url     (str|None)
+            extracted_data(dict): بيانات المنتج من AI
+    المخرجات: dict المنشور المحفوظ مع id أو None عند الفشل
+    المنطق: يحفظ في pending_posts مع expires_at = now + 24 ساعة وstatus=pending
+    """
+    try:
+        now        = datetime.utcnow()
+        expires_at = now + timedelta(hours=24)
+
+        payload = {
+            "supplier_id":    post_data["supplier_id"],
+            "channel_id":     post_data["channel_id"],
+            "message_id":     post_data["message_id"],
+            "raw_text":       post_data.get("raw_text", ""),
+            "image_urls":     post_data.get("image_urls", []),
+            "video_url":      post_data.get("video_url"),
+            "extracted_data": post_data.get("extracted_data", {}),
+            "status":         "pending",
+            "created_at":     now.isoformat() + "Z",
+            "expires_at":     expires_at.isoformat() + "Z",
+        }
+
+        response = requests.post(
+            f"{SUPABASE_URL}/rest/v1/pending_posts",
+            headers=HEADERS,
+            json=payload,
+            timeout=10,
+        )
+        response.raise_for_status()
+        data   = response.json()
+        result = data[0] if isinstance(data, list) and data else data
+        logger.info(f"💾 تم حفظ pending_post: {result.get('id')}")
+        return result
+    except Exception as e:
+        logger.error(f"❌ save_pending_post: {e}")
+        raise
+
+
+# ══════════════════════════════════════════════════════
+# 4. جلب منشور معلق بـ id
+# ══════════════════════════════════════════════════════
+
+def get_pending_post(pending_post_id: str) -> Optional[dict]:
+    """
+    المدخلات: pending_post_id (str UUID) — معرف المنشور المعلق
+    المخرجات: dict بيانات المنشور أو None إذا لم يوجد
+    المنطق: يجلب سجلاً واحداً من pending_posts بمعرفه
+    """
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/pending_posts"
+        params = {
+            "id":     f"eq.{pending_post_id}",
+            "select": "*",
+            "limit":  "1",
+        }
+        response = requests.get(url, headers=HEADERS, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        if data:
+            return data[0]
+        logger.warning(f"⚠️ pending_post {pending_post_id} غير موجود")
+        return None
+    except Exception as e:
+        logger.error(f"❌ get_pending_post({pending_post_id}): {e}")
+        raise
+
+
+# ══════════════════════════════════════════════════════
+# 5. تحديث حالة منشور معلق
+# ══════════════════════════════════════════════════════
+
+def update_pending_post_status(pending_post_id: str, status: str) -> bool:
+    """
+    المدخلات:
+        pending_post_id (str UUID): معرف المنشور
+        status          (str)     : الحالة الجديدة — approved|rejected|expired
+    المخرجات: True عند النجاح، False عند الفشل
+    المنطق: يحدّث حقل status وupdated_at في pending_posts
+    """
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/pending_posts"
+        params  = {"id": f"eq.{pending_post_id}"}
+        payload = {
+            "status":     status,
+            "updated_at": datetime.utcnow().isoformat() + "Z",
+        }
+        response = requests.patch(url, headers=HEADERS, params=params, json=payload, timeout=10)
+        response.raise_for_status()
+        logger.info(f"✅ تم تحديث حالة المنشور {pending_post_id} → {status}")
+        return True
+    except Exception as e:
+        logger.error(f"❌ update_pending_post_status({pending_post_id}, {status}): {e}")
+        return False
+
+
+# ══════════════════════════════════════════════════════
+# 6. نشر منتج من منشور معلق
+# ══════════════════════════════════════════════════════
+
+def publish_product_from_pending(pending_post_id: str) -> Optional[dict]:
+    """
+    المدخلات: pending_post_id (str UUID)
+    المخرجات: dict المنتج المنشور مع id أو None عند الفشل
+    المنطق:
+        1. جلب pending_post من قاعدة البيانات
+        2. استخدام extracted_data لملء حقول products
+        3. إنشاء سجل في جدول products
+        4. إعادة product_id عند النجاح
+    """
+    try:
+        # 1. جلب المنشور المعلق
+        post = get_pending_post(pending_post_id)
+        if not post:
+            logger.error(f"❌ pending_post {pending_post_id} غير موجود للنشر")
+            return None
+
+        # 2. استخدام extracted_data لملء حقول products
+        extracted = post.get("extracted_data") or {}
+        now       = datetime.utcnow()
+
+        product_payload = {
+            "supplier_id":            post["supplier_id"],
+            "title":                  extracted.get("title")       or "منتج جديد",
+            "title_en":               extracted.get("title_en")    or "New Product",
+            "description":            extracted.get("description") or "",
+            "description_en":         extracted.get("description_en") or "",
+            "category":               extracted.get("category")    or "other",
+            "category_en":            extracted.get("category_en") or "other",
+            "colors":                 extracted.get("colors")      or [],
+            "sizes":                  extracted.get("sizes")       or [],
+            "price":                  str(extracted["price"]) if extracted.get("price") is not None else None,
+            "currency":               extracted.get("currency"),
+            "minimum_order_quantity": extracted.get("minimum_order_quantity"),
+            "image_urls":             post.get("image_urls")       or [],
+            "video_url":              post.get("video_url"),
+            "source_message_id":      post.get("message_id"),
+            "source_channel_id":      post.get("channel_id"),
+            "status":                 "active",
+            "created_at":             now.isoformat() + "Z",
+            "updated_at":             now.isoformat() + "Z",
+        }
+
+        # 3. إنشاء سجل في جدول products
+        response = requests.post(
+            f"{SUPABASE_URL}/rest/v1/products",
+            headers=HEADERS,
+            json=product_payload,
+            timeout=10,
+        )
+        response.raise_for_status()
+        data    = response.json()
+        product = data[0] if isinstance(data, list) and data else data
+        logger.info(f"🛍 تم نشر المنتج: {product.get('id')} من pending_post {pending_post_id}")
+        return product
+    except Exception as e:
+        logger.error(f"❌ publish_product_from_pending({pending_post_id}): {e}")
+        raise
+
+
+# ══════════════════════════════════════════════════════
+# 7. التحقق من حد المعدل اليومي
+# ══════════════════════════════════════════════════════
+
+def check_rate_limit(supplier_id: str, max_posts: int = 10) -> bool:
+    """
+    المدخلات:
+        supplier_id (str UUID): معرف المورد
+        max_posts   (int)     : الحد الأقصى للمنشورات اليومية (افتراضي: 10)
+    المخرجات: True إذا لم يتجاوز الحد، False إذا تجاوزه
+    المنطق:
+        1. جلب سجل rate_limits لليوم الحالي
+        2. إذا وُجد وتجاوز الحد → إعادة False
+        3. إذا وُجد ولم يتجاوز → زيادة posts_count تلقائياً → True
+        4. إذا لم يوجد → إنشاء سجل جديد بـ posts_count=1 → True
+    """
+    try:
+        today = datetime.utcnow().date().isoformat()
+        url   = f"{SUPABASE_URL}/rest/v1/rate_limits"
+        params = {
+            "supplier_id": f"eq.{supplier_id}",
+            "date":        f"eq.{today}",
+            "select":      "*",
+            "limit":       "1",
+        }
+        response = requests.get(url, headers=HEADERS, params=params, timeout=10)
+        response.raise_for_status()
+        records = response.json()
+
+        if records:
+            record        = records[0]
+            current_count = record.get("posts_count", 0)
+
+            if current_count >= max_posts:
+                logger.warning(
+                    f"⚠️ المورد {supplier_id} تجاوز حد {max_posts} منشورات/يوم "
+                    f"(الحالي: {current_count})"
+                )
+                return False
+
+            # زيادة العداد تلقائياً
+            requests.patch(
+                url,
+                headers=HEADERS,
+                params={"id": f"eq.{record['id']}"},
+                json={"posts_count": current_count + 1},
+                timeout=10,
+            )
+        else:
+            # إنشاء سجل جديد
+            requests.post(
+                url,
+                headers=HEADERS,
+                json={
+                    "supplier_id":    supplier_id,
+                    "date":           today,
+                    "posts_count":    1,
+                    "api_calls_count": 0,
+                },
+                timeout=10,
+            )
+
+        logger.debug(f"✅ rate limit OK للمورد {supplier_id}")
+        return True
+    except Exception as e:
+        logger.error(f"❌ check_rate_limit({supplier_id}): {e}")
+        return True  # السماح بالمرور عند خطأ التحقق
+
+
+# ══════════════════════════════════════════════════════
+# 8. قراءة قيمة من cache
+# ══════════════════════════════════════════════════════
+
+def get_cache(cache_key: str) -> Optional[dict]:
+    """
+    المدخلات: cache_key (str) — مفتاح البحث في جدول cache
+    المخرجات: dict القيمة المخزنة أو None إذا انتهت الصلاحية أو لم توجد
+    المنطق: يتحقق من expires_at قبل إعادة القيمة
+    """
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/cache"
+        params = {
+            "cache_key": f"eq.{cache_key}",
+            "select":    "*",
+            "limit":     "1",
+        }
+        response = requests.get(url, headers=HEADERS, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+
+        if not data:
+            return None
+
+        record     = data[0]
+        expires_at = record.get("expires_at", "")
+
+        if expires_at:
+            exp = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            now = datetime.utcnow().replace(tzinfo=exp.tzinfo)
+            if now > exp:
+                logger.debug(f"⏰ cache منتهي الصلاحية: {cache_key}")
+                return None
+
+        logger.debug(f"💾 cache hit: {cache_key}")
+        return record.get("cache_value")
+    except Exception as e:
+        logger.error(f"❌ get_cache({cache_key}): {e}")
+        return None
+
+
+# ══════════════════════════════════════════════════════
+# 9. حفظ قيمة في cache
+# ══════════════════════════════════════════════════════
+
+def set_cache(cache_key: str, value: dict, ttl_hours: int = 24) -> bool:
+    """
+    المدخلات:
+        cache_key (str) : مفتاح التخزين
+        value     (dict): القيمة المراد تخزينها
+        ttl_hours (int) : مدة الصلاحية بالساعات (افتراضي: 24)
+    المخرجات: True عند النجاح، False عند الفشل
+    المنطق: يحفظ في جدول cache مع expires_at = now + ttl_hours
+    """
+    try:
+        now        = datetime.utcnow()
+        expires_at = now + timedelta(hours=ttl_hours)
+
+        payload = {
+            "cache_key":   cache_key,
+            "cache_value": value,
+            "ttl":         ttl_hours * 3600,
+            "created_at":  now.isoformat() + "Z",
+            "expires_at":  expires_at.isoformat() + "Z",
+        }
+
+        # upsert: إنشاء أو تحديث
+        upsert_headers = {
+            **HEADERS,
+            "Prefer": "resolution=merge-duplicates,return=representation",
+        }
+        response = requests.post(
+            f"{SUPABASE_URL}/rest/v1/cache",
+            headers=upsert_headers,
+            json=payload,
+            timeout=10,
+        )
+
+        if response.status_code in (200, 201):
+            logger.debug(f"✅ cache set: {cache_key} (TTL={ttl_hours}h)")
+            return True
+        logger.warning(f"⚠️ cache set غير ناجح: {response.status_code}")
+        return False
+    except Exception as e:
+        logger.error(f"❌ set_cache({cache_key}): {e}")
+        return False
+
+
+# ══════════════════════════════════════════════════════
+# 10. جلب بيانات المورد بمعرفه
+# ══════════════════════════════════════════════════════
+
+def get_supplier_by_id(supplier_id: str) -> Optional[dict]:
+    """
+    المدخلات: supplier_id (str UUID)
+    المخرجات: dict بيانات المورد من bot_registrations أو None
+    المنطق: يجلب سجل المورد من جدول bot_registrations بمعرفه
+    """
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/bot_registrations"
+        params = {
+            "id":     f"eq.{supplier_id}",
+            "select": "*",
+            "limit":  "1",
+        }
+        response = requests.get(url, headers=HEADERS, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        return data[0] if data else None
+    except Exception as e:
+        logger.error(f"❌ get_supplier_by_id({supplier_id}): {e}")
+        return None
+
+
+# ══════════════════════════════════════════════════════
+# 11. تحديث extracted_data في منشور معلق (للتعديل)
+# ══════════════════════════════════════════════════════
+
+def update_pending_post_extracted_data(pending_post_id: str, extracted_data: dict) -> bool:
+    """
+    المدخلات:
+        pending_post_id (str UUID): معرف المنشور
+        extracted_data  (dict)    : البيانات المستخرجة المحدّثة
+    المخرجات: True عند النجاح، False عند الفشل
+    المنطق: يحدّث حقل extracted_data وupdated_at في pending_posts
+    """
+    try:
+        url     = f"{SUPABASE_URL}/rest/v1/pending_posts"
+        params  = {"id": f"eq.{pending_post_id}"}
+        payload = {
+            "extracted_data": extracted_data,
+            "updated_at":     datetime.utcnow().isoformat() + "Z",
+        }
+        response = requests.patch(url, headers=HEADERS, params=params, json=payload, timeout=10)
+        response.raise_for_status()
+        logger.info(f"✅ تم تحديث extracted_data للمنشور {pending_post_id}")
+        return True
+    except Exception as e:
+        logger.error(f"❌ update_pending_post_extracted_data({pending_post_id}): {e}")
+        return False

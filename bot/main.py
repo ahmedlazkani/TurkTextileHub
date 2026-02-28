@@ -26,6 +26,7 @@ from bot.handlers import (
     product_handler,
     browse_handler,
     channel_handler,
+    channel_post_handler,
 )
 
 # ===================================================
@@ -206,7 +207,7 @@ def main() -> None:
         CallbackQueryHandler(start_handler.change_language, pattern="^change_language$")
     )
     application.add_handler(
-        CallbackQueryHandler(start_handler.set_language, pattern="^lang_(ar|tr|en)$")
+        CallbackQueryHandler(start_handler.set_language, pattern="^set_lang_(ar|tr|en)$")
     )
 
     # معالجات لوحة تحكم المورد — قنواتي والعودة للوحة
@@ -217,6 +218,44 @@ def main() -> None:
         CallbackQueryHandler(start_handler.back_to_dashboard, pattern="^back_to_dashboard$")
     )
 
+    # ===================================================
+    # 6. معالجات منشورات القناة — الخطوة 6
+    # يلتقط المنشورات من القنوات المربوطة ويرسلها للمورد للموافقة
+    # ===================================================
+
+    # مستمع منشورات القناة
+    application.add_handler(
+        MessageHandler(
+            filters.ChatType.CHANNEL & (
+                filters.PHOTO |
+                filters.VIDEO |
+                filters.Document.IMAGE |
+                filters.TEXT
+            ),
+            channel_post_handler.handle_channel_post,
+        )
+    )
+
+    # معالج الموافقة على المنشور
+    application.add_handler(
+        CallbackQueryHandler(
+            channel_post_handler.handle_post_approval,
+            pattern="^approve_post_",
+        )
+    )
+
+    # معالج رفض المنشور
+    application.add_handler(
+        CallbackQueryHandler(
+            channel_post_handler.handle_post_rejection,
+            pattern="^reject_post_",
+        )
+    )
+
+    # ConversationHandler لتعديل المنشور
+    post_edit_conv = channel_post_handler.get_post_edit_conversation_handler()
+    application.add_handler(post_edit_conv)
+
     # معالج الأخطاء العالمي
     application.add_error_handler(error_handler)
 
@@ -224,6 +263,7 @@ def main() -> None:
     logger.info("🔄 البوت يعمل الآن في وضع polling...")
 
     application.run_polling(
+        allowed_updates=["message", "channel_post", "callback_query", "inline_query"],
         drop_pending_updates=True,
         close_loop=False,
     )
