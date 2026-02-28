@@ -7,13 +7,18 @@ bot/services/ai_service.py
     يستخرج بيانات المنتج المنظمة من النص العربي/التركي لمنشورات القناة.
 
 المتطلبات:
-    - متغير البيئة: OPENAI_API_KEY (يُقرأ تلقائياً بـ openai.OpenAI())
+    - متغير البيئة: OPENAI_API_KEY (يُقرأ عند أول استخدام فعلي)
     - مكتبة: openai>=1.0.0
+
+ملاحظة مهمة:
+    يتم إنشاء عميل OpenAI عند أول استدعاء فعلي وليس عند الاستيراد،
+    لتجنب كراش البوت عند غياب OPENAI_API_KEY في بيئة الإنتاج.
 """
 
 import json
 import logging
 import hashlib
+import os
 from typing import Optional
 
 import openai
@@ -22,10 +27,46 @@ from bot.services import database_service
 
 logger = logging.getLogger(__name__)
 
-# عميل OpenAI — يقرأ OPENAI_API_KEY تلقائياً من البيئة
-client = openai.OpenAI()
-
 _MODEL = "gpt-4o-mini"
+
+# ══════════════════════════════════════════════════════
+# إنشاء عميل OpenAI بشكل كسول (lazy initialization)
+# ══════════════════════════════════════════════════════
+_client: Optional[openai.OpenAI] = None
+
+
+def _get_client() -> Optional[openai.OpenAI]:
+    """
+    يُعيد عميل OpenAI، وينشئه عند أول استدعاء.
+
+    المخرجات:
+        openai.OpenAI إذا كان OPENAI_API_KEY موجوداً، None إذا غاب.
+
+    المنطق:
+        - يتحقق من وجود OPENAI_API_KEY في البيئة
+        - إذا غاب: يسجّل تحذيراً ويعيد None (البوت يستمر بدون AI)
+        - إذا وُجد: ينشئ العميل مرة واحدة ويخزّنه في _client
+    """
+    global _client
+    if _client is not None:
+        return _client
+
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        logger.warning(
+            "⚠️ OPENAI_API_KEY غير موجود في البيئة — "
+            "ميزة استخراج المنتجات بالذكاء الاصطناعي معطّلة. "
+            "أضف OPENAI_API_KEY في متغيرات Railway لتفعيلها."
+        )
+        return None
+
+    try:
+        _client = openai.OpenAI(api_key=api_key)
+        logger.info("✅ عميل OpenAI جاهز")
+        return _client
+    except Exception as e:
+        logger.error(f"❌ فشل إنشاء عميل OpenAI: {e}")
+        return None
 
 
 # ══════════════════════════════════════════════════════
@@ -67,19 +108,26 @@ def extract_product_data(raw_text: str, image_count: int = 0) -> dict:
               description_en, category, category_en, colors, sizes,
               price, currency, minimum_order_quantity
     المنطق:
-        1. تحقق من cache أولاً: database_service.get_cache(cache_key)
-        2. إذا لم يوجد، استدع OpenAI API (sync)
-        3. احفظ النتيجة في cache لمدة 24 ساعة
-        4. في حالة فشل API: أعد قيماً افتراضية بدلاً من رفع exception
+        1. تحقق من وجود OPENAI_API_KEY — إذا غاب أعد بيانات افتراضية
+        2. تحقق من cache أولاً: database_service.get_cache(cache_key)
+        3. إذا لم يوجد، استدع OpenAI API (sync)
+        4. احفظ النتيجة في cache لمدة 24 ساعة
+        5. في حالة فشل API: أعد قيماً افتراضية بدلاً من رفع exception
     """
     if not raw_text or not raw_text.strip():
         logger.debug("نص المنشور فارغ — إعادة بيانات افتراضية")
         return get_default_product_data(raw_text)
 
+    # 1. تحقق من وجود عميل OpenAI
+    client = _get_client()
+    if client is None:
+        logger.warning("⚠️ OpenAI غير متاح — إعادة بيانات افتراضية")
+        return get_default_product_data(raw_text)
+
     # بناء cache_key من أول 100 حرف من النص
     cache_key = f"ai_extract_{hashlib.md5(raw_text[:100].encode('utf-8')).hexdigest()}"
 
-    # 1. تحقق من cache أولاً
+    # 2. تحقق من cache أولاً
     try:
         cached = database_service.get_cache(cache_key)
         if cached:
