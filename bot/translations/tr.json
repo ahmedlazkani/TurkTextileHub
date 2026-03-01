@@ -42,7 +42,7 @@
   "add_product_confirm": "👁️ Ürün Önizlemesi:\n\n📁 Kategori: {category}\n💰 Fiyat: {price}\n\nBu ürünü yayınlamak istiyor musunuz?",
   "publish_btn": "✅ Evet, Şimdi Yayınla",
   "cancel_btn": "❌ İptal",
-  "add_product_success": "✅ Ürününüz başarıyla yayınlandı! Tüccarlar artık görebilir.",
+  "add_product_success": "✅ Ürününüz başarıyla alındı!\n\n📋 Ürün şu anda admin incelemesinde.\nOnaylandıktan sonra tüccarlara görünür olacak ve size bildirim gönderilecek.",
   "add_product_no_images": "❌ Fotoğraf gönderilmedi. Lütfen en az bir fotoğraf gönderin.",
   "not_registered_supplier": "⚠️ Ürün eklemek için kayıtlı bir tedarikçi olmalısınız.\nÖnce kayıt olmak için /start kullanın.",
   "browse_start": "🔍 Göz atmak istediğiniz ürün kategorisini seçin:",

@@ -237,17 +237,26 @@ def get_supplier_uuid_by_telegram_id(telegram_id: str) -> Optional[str]:
 def add_product(product_data: dict) -> bool:
     """
     يحفظ بيانات المنتج الجديد في جدول products في Supabase.
-    يجلب supplier_id من جدول suppliers باستخدام telegram_id إذا لم يُوفَّر مباشرة.
+
+    المنطق:
+    - يحاول أولاً جلب supplier_id من جدول suppliers عبر sales_telegram_id.
+    - إذا لم يُوجد سجل في suppliers (مورد البوت فقط)، يحفظ المنتج باستخدام
+      bot_supplier_telegram_id مع supplier_id=NULL (مسموح بعد migration).
+
+    المُدخلات:
+        product_data (dict): يحتوي على telegram_id, title, category, images, price
+
+    المُخرجات:
+        bool: True عند النجاح، False عند الفشل
     """
     import re as _re
-    # جلب supplier_id من جدول suppliers
-    supplier_id = product_data.get("supplier_id")
+
     telegram_id = product_data.get("telegram_id")
+
+    # محاولة جلب supplier_id من جدول suppliers
+    supplier_id = product_data.get("supplier_id")
     if not supplier_id and telegram_id:
         supplier_id = get_supplier_uuid_by_telegram_id(str(telegram_id))
-    if not supplier_id:
-        logger.error("❌ لا يوجد supplier_id صالح لإضافة المنتج")
-        return False
 
     url = f"{SUPABASE_URL}/rest/v1/products"
     price_raw = product_data.get("price")
@@ -261,19 +270,30 @@ def add_product(product_data: dict) -> bool:
                 pass
 
     payload = {
-        "supplier_id": supplier_id,
         "title": product_data.get("title") or "منتج جديد",
         "category": product_data.get("category") or "other",
         "image_urls": product_data.get("images", []),
-        "status": "active",
+        "status": "pending",  # pending حتى يوافق الأدمن
     }
+
+    # إضافة supplier_id إذا وُجد، وإلا استخدام bot_supplier_telegram_id
+    if supplier_id:
+        payload["supplier_id"] = supplier_id
+        logger.info("✅ ربط المنتج بـ suppliers.id: %s", supplier_id)
+    elif telegram_id:
+        payload["bot_supplier_telegram_id"] = int(telegram_id)
+        logger.info("✅ ربط المنتج بـ bot_supplier_telegram_id: %s", telegram_id)
+    else:
+        logger.error("❌ لا يوجد معرّف مورد صالح لإضافة المنتج")
+        return False
+
     if price_val is not None:
         payload["price"] = price_val
 
     try:
         response = requests.post(url, json=payload, headers=HEADERS, timeout=10)
         if response.status_code == 201:
-            logger.info("✅ تم حفظ المنتج بنجاح للمورد: %s", supplier_id)
+            logger.info("✅ تم حفظ المنتج بنجاح")
             return True
         logger.error("❌ فشل حفظ المنتج: status=%d, response=%s", response.status_code, response.text)
         return False

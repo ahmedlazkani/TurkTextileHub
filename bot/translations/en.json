@@ -44,7 +44,7 @@
   "add_product_confirm": "👁️ Product Preview:\n\n📁 Category: {category}\n💰 Price: {price}\n\nDo you want to publish this product?",
   "publish_btn": "✅ Yes, Publish Now",
   "cancel_btn": "❌ Cancel",
-  "add_product_success": "✅ Your product has been published successfully! Traders can see it now.",
+  "add_product_success": "✅ Your product has been received successfully!\n\n📋 The product is now under admin review.\nYou will be notified once it's approved and visible to traders.",
   "add_product_no_images": "❌ No images received. Please send at least one photo.",
   "not_registered_supplier": "⚠️ You must be a registered supplier to add products.\nUse /start to register first.",
   "browse_start": "🔍 Choose a product category to browse:",

@@ -297,7 +297,7 @@ async def finish_add_product(update: Update, context: ContextTypes.DEFAULT_TYPE)
             caption=get_string(lang, "add_product_success")
         )
     else:
-        logger.error("❌ فشل نشر المنتج للمورد: %s", product_data["supplier_id"])
+        logger.error("❌ فشل نشر المنتج للمورد: %s", product_data.get("telegram_id", "unknown"))
         await query.edit_message_caption(
             caption=get_string(lang, "error_general")
         )
