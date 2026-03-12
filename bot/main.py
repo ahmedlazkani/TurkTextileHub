@@ -1,6 +1,7 @@
 # ===================================================
 # bot/main.py
 # نقطة الدخول الرئيسية للبوت TurkTextileHub
+# تحديث: إضافة stock_handler, order_handler, stats_handler
 # ===================================================
 
 import logging
@@ -27,7 +28,11 @@ from bot.handlers import (
     browse_handler,
     channel_handler,
     channel_post_handler,
+    stock_handler,
+    order_handler,
+    stats_handler,
 )
+from bot.services import kayisoft_api
 
 # ===================================================
 # إعداد نظام السجلات
@@ -59,6 +64,13 @@ def main() -> None:
     تُسجّل جميع المعالجات بالترتيب الصحيح وتشغّل البوت.
     """
     logger.info("🚀 جاري تشغيل بوت TurkTextileHub...")
+
+    # فحص اتصال KAYISOFT API عند البدء
+    kayisoft_connected = kayisoft_api.health_check()
+    if kayisoft_connected:
+        logger.info("✅ KAYISOFT API متصل")
+    else:
+        logger.info("ℹ️ KAYISOFT API غير متصل — البوت يعمل في وضع Supabase-only")
 
     application = Application.builder().token(BOT_TOKEN).build()
 
@@ -135,12 +147,11 @@ def main() -> None:
 
     # ===================================================
     # 3. ConversationHandler: إضافة منتج
-    # التدفق: /add_product أو زر لوحة التحكم ← الصور ← الفئة ← السعر ← معاينة ← نشر
+    # التدفق: /add_product ← الصور ← الفئة ← السعر ← معاينة ← نشر → KAYISOFT API
     # ===================================================
     product_conv = ConversationHandler(
         entry_points=[
             CommandHandler("add_product", product_handler.start_add_product),
-            # زر "إضافة منتج جديد" من لوحة تحكم المورد
             CallbackQueryHandler(
                 product_handler.start_add_product_from_button,
                 pattern="^post_reg_add_product$"
@@ -151,18 +162,24 @@ def main() -> None:
                 MessageHandler(filters.PHOTO, product_handler.get_images)
             ],
             states.GETTING_CATEGORY: [
+                # فئات ثابتة (fallback)
                 CallbackQueryHandler(
                     product_handler.get_category,
                     pattern="^cat_(abayas|dresses|hijab|sets|other)$"
-                )
+                ),
+                # فئات KAYISOFT ديناميكية
+                CallbackQueryHandler(
+                    product_handler.get_category,
+                    pattern="^kcat_"
+                ),
             ],
             states.GETTING_PRICE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, product_handler.get_price),
                 CallbackQueryHandler(product_handler.skip_price, pattern="^price_skip$"),
             ],
             states.CONFIRM_ADD_PRODUCT: [
-                CallbackQueryHandler(product_handler.finish_add_product, pattern="^product_confirm_yes$"),
-                CallbackQueryHandler(product_handler.cancel_add_product, pattern="^product_confirm_no$"),
+                CallbackQueryHandler(product_handler.finish_add_product,  pattern="^product_confirm_yes$"),
+                CallbackQueryHandler(product_handler.cancel_add_product,  pattern="^product_confirm_no$"),
             ],
         },
         fallbacks=[CommandHandler("cancel", product_handler.cancel_add_product)],
@@ -173,19 +190,16 @@ def main() -> None:
 
     # ===================================================
     # 4. ConversationHandler: تصفح المنتجات + RFQ
-    # التدفق: /browse أو زر لوحة التحكم ← اختيار الفئة ← تصفح ← طلب عرض سعر
     # ===================================================
     browse_conv = browse_handler.get_rfq_conversation_handler()
 
     # ===================================================
     # 5. ConversationHandler: ربط القناة
-    # التدفق: /connect_channel ← تعليمات ← اسم القناة ← تحقق ثلاثي ← تأكيد ← حفظ
     # ===================================================
     channel_conv = channel_handler.get_channel_conversation_handler()
 
     # ===================================================
     # تسجيل المعالجات بالترتيب الصحيح
-    # ConversationHandlers أولاً، ثم المعالجات المستقلة
     # ===================================================
 
     # أمر /start
@@ -195,14 +209,20 @@ def main() -> None:
     application.add_handler(supplier_conv)
     application.add_handler(trader_conv)
 
-    # محادثات المنتجات والتصفح (تشمل أزرار لوحة التحكم كـ entry_points)
+    # محادثات المنتجات والتصفح
     application.add_handler(product_conv)
     application.add_handler(browse_conv)
 
-    # محادثة ربط القناة (للموردين المعتمدين فقط)
+    # محادثة ربط القناة
     application.add_handler(channel_conv)
-    # معالجات مستقلة للقناة (زر أحتاج مساعدة خارج سياق المحادثة)
     channel_handler.register_channel_standalone_handlers(application)
+
+    # ===================================================
+    # 6. المعالجات الجديدة: المخزون، الطلبات، الإحصائيات
+    # ===================================================
+    stock_handler.register_stock_handlers(application)
+    order_handler.register_order_handlers(application)
+    stats_handler.register_stats_handlers(application)
 
     # معالجات تغيير اللغة
     application.add_handler(
@@ -212,14 +232,13 @@ def main() -> None:
         CallbackQueryHandler(start_handler.set_language, pattern="^set_lang_(ar|tr|en)$")
     )
 
-    # معالجات لوحة تحكم المورد — قنواتي والعودة للوحة
+    # معالجات لوحة تحكم المورد
     application.add_handler(
         CallbackQueryHandler(start_handler.show_my_channels, pattern="^my_channels$")
     )
     application.add_handler(
         CallbackQueryHandler(start_handler.back_to_dashboard, pattern="^back_to_dashboard$")
     )
-    # معالجات أزرار المورد المرفوض (إعادة التقديم / مراسلة الأدمن)
     application.add_handler(
         CallbackQueryHandler(start_handler.supplier_reapply, pattern="^supplier_reapply$")
     )
@@ -227,12 +246,22 @@ def main() -> None:
         CallbackQueryHandler(start_handler.supplier_contact_admin, pattern="^supplier_contact_admin$")
     )
 
+    # زر ربط القناة من الإحصائيات
+    application.add_handler(
+        CallbackQueryHandler(
+            channel_handler.start_connect_channel_from_button,
+            pattern="^connect_channel_btn$"
+        ) if hasattr(channel_handler, "start_connect_channel_from_button") else
+        CallbackQueryHandler(
+            lambda u, c: None,
+            pattern="^connect_channel_btn$"
+        )
+    )
+
     # ===================================================
-    # 6. معالجات منشورات القناة — الخطوة 6
-    # يلتقط المنشورات من القنوات المربوطة ويرسلها للمورد للموافقة
+    # 7. معالجات منشورات القناة
     # ===================================================
 
-    # مستمع منشورات القناة
     application.add_handler(
         MessageHandler(
             filters.ChatType.CHANNEL & (
@@ -245,7 +274,6 @@ def main() -> None:
         )
     )
 
-    # معالج الموافقة على المنشور
     application.add_handler(
         CallbackQueryHandler(
             channel_post_handler.handle_post_approval,
@@ -253,7 +281,6 @@ def main() -> None:
         )
     )
 
-    # معالج رفض المنشور
     application.add_handler(
         CallbackQueryHandler(
             channel_post_handler.handle_post_rejection,
@@ -261,7 +288,6 @@ def main() -> None:
         )
     )
 
-    # ConversationHandler لتعديل المنشور
     post_edit_conv = channel_post_handler.get_post_edit_conversation_handler()
     application.add_handler(post_edit_conv)
 
