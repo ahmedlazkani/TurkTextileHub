@@ -1,145 +1,107 @@
-# ===================================================
-# bot/states.py
-# ثوابت حالات المحادثة - تُستخدم في ConversationHandler
-# المرحلة السادسة: إضافة حالات إدارة المنتجات والتصفح
-# تحديث: إضافة حالات product_handler الجديدة (KAYISOFT API)
-# KAYISOFT - إسطنبول، تركيا
-# ===================================================
+"""
+bot/states.py
+=============
+ConversationHandler State Constants
+====================================
 
-# ===================================================
-# حالات تسجيل الموردين (1-6)
-# ===================================================
+Purpose:
+    Defines all integer state constants used by python-telegram-bot's
+    ConversationHandler across every flow in the bot.
 
-# مرحلة إدخال اسم الشركة أو المتجر
-COMPANY_NAME = 1
+Naming Convention:
+    States are grouped by flow and assigned non-overlapping integer ranges
+    to prevent cross-flow conflicts.
 
-# مرحلة إدخال اسم الشخص المسؤول للتواصل
-CONTACT_NAME = 2
+    Range   Flow
+    ─────   ─────────────────────────────────────────────────
+    1–6     Supplier Registration
+    10–13   Trader Registration
+    20–28   Product Addition (legacy 20-23, KAYISOFT 24-28)
+    30–31   Product Browsing
+    40–44   Request for Quotation (RFQ)
+    50–53   Channel Connection
+    60–64   Channel Post Editing
 
-# مرحلة اختيار المدينة
-SUPPLIER_CITY = 3
+Author:
+    TurkTextileHub Engineering Team
+"""
 
-# مرحلة إدخال رقم الهاتف مع رمز الدولة
-PHONE_NUMBER = 4
+# ──────────────────────────────────────────────────────────
+# SUPPLIER REGISTRATION  (1–6)
+# ──────────────────────────────────────────────────────────
 
-# مرحلة السؤال عن موظف المبيعات
-SALES_REP = 5
+COMPANY_NAME        = 1   # Enter company / store name
+CONTACT_NAME        = 2   # Enter responsible contact person's name
+SUPPLIER_CITY       = 3   # Select city
+PHONE_NUMBER        = 4   # Enter phone number with country code
+SALES_REP           = 5   # Does the supplier have a sales representative?
+SALES_REP_USERNAME  = 6   # Enter sales representative's Telegram username
 
-# مرحلة إدخال يوزرنيم موظف المبيعات
-SALES_REP_USERNAME = 6
+# ──────────────────────────────────────────────────────────
+# TRADER REGISTRATION  (10–13)
+# ──────────────────────────────────────────────────────────
 
-# ===================================================
-# حالات تسجيل التجار (10-13)
-# الأرقام تبدأ من 10 لتجنب التعارض مع حالات الموردين
-# ===================================================
+TRADER_FULL_NAME     = 10  # Enter trader's full name
+TRADER_PHONE         = 11  # Enter trader's phone number
+TRADER_COUNTRY       = 12  # Enter trader's country
+TRADER_BUSINESS_TYPE = 13  # Select business activity type
 
-# مرحلة إدخال الاسم الكامل للتاجر
-TRADER_FULL_NAME = 10
+# ──────────────────────────────────────────────────────────
+# PRODUCT ADDITION — KAYISOFT API FLOW  (20–28)
+#
+# Full flow:
+#   GETTING_MAIN_CATEGORY
+#       → GETTING_SUB_CATEGORY  (if sub-categories exist)
+#           → GETTING_ATTRIBUTES  (form, one field at a time)
+#               → GETTING_IMAGES  (per variant or general)
+#                   → CONFIRM_KAYISOFT_PRODUCT
+#
+# Note: GETTING_IMAGES (20) is shared between legacy and KAYISOFT flows.
+# ──────────────────────────────────────────────────────────
 
-# مرحلة إدخال رقم هاتف التاجر
-TRADER_PHONE = 11
+GETTING_IMAGES            = 20  # Receive product images (shared: legacy + KAYISOFT)
+GETTING_CATEGORY          = 21  # Legacy: select product category
+GETTING_PRICE             = 22  # Legacy: enter product price
+CONFIRM_ADD_PRODUCT       = 23  # Legacy: confirm product publication
 
-# مرحلة إدخال دولة التاجر
-TRADER_COUNTRY = 12
+GETTING_MAIN_CATEGORY     = 24  # Select root category from KAYISOFT dynamic tree
+GETTING_SUB_CATEGORY      = 25  # Select sub-category (skipped if none exist)
+GETTING_ATTRIBUTES        = 26  # Fill product attributes (colors, sizes, brand…)
+GETTING_MIN_QUANTITY      = 27  # Enter minimum order quantity
+CONFIRM_KAYISOFT_PRODUCT  = 28  # Confirm and publish product to KAYISOFT + channel
 
-# مرحلة اختيار نوع النشاط التجاري
-TRADER_BUSINESS_TYPE = 13
+# ──────────────────────────────────────────────────────────
+# PRODUCT BROWSING  (30–31)
+# ──────────────────────────────────────────────────────────
 
-# ===================================================
-# حالات إضافة المنتجات — النظام القديم (20-23)
-# محفوظة للتوافق مع ConversationHandler الموجود
-# ===================================================
+BROWSING_CATEGORY = 30  # Select category to browse
+BROWSING_PRODUCTS = 31  # Navigate through product listings
 
-# مرحلة استقبال صور المنتج
-GETTING_IMAGES = 20
+# ──────────────────────────────────────────────────────────
+# REQUEST FOR QUOTATION (RFQ)  (40–44)
+# ──────────────────────────────────────────────────────────
 
-# مرحلة اختيار فئة المنتج
-GETTING_CATEGORY = 21
+GETTING_QUOTE_QUANTITY      = 40  # Enter requested quantity (optional)
+GETTING_QUOTE_COLOR         = 41  # Enter requested color (optional)
+GETTING_QUOTE_SIZE          = 42  # Enter requested size (optional)
+GETTING_QUOTE_DELIVERY_DATE = 43  # Enter requested delivery date (optional)
+CONFIRM_QUOTE_REQUEST       = 44  # Confirm and send RFQ to supplier
 
-# مرحلة إدخال سعر المنتج
-GETTING_PRICE = 22
+# ──────────────────────────────────────────────────────────
+# CHANNEL CONNECTION  (50–53)
+# ──────────────────────────────────────────────────────────
 
-# مرحلة تأكيد نشر المنتج
-CONFIRM_ADD_PRODUCT = 23
+CHANNEL_WAITING_READY       = 50  # Waiting for supplier to add bot as admin
+CHANNEL_WAITING_USERNAME    = 51  # Waiting for supplier to send channel @username
+CHANNEL_CONFIRM_CONNECT     = 52  # Confirm channel connection after triple verification
+CHANNEL_CONFIRM_ADD_ANOTHER = 53  # Ask supplier whether to add another channel
 
-# ===================================================
-# حالات إضافة المنتجات — النظام الجديد KAYISOFT API (24-28)
-# يستخدم شجرة التصنيف الديناميكية + رفع الصور لـ MinIO
-# ===================================================
+# ──────────────────────────────────────────────────────────
+# CHANNEL POST EDITING  (60–64)
+# ──────────────────────────────────────────────────────────
 
-# مرحلة استقبال صور المنتج (نفس GETTING_IMAGES — يُعاد استخدامها)
-# GETTING_IMAGES = 20  ← مشترك بين النظامين
-
-# مرحلة اختيار الفئة الرئيسية من الشجرة الديناميكية
-GETTING_MAIN_CATEGORY = 24
-
-# مرحلة اختيار الفئة الفرعية (إذا وجدت)
-GETTING_SUB_CATEGORY = 25
-
-# مرحلة إدخال attributes المنتج (ألوان، مقاسات، علامة تجارية...)
-GETTING_ATTRIBUTES = 26
-
-# مرحلة إدخال الكمية الدنيا للطلب
-GETTING_MIN_QUANTITY = 27
-
-# مرحلة تأكيد نشر المنتج (نظام KAYISOFT)
-CONFIRM_KAYISOFT_PRODUCT = 28
-
-# ===================================================
-# حالات تصفح المنتجات (30-31)
-# الأرقام تبدأ من 30 لتجنب التعارض مع الحالات الأخرى
-# ===================================================
-
-# مرحلة اختيار الفئة للتصفح
-BROWSING_CATEGORY = 30
-
-# مرحلة التنقل بين المنتجات
-BROWSING_PRODUCTS = 31
-
-# ===================================================
-# حالات تدفق طلب عرض السعر - RFQ (40-44)
-# الأرقام تبدأ من 40 لتجنب التعارض مع الحالات الأخرى
-# ===================================================
-
-# مرحلة إدخال الكمية المطلوبة (اختياري)
-GETTING_QUOTE_QUANTITY = 40
-
-# مرحلة إدخال اللون المطلوب (اختياري)
-GETTING_QUOTE_COLOR = 41
-
-# مرحلة إدخال المقاس المطلوب (اختياري)
-GETTING_QUOTE_SIZE = 42
-
-# مرحلة إدخال تاريخ التسليم المطلوب (اختياري)
-GETTING_QUOTE_DELIVERY_DATE = 43
-
-# مرحلة تأكيد إرسال طلب عرض السعر
-CONFIRM_QUOTE_REQUEST = 44
-
-# ===================================================
-# حالات ربط القناة (50-53)
-# الأرقام تبدأ من 50 لتجنب التعارض مع الحالات الأخرى
-# ===================================================
-
-# انتظار ضغط المورد على زر "جاهز" بعد إضافة البوت كمشرف
-CHANNEL_WAITING_READY = 50
-
-# انتظار إرسال المورد لاسم القناة (@username)
-CHANNEL_WAITING_USERNAME = 51
-
-# انتظار تأكيد المورد لربط القناة بعد نجاح التحقق الثلاثي
-CHANNEL_CONFIRM_CONNECT = 52
-
-# انتظار قرار المورد بشأن إضافة قناة أخرى
-CHANNEL_CONFIRM_ADD_ANOTHER = 53
-
-# ═══════════════════════════════════════════════════════
-# حالات تعديل المنشور المعلق (60-64) — الخطوة 6
-# الأرقام تبدأ من 60 لتجنب التعارض مع الحالات الأخرى
-# ═══════════════════════════════════════════════════════
-
-EDIT_POST_TITLE_AR = 60  # تعديل الاسم العربي
-EDIT_POST_TITLE_EN = 61  # تعديل الاسم الإنجليزي
-EDIT_POST_PRICE    = 62  # تعديل السعر
-EDIT_POST_CATEGORY = 63  # تغيير الفئة
-EDIT_POST_CONFIRM  = 64  # تأكيد التعديلات
+EDIT_POST_TITLE_AR = 60  # Edit Arabic product title
+EDIT_POST_TITLE_EN = 61  # Edit English product title
+EDIT_POST_PRICE    = 62  # Edit product price
+EDIT_POST_CATEGORY = 63  # Change product category
+EDIT_POST_CONFIRM  = 64  # Confirm all edits before re-submitting
