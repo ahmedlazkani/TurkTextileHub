@@ -175,9 +175,9 @@ class KayisoftAPI:
         Used to dynamically build the product form shown to the seller.
 
         Response: list of attribute objects
-            id, key, ui_type, name, description, required,
-            is_variant_selector, is_primary_variant_attribute,
-            default_value, default_option_id, options[]
+            id, parent, associated, key, ui_type, ui_filter_type, name, description,
+            is_variant_selector, variant_meta, ui_order, required,
+            default_value, default_option_id, is_primary_variant_attribute, options[]
         """
         return await self._get(f"api/seller/categories/{category_id}/attributes")
 
