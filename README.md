@@ -1,68 +1,69 @@
-# TurkTextileHub Bot 🏭
+# TopKap Telegram Bot 🇹🇷
 
-بوت تليجرام B2B يربط موردي المنسوجات التركية بتجار الجملة.
+![TopKap Banner](https://via.placeholder.com/800x400.png?text=TopKap+Telegram+Bot)
 
-**الشركة:** KAYISOFT - إسطنبول، تركيا
+TopKap is a professional Telegram bot designed for Turkish textile wholesale suppliers. It provides a seamless, mobile-app-like experience for suppliers to manage their products, connect their Telegram channels, and publish products directly to their audience.
 
----
+## 🌟 Features
 
-## المرحلة الأولى: الأساس والبنية التحتية
+- **Multi-language Support:** Turkish (Default), Arabic, and English.
+- **Professional UX:** Interactive inline keyboards, clear navigation, and emoji-supported UI.
+- **AI-Powered Product Entry:** Uses DeepSeek AI to analyze user input and automatically extract product attributes.
+- **KAYISOFT API Integration:** Fully integrated with KAYISOFT backend for categories, attributes, and product management.
+- **Channel Management:** Suppliers can connect their Telegram channels and publish products directly from the bot.
+- **Docker Ready:** Easy deployment using Docker and Railway.
 
-### الميزات
-- استجابة لأمر `/start`
-- رسالة ترحيب تلقائية بلغة المستخدم
-- دعم 3 لغات: العربية (افتراضي)، التركية، الإنجليزية
-- زرا اختيار الدور: مورد 🏭 أو تاجر 🛒
+## 🏗 Architecture
 
----
+The bot is built using `python-telegram-bot` (v20+) and follows a modular architecture:
 
-## التثبيت والتشغيل
+- `bot/main.py`: Entry point and handler registration.
+- `bot/handlers/`: Contains handlers for different flows (start, product, channel).
+- `bot/services/`: Contains business logic (KAYISOFT API, DeepSeek AI, Language, Session).
+- `bot/locales/`: Contains JSON files for multi-language support.
+- `bot/keyboards.py`: Centralized keyboard generation for consistent UX.
 
-### 1. تثبيت المتطلبات
-```bash
-pip install -r requirements.txt
+## 🚀 Deployment
+
+### Prerequisites
+
+- Python 3.11+
+- Telegram Bot Token (from [@BotFather](https://t.me/BotFather))
+- KAYISOFT API URL and Token
+- DeepSeek API Key
+
+### Environment Variables
+
+Create a `.env` file in the root directory:
+
+```env
+BOT_TOKEN=your_telegram_bot_token
+KAYISOFT_API_URL=https://api.staging.kayisoft.com/v1
+KAYISOFT_API_TOKEN=your_kayisoft_bearer_token
+DEEPSEEK_API_KEY=your_deepseek_api_key
+ADMIN_TELEGRAM_ID=your_telegram_id
 ```
 
-### 2. إعداد متغيرات البيئة
-```bash
-cp .env.example .env
-# ثم عدّل ملف .env وأضف التوكن الخاص بك
-```
+### Local Development
 
-### 3. تشغيل البوت
-```bash
-python -m bot.main
-```
+1. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. Run the bot:
+   ```bash
+   python -m bot.main
+   ```
 
----
+### Railway Deployment
 
-## هيكل الملفات
+This repository is configured for seamless deployment on [Railway](https://railway.app/).
+Simply connect your GitHub repository to Railway, and it will automatically build and deploy using the provided `Dockerfile` and `railway.json`.
 
-```
-TurkTextileHub/
-├── bot/
-│   ├── main.py              # نقطة الدخول الرئيسية
-│   ├── config.py            # إعدادات البوت
-│   ├── states.py            # ثوابت حالات المحادثة
-│   ├── handlers/
-│   │   └── start_handler.py # معالج أمر /start
-│   ├── services/
-│   │   └── language_service.py # خدمة اللغات
-│   └── translations/
-│       ├── ar.json          # الترجمة العربية
-│       ├── tr.json          # الترجمة التركية
-│       └── en.json          # الترجمة الإنجليزية
-├── requirements.txt
-├── .env.example
-└── README.md
-```
+## 📚 Documentation
 
----
+For detailed API documentation and integration guides, please refer to the KAYISOFT Backend Endpoints documentation.
 
-## متغيرات البيئة المطلوبة
+## 📄 License
 
-| المتغير | الوصف |
-|---------|-------|
-| `TELEGRAM_BOT_TOKEN` | توكن البوت من @BotFather |
-| `SUPABASE_URL` | رابط قاعدة بيانات Supabase |
-| `SUPABASE_KEY` | مفتاح API لـ Supabase |
+Proprietary - All rights reserved to TopKap & KAYISOFT.
