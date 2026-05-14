@@ -1,60 +1,252 @@
 """
 bot/services/kayisoft_api.py
 ============================
-Handles all communication with the KAYISOFT Backend API.
+KAYISOFT Wholesale API Client — TopKap Telegram Bot
+
+All endpoints MUST include these headers (per KAYISOFT documentation):
+    Telegram-User-Id : <telegram_user_id>
+    Authorization    : Bearer <token>
+    Platform         : telegram
+    Accept-Language  : <language_code>  (tr | ar | en)
 """
 import os
+import hashlib
 import logging
-import requests
-from typing import Dict, Any, Optional, List
+import aiohttp
+from datetime import datetime, timezone
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+KAYISOFT_API_URL   = os.getenv("KAYISOFT_API_URL",   "https://api-wholesale.dev.kayisoft.net")
+KAYISOFT_API_TOKEN = os.getenv("KAYISOFT_API_TOKEN",  "")
+
+
 class KayisoftAPI:
-    def __init__(self):
-        self.base_url = os.getenv("KAYISOFT_API_URL", "https://api.staging.kayisoft.com/v1")
-        self.token = os.getenv("KAYISOFT_API_TOKEN", "")
-        self.headers = {
-            "Authorization": f"Bearer {self.token}",
-            "Content-Type": "application/json",
-            "Accept": "application/json"
+    """
+    Async HTTP client for the KAYISOFT Wholesale Backend.
+
+    Usage:
+        api = KayisoftAPI(telegram_user_id="123456789", language="tr", token="<bearer>")
+        categories = await api.get_categories()
+    """
+
+    def __init__(
+        self,
+        telegram_user_id: str,
+        language: str = "tr",
+        token: Optional[str] = None,
+    ):
+        self.telegram_user_id = str(telegram_user_id)
+        self.language         = language
+        self.token            = token or KAYISOFT_API_TOKEN
+        self.base_url         = KAYISOFT_API_URL.rstrip("/")
+
+    # ── Headers ──────────────────────────────────────────────────────────────
+
+    def _headers(self) -> dict:
+        """
+        Build the mandatory headers required by every KAYISOFT endpoint.
+        """
+        return {
+            "Telegram-User-Id": self.telegram_user_id,
+            "Authorization":    f"Bearer {self.token}",
+            "Platform":         "telegram",
+            "Accept-Language":  self.language,
+            "Content-Type":     "application/json",
+            "Accept":           "application/json",
         }
 
-    def _request(self, method: str, endpoint: str, data: Dict = None, params: Dict = None) -> Optional[Dict[str, Any]]:
+    # ── Low-level helpers ─────────────────────────────────────────────────────
+
+    async def _get(self, endpoint: str, params: dict = None):
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
-        try:
-            response = requests.request(method, url, headers=self.headers, json=data, params=params, timeout=10)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            logger.error(f"KAYISOFT API Error ({method} {url}): {e}")
-            if hasattr(e, 'response') and e.response is not None:
-                logger.error(f"Response body: {e.response.text}")
-            return None
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.get(
+                    url,
+                    headers=self._headers(),
+                    params=params,
+                    timeout=aiohttp.ClientTimeout(total=15),
+                ) as resp:
+                    data = await resp.json()
+                    if resp.status >= 400:
+                        logger.error("GET %s → %s: %s", endpoint, resp.status, data)
+                        return None
+                    return data
+            except Exception as exc:
+                logger.error("GET %s error: %s", endpoint, exc)
+                return None
 
-    def get_categories(self) -> List[Dict]:
-        """Fetches main categories."""
-        # TODO: Implement actual endpoint
-        return self._request("GET", "/categories") or []
+    async def _post(self, endpoint: str, body: dict = None):
+        url = f"{self.base_url}/{endpoint.lstrip('/')}"
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.post(
+                    url,
+                    headers=self._headers(),
+                    json=body or {},
+                    timeout=aiohttp.ClientTimeout(total=15),
+                ) as resp:
+                    data = await resp.json()
+                    if resp.status >= 400:
+                        logger.error("POST %s → %s: %s", endpoint, resp.status, data)
+                        return None
+                    return data
+            except Exception as exc:
+                logger.error("POST %s error: %s", endpoint, exc)
+                return None
 
-    def get_subcategories(self, category_id: str) -> List[Dict]:
-        """Fetches subcategories for a given main category."""
-        # TODO: Implement actual endpoint
-        return self._request("GET", f"/categories/{category_id}/subcategories") or []
+    # ── 1. Connect seller account ─────────────────────────────────────────────
 
-    def get_attributes(self, subcategory_id: str) -> List[Dict]:
-        """Fetches attributes for a given subcategory."""
-        # TODO: Implement actual endpoint
-        return self._request("GET", f"/subcategories/{subcategory_id}/attributes") or []
+    async def connect_account(
+        self,
+        deep_link_token: str,
+        telegram_user_name: Optional[str] = None,
+    ) -> Optional[dict]:
+        """
+        POST api/seller/telegram-bot/connect
 
-    def create_product(self, product_data: Dict) -> Optional[Dict]:
-        """Creates a new product."""
-        # TODO: Implement actual endpoint
-        return self._request("POST", "/products", data=product_data)
+        Called when the seller opens the deep link generated by the TopKap app.
+        `deep_link_token` is the token embedded in the deep link URL — NOT the API token.
 
-    def get_upload_url(self, filename: str, content_type: str) -> Optional[Dict]:
-        """Gets a signed URL for direct S3 upload."""
-        # TODO: Implement actual endpoint
-        return self._request("POST", "/upload/signed-url", data={"filename": filename, "content_type": content_type})
+        Request body:
+            token               : str   — from deep link
+            telegram_user_id    : str
+            telegram_user_name  : str   (optional)
+        """
+        body: dict = {
+            "token":            deep_link_token,
+            "telegram_user_id": self.telegram_user_id,
+        }
+        if telegram_user_name:
+            body["telegram_user_name"] = telegram_user_name
+        return await self._post("api/seller/telegram-bot/connect", body)
 
-kayisoft_api = KayisoftAPI()
+    # ── 2. Register channel ───────────────────────────────────────────────────
+
+    async def create_channel(
+        self,
+        channel_id: str,
+        channel_name: str,
+    ) -> Optional[dict]:
+        """
+        POST api/seller/telegram-bot/create-channel
+
+        Called after the bot is added as admin to the seller's Telegram channel.
+        Registers the channel in the KAYISOFT backend.
+
+        Request body:
+            channel_id          : str
+            telegram_user_id    : str
+            channel_name        : str
+        """
+        body = {
+            "channel_id":       str(channel_id),
+            "telegram_user_id": self.telegram_user_id,
+            "channel_name":     channel_name,
+        }
+        return await self._post("api/seller/telegram-bot/create-channel", body)
+
+    # ── 3. Get categories ─────────────────────────────────────────────────────
+
+    async def get_categories(self, parent_id: str = "") -> Optional[list]:
+        """
+        GET api/seller/categories?parent=<id>
+
+        Pass parent_id="" (empty string) for root-level categories.
+        Pass parent_id=<uuid> to get subcategories of a root category.
+
+        Response: list of category objects
+            id, name, selected_image, unselected_image, parent,
+            ui_order, visible, home_image, is_visible_for_browsing,
+            is_visible_for_creating, minimum_required_images,
+            maximum_images, maximum_videos
+        """
+        return await self._get("api/seller/categories", params={"parent": parent_id})
+
+    # ── 4. Get attributes for a leaf category ────────────────────────────────
+
+    async def get_attributes(self, category_id: str) -> Optional[list]:
+        """
+        GET api/seller/categories/{id}/attributes
+
+        Returns all attributes (with their options) for the selected leaf category.
+        Used to dynamically build the product form shown to the seller.
+
+        Response: list of attribute objects
+            id, key, ui_type, name, description, required,
+            is_variant_selector, is_primary_variant_attribute,
+            default_value, default_option_id, options[]
+        """
+        return await self._get(f"api/seller/categories/{category_id}/attributes")
+
+    # ── 5. Get signed URLs for media upload ──────────────────────────────────
+
+    @staticmethod
+    def generate_filename(file_bytes: bytes) -> str:
+        """
+        Generate a valid filename for KAYISOFT media upload.
+        Format: <ISO-8601 timestamp>-<SHA-256 hash>
+        Example: 2026-05-14T10:00:00.000Z-136a82a872029fda...
+        """
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        sha256    = hashlib.sha256(file_bytes).hexdigest()
+        return f"{timestamp}-{sha256}"
+
+    async def get_signed_urls(
+        self,
+        file_names: list[str],
+        category_id: str,
+    ) -> Optional[list]:
+        """
+        POST api/extensions/signed-urls
+
+        Get pre-signed S3 upload URLs for product media files.
+        file_names must follow format: <ISO-8601 timestamp>-<SHA-256 hash>
+
+        Response: list of {fileName, url}
+        """
+        body = {
+            "operation":   "put_product_variant_media",
+            "file_names":  file_names,
+            "category_id": category_id,
+        }
+        return await self._post("api/extensions/signed-urls", body)
+
+    async def upload_media_to_s3(self, signed_url: str, file_bytes: bytes, content_type: str = "image/jpeg") -> bool:
+        """
+        Upload a media file directly to S3 using the signed URL.
+        Returns True on success, False on failure.
+        """
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.put(
+                    signed_url,
+                    data=file_bytes,
+                    headers={"Content-Type": content_type},
+                    timeout=aiohttp.ClientTimeout(total=60),
+                ) as resp:
+                    if resp.status in (200, 204):
+                        return True
+                    logger.error("S3 upload failed: %s", resp.status)
+                    return False
+            except Exception as exc:
+                logger.error("S3 upload error: %s", exc)
+                return False
+
+    # ── 6. Create product ─────────────────────────────────────────────────────
+
+    async def create_product(self, product_data: dict) -> Optional[dict]:
+        """
+        POST api/seller/products
+
+        Full product payload including:
+            name, product_no, category_id, shared_attributes,
+            variants[] (each with: stock_id, stock_count, visibility_status,
+            titles[], descriptions[], prices[], images[], videos[],
+            selector_attributes[], dimensions)
+
+        Response: the created product object
+        """
+        return await self._post("api/seller/products", product_data)

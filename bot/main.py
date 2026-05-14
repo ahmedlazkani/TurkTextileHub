@@ -6,7 +6,7 @@ Main entry point for the TopKap Telegram Bot.
 import os
 import logging
 from dotenv import load_dotenv
-from telegram.ext import ApplicationBuilder
+from telegram.ext import ApplicationBuilder, ChatMemberHandler
 
 # Load environment variables
 load_dotenv()
@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 from bot.handlers.start_handler import register_start_handlers
 from bot.handlers.product_handler import get_product_conv_handler
 from bot.handlers.channel_handler import register_channel_handlers, handle_my_chat_member
-from telegram.ext import ChatMemberHandler
 
 def main():
     token = os.getenv("BOT_TOKEN")

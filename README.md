@@ -29,7 +29,7 @@ The bot is built using `python-telegram-bot` (v20+) and follows a modular archit
 
 - Python 3.11+
 - Telegram Bot Token (from [@BotFather](https://t.me/BotFather))
-- KAYISOFT API URL and Token
+- KAYISOFT API Base URL
 - DeepSeek API Key
 
 ### Environment Variables
@@ -38,8 +38,7 @@ Create a `.env` file in the root directory:
 
 ```env
 BOT_TOKEN=your_telegram_bot_token
-KAYISOFT_API_URL=https://api.staging.kayisoft.com/v1
-KAYISOFT_API_TOKEN=your_kayisoft_bearer_token
+KAYISOFT_API_URL=https://api-wholesale.dev.kayisoft.net
 DEEPSEEK_API_KEY=your_deepseek_api_key
 ADMIN_TELEGRAM_ID=your_telegram_id
 ```
@@ -60,9 +59,14 @@ ADMIN_TELEGRAM_ID=your_telegram_id
 This repository is configured for seamless deployment on [Railway](https://railway.app/).
 Simply connect your GitHub repository to Railway, and it will automatically build and deploy using the provided `Dockerfile` and `railway.json`.
 
-## 📚 Documentation
+## 📚 API Integration (KAYISOFT)
 
-For detailed API documentation and integration guides, please refer to the KAYISOFT Backend Endpoints documentation.
+The bot communicates with the KAYISOFT backend using the following headers for all requests:
+
+- `Telegram-User-Id`: The Telegram ID of the user.
+- `Authorization`: Bearer token (obtained during the connection flow).
+- `Platform`: `telegram`
+- `Accept-Language`: The user's selected language code (`tr`, `ar`, `en`).
 
 ## 📄 License
 

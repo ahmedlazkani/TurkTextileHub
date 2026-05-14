@@ -8,6 +8,7 @@ from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
 from bot.services.language_service import get_string
 from bot.services.session_manager import get_user_lang
+from bot.services.kayisoft_api import KayisoftAPI
 
 logger = logging.getLogger(__name__)
 
@@ -40,19 +41,26 @@ async def handle_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TY
         channel_id = str(chat.id)
         channel_title = chat.title
         
-        # TODO: Save channel info to KAYISOFT API linked to this user
         logger.info(f"Bot added to channel {channel_title} ({channel_id}) by user {user_id}")
         
-        # Send a success message to the user in private chat
+        # Register channel with KAYISOFT API
+        api = KayisoftAPI(telegram_user_id=user_id, language=lang)
+        response = await api.create_channel(channel_id=channel_id, channel_name=channel_title)
+        
         try:
-            await context.bot.send_message(
-                chat_id=user.id,
-                text=get_string(lang, "channel_connected") + f"\nKanal: {channel_title}"
-            )
+            if response is not None:
+                await context.bot.send_message(
+                    chat_id=user.id,
+                    text=get_string(lang, "channel_connected") + f"\nKanal: {channel_title}"
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=user.id,
+                    text="Kanal kaydedilirken bir hata oluştu. Lütfen hesabınızı bağladığınızdan emin olun."
+                )
         except Exception as e:
             logger.error(f"Could not send confirmation to user {user_id}: {e}")
 
 def register_channel_handlers(application) -> None:
     application.add_handler(MessageHandler(filters.Regex(r'^(🔗 Kanal Yönetimi|🔗 Channel Management|🔗 إدارة القناة)$'), start_channel_connection))
     application.add_handler(CommandHandler('channel', start_channel_connection))
-    # Note: my_chat_member handler is usually registered in main.py directly

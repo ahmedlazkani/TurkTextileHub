@@ -8,7 +8,8 @@ from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 from bot.services.language_service import get_string, detect_lang
 from bot.services.session_manager import get_user_lang, set_user_lang
-from bot.keyboards import language_keyboard, supplier_main_keyboard, trader_main_keyboard
+from bot.keyboards import language_keyboard, supplier_main_keyboard
+from bot.services.kayisoft_api import KayisoftAPI
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +45,12 @@ async def handle_account_connection(update: Update, context: ContextTypes.DEFAUL
     Handles the account connection flow using the token from the deep link.
     """
     lang = get_user_lang(telegram_id) or "tr"
-    # TODO: Call KAYISOFT API to connect account using the token
-    # For now, we mock the success
-    success = True
+    user_name = update.effective_user.username or update.effective_user.first_name
     
-    if success:
+    api = KayisoftAPI(telegram_user_id=telegram_id, language=lang)
+    response = await api.connect_account(deep_link_token=token, telegram_user_name=user_name)
+    
+    if response is not None:
         await update.message.reply_text(
             get_string(lang, "connect_success"),
             reply_markup=supplier_main_keyboard(lang)
@@ -76,7 +78,6 @@ async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     set_user_lang(telegram_id, lang)
     
     # Show main menu after language selection
-    # Assuming supplier for now, logic can be expanded based on user role
     await query.message.reply_text(
         get_string(lang, "main_menu_supplier"),
         reply_markup=supplier_main_keyboard(lang)
