@@ -183,7 +183,7 @@ def language_selection_keyboard() -> InlineKeyboardMarkup:
 def product_published_keyboard(
     product_id: str,
     seller_id: str,
-    lang: str = "ar",
+    lang: str = "tr",
 ) -> InlineKeyboardMarkup:
     """
     Inline keyboard attached to every published product post on the channel.
@@ -235,7 +235,7 @@ def product_published_keyboard(
     ])
 
 
-def supplier_store_keyboard(seller_id: str, lang: str = "ar") -> InlineKeyboardMarkup:
+def supplier_store_keyboard(seller_id: str, lang: str = "tr") -> InlineKeyboardMarkup:
     """
     Keyboard attached to the supplier's store announcement post.
     Directs existing Telegram followers to the TopKap app.
@@ -257,7 +257,7 @@ def supplier_store_keyboard(seller_id: str, lang: str = "ar") -> InlineKeyboardM
     ])
 
 
-def product_confirmation_keyboard(lang: str = "ar") -> InlineKeyboardMarkup:
+def product_confirmation_keyboard(lang: str = "tr") -> InlineKeyboardMarkup:
     """
     Confirm / Edit / Cancel keyboard shown before final product submission.
 
@@ -281,7 +281,7 @@ def product_confirmation_keyboard(lang: str = "ar") -> InlineKeyboardMarkup:
     ])
 
 
-def category_keyboard(categories: list[dict], lang: str = "ar") -> InlineKeyboardMarkup:
+def category_keyboard(categories: list[dict], lang: str = "tr") -> InlineKeyboardMarkup:
     """
     Dynamically build a category selection keyboard from KAYISOFT tree data.
 
@@ -308,13 +308,13 @@ def category_keyboard(categories: list[dict], lang: str = "ar") -> InlineKeyboar
     return InlineKeyboardMarkup(buttons)
 
 
-def back_keyboard(callback_data: str = "back", lang: str = "ar") -> InlineKeyboardMarkup:
+def back_keyboard(callback_data: str = "back", lang: str = "tr") -> InlineKeyboardMarkup:
     """Generic single back-button keyboard."""
     label = {"ar": "◀️ رجوع", "tr": "◀️ Geri", "en": "◀️ Back"}.get(lang, "◀️ Back")
     return InlineKeyboardMarkup([[InlineKeyboardButton(label, callback_data=callback_data)]])
 
 
-def skip_keyboard(callback_data: str = "skip", lang: str = "ar") -> InlineKeyboardMarkup:
+def skip_keyboard(callback_data: str = "skip", lang: str = "tr") -> InlineKeyboardMarkup:
     """Generic single skip-button keyboard for optional fields."""
     label = {"ar": "تخطي ←", "tr": "Atla →", "en": "Skip →"}.get(lang, "Skip →")
     return InlineKeyboardMarkup([[InlineKeyboardButton(label, callback_data=callback_data)]])

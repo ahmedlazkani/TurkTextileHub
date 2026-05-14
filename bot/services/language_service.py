@@ -55,8 +55,8 @@ def get_string(lang: str, key: str) -> str:
     if lang in _translations and key in _translations[lang]:
         return _translations[lang][key]
 
-    if "ar" in _translations and key in _translations["ar"]:
-        return _translations["ar"][key]
+    if "tr" in _translations and key in _translations["tr"]:
+        return _translations["tr"][key]
 
     return key
 
@@ -72,14 +72,14 @@ def detect_lang(language_code: str) -> str:
         str: "ar" أو "tr" أو "en"
     """
     if not language_code:
-        return "ar"
+        return "tr"
 
     if language_code.startswith("tr"):
         return "tr"
     elif language_code.startswith("en"):
         return "en"
     else:
-        return "ar"
+        return "tr"
 
 
 # تحميل الترجمات مرة واحدة عند استيراد الوحدة

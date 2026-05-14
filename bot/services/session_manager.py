@@ -11,7 +11,7 @@
 #   from bot.services.session_manager import SessionManager
 #   session = SessionManager(user_id=123456)
 #   session.set("lang", "ar")
-#   lang = session.get("lang", default="ar")
+#   lang = session.get("lang", default="tr")
 #   session.clear()
 #
 # KAYISOFT - إسطنبول، تركيا
@@ -187,7 +187,7 @@ class SessionManager:
 # دوال مساعدة على مستوى الوحدة (لا تحتاج كائن SessionManager)
 # ──────────────────────────────────────────────────────────
 
-def get_user_lang(user_id: int, default: str = "ar") -> str:
+def get_user_lang(user_id: int, default: str = "tr") -> str:
     """
     يُعيد لغة المستخدم المحفوظة في الجلسة.
 

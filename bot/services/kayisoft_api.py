@@ -19,7 +19,7 @@ def _is_configured() -> bool:
     """يتحقق مما إذا كان KAYISOFT API مضبوطاً في متغيرات البيئة."""
     return bool(KAYISOFT_API_URL and KAYISOFT_API_TOKEN)
 
-def _get_headers(telegram_user_id: str, language_code: str = "ar") -> Dict[str, str]:
+def _get_headers(telegram_user_id: str, language_code: str = "tr") -> Dict[str, str]:
     """
     يُنشئ الـ Headers المطلوبة لكل طلب حسب وثيقة KAYISOFT.
     """

@@ -299,7 +299,7 @@ async def change_language(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     query = update.callback_query
     await query.answer()
 
-    lang = context.user_data.get("lang", "ar")
+    lang = context.user_data.get("lang", "tr")
     await query.message.reply_text(
         get_string(lang, "choose_language_prompt"),
         reply_markup=_build_language_keyboard(),
@@ -325,7 +325,7 @@ async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         CB_SET_LANG_TR: "tr",
         CB_SET_LANG_EN: "en",
     }
-    new_lang = lang_map.get(query.data, "ar")
+    new_lang = lang_map.get(query.data, "tr")
     context.user_data["lang"] = new_lang
 
     telegram_id = str(update.effective_user.id)
@@ -385,7 +385,7 @@ async def show_my_channels(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     query = update.callback_query
     await query.answer()
 
-    lang = context.user_data.get("lang", "ar")
+    lang = context.user_data.get("lang", "tr")
     telegram_id = str(update.effective_user.id)
 
     try:
@@ -478,7 +478,7 @@ async def supplier_reapply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     """
     query = update.callback_query
     await query.answer()
-    lang = context.user_data.get("lang", "ar")
+    lang = context.user_data.get("lang", "tr")
     telegram_id = str(update.effective_user.id)
     username = update.effective_user.username or "لا يوجد"
 
@@ -519,7 +519,7 @@ async def supplier_contact_admin(update: Update, context: ContextTypes.DEFAULT_T
     """
     query = update.callback_query
     await query.answer()
-    lang = context.user_data.get("lang", "ar")
+    lang = context.user_data.get("lang", "tr")
     telegram_id = str(update.effective_user.id)
     username = update.effective_user.username or "لا يوجد"
 
@@ -564,7 +564,7 @@ async def back_to_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     query = update.callback_query
     await query.answer()
 
-    lang = context.user_data.get("lang", "ar")
+    lang = context.user_data.get("lang", "tr")
     telegram_id = str(update.effective_user.id)
 
     try:
