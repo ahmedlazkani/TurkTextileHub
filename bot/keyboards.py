@@ -8,23 +8,58 @@ Purpose:
     used throughout the bot. Separating keyboard definitions from handler
     logic keeps handlers clean and makes UI changes easy to apply globally.
 """
+import os
 from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     ReplyKeyboardMarkup,
     KeyboardButton,
+    WebAppInfo,
 )
 from bot.services.language_service import get_string
+
+# TopKap Supplier Web App URL — opens inside Telegram WebApp (no external browser)
+TOPKAP_APP_URL = os.getenv(
+    "TOPKAP_APP_URL",
+    "https://app-wholesale.dev.kayisoft.net"
+)
 
 def supplier_main_keyboard(lang: str) -> ReplyKeyboardMarkup:
     """
     Main navigation keyboard for verified suppliers.
+
+    Layout:
+        Row 1: [➕ Add Product]                    ← primary action, full width
+        Row 2: [📦 My Products]  [📊 Statistics]
+        Row 3: [🔗 Channel Management]             ← full width
+        Row 4: [⚙️ Settings]    [💎 Subscription]
+        Row 5: [📱 TopKap App]                     ← WebApp button (opens in Telegram)
+
+    The WebApp button opens the TopKap supplier app directly inside Telegram
+    using Telegram's built-in WebApp feature — no external browser needed.
     """
     keyboard = [
+        # Row 1: Primary action
         [KeyboardButton(get_string(lang, "btn_add_product"))],
-        [KeyboardButton(get_string(lang, "btn_my_products")), KeyboardButton(get_string(lang, "btn_statistics"))],
+        # Row 2: Products & Stats
+        [
+            KeyboardButton(get_string(lang, "btn_my_products")),
+            KeyboardButton(get_string(lang, "btn_statistics")),
+        ],
+        # Row 3: Channel
         [KeyboardButton(get_string(lang, "btn_manage_channel"))],
-        [KeyboardButton(get_string(lang, "btn_settings")), KeyboardButton(get_string(lang, "btn_subscription"))],
+        # Row 4: Settings & Subscription
+        [
+            KeyboardButton(get_string(lang, "btn_settings")),
+            KeyboardButton(get_string(lang, "btn_subscription")),
+        ],
+        # Row 5: TopKap App — WebApp button
+        [
+            KeyboardButton(
+                "📱 TopKap App",
+                web_app=WebAppInfo(url=TOPKAP_APP_URL),
+            )
+        ],
     ]
     return ReplyKeyboardMarkup(
         keyboard,
