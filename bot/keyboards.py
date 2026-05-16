@@ -65,8 +65,10 @@ def supplier_main_keyboard(lang: str) -> ReplyKeyboardMarkup:
         keyboard,
         resize_keyboard=True,
         one_time_keyboard=False,
-        input_field_placeholder=get_string(lang, "main_menu_supplier"),
+        # NOTE: input_field_placeholder does NOT support HTML — strip tags
+        input_field_placeholder="🛍️ Tedarikçi Paneli" if lang == "tr" else ("🛍️ لوحة المورد" if lang == "ar" else "🛍️ Supplier Dashboard"),
     )
+
 
 def trader_main_keyboard(lang: str) -> ReplyKeyboardMarkup:
     """

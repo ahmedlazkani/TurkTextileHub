@@ -18,8 +18,18 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-KAYISOFT_API_URL   = os.getenv("KAYISOFT_API_URL",   "https://api-wholesale.dev.kayisoft.net")
-KAYISOFT_API_TOKEN = os.getenv("KAYISOFT_API_TOKEN",  "")
+KAYISOFT_API_URL = os.getenv("KAYISOFT_API_URL", "https://api-wholesale.dev.kayisoft.net")
+
+# Support both env var names:
+#   TELEGRAM_BOT_API_ENDPOINT_KEY  — used in Railway (correct name)
+#   KAYISOFT_API_TOKEN             — legacy .env name
+# FIX: kayisoft_api.py was reading KAYISOFT_API_TOKEN but Railway only has TELEGRAM_BOT_API_ENDPOINT_KEY
+# This caused ALL API calls to fail with 401 Unauthorized → categories returned None → error shown to user
+KAYISOFT_API_TOKEN = (
+    os.getenv("TELEGRAM_BOT_API_ENDPOINT_KEY") or
+    os.getenv("KAYISOFT_API_TOKEN") or
+    ""
+)
 
 
 class KayisoftAPI:
@@ -69,10 +79,11 @@ class KayisoftAPI:
                     params=params,
                     timeout=aiohttp.ClientTimeout(total=15),
                 ) as resp:
-                    data = await resp.json()
                     if resp.status >= 400:
-                        logger.error("GET %s → %s: %s", endpoint, resp.status, data)
+                        text = await resp.text()
+                        logger.error("GET %s → HTTP %s: %s", endpoint, resp.status, text[:200])
                         return None
+                    data = await resp.json()
                     return data
             except Exception as exc:
                 logger.error("GET %s error: %s", endpoint, exc)
@@ -88,10 +99,11 @@ class KayisoftAPI:
                     json=body or {},
                     timeout=aiohttp.ClientTimeout(total=15),
                 ) as resp:
-                    data = await resp.json()
                     if resp.status >= 400:
-                        logger.error("POST %s → %s: %s", endpoint, resp.status, data)
+                        text = await resp.text()
+                        logger.error("POST %s → HTTP %s: %s", endpoint, resp.status, text[:200])
                         return None
+                    data = await resp.json()
                     return data
             except Exception as exc:
                 logger.error("POST %s error: %s", endpoint, exc)
