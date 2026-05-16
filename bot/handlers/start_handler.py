@@ -7,7 +7,7 @@ import logging
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 from bot.services.language_service import get_string, detect_lang
-from bot.services.session_manager import get_user_lang, set_user_lang
+from bot.services.language_service import get_user_lang, set_user_lang
 from bot.keyboards import language_keyboard, supplier_main_keyboard
 from bot.services.kayisoft_api import KayisoftAPI
 

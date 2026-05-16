@@ -7,7 +7,7 @@ import logging
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
 from bot.services.language_service import get_string
-from bot.services.session_manager import get_user_lang
+from bot.services.language_service import get_user_lang
 from bot.services.kayisoft_api import KayisoftAPI
 
 logger = logging.getLogger(__name__)

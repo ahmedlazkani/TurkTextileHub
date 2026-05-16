@@ -84,3 +84,9 @@ def detect_lang(language_code: str) -> str:
 
 # تحميل الترجمات مرة واحدة عند استيراد الوحدة
 _translations = load_translations()
+# قاموس بسيط لتخزين لغة المستخدمين في الذاكرة (للتجربة)
+_user_langs = {}
+def get_user_lang(telegram_id: str) -> str:
+    return _user_langs.get(str(telegram_id), "tr")
+def set_user_lang(telegram_id: str, lang: str) -> None:
+    _user_langs[str(telegram_id)] = lang

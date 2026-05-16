@@ -8,7 +8,7 @@ import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ConversationHandler
 from bot.services.language_service import get_string
-from bot.services.session_manager import get_user_lang
+from bot.services.language_service import get_user_lang
 from bot.services.kayisoft_api import KayisoftAPI
 from bot.services.deepseek_service import deepseek_service
 
