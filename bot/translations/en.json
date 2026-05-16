@@ -138,7 +138,7 @@
   "contact_admin_sent": "✅ <b>Message Sent to Admin</b>\n\nOur support team will contact you soon.",
   "contact_admin_request": "📩 <b>Message from Rejected Supplier</b>\n\n👤 <b>Supplier:</b> {supplier_name}\n🆔 <b>Telegram ID:</b> <code>{telegram_id}</code>\n📱 <b>Username:</b> {username}\n\nRequests to contact admin.",
   "welcome_message": "🇬🇧 <b>Welcome to TopKap!</b>\n\nTurkey's Wholesale Textile Hub.\nAdd your products and reach thousands of buyers.\n\n🌐 Please select your language:",
-  "main_menu_supplier": "🛍️ <b>Supplier Dashboard</b>\n\nWhat would you like to do?",
+  "main_menu_supplier": "🛍️ <b>Supplier Dashboard</b>\n\nSelect an action from the menu below:\n\n➕ <b>Add Product</b> — Add a new product and publish it\n📦 <b>My Products</b> — Manage your existing products\n📊 <b>Statistics</b> — Sales and views reports\n🔗 <b>Channel Management</b> — Connect your Telegram channel\n⚙️ <b>Settings</b> — Language and account settings\n💎 <b>My Subscription</b> — Plan and subscription details\n📱 <b>TopKap App</b> — Open the app inside Telegram",
   "main_menu_trader": "🛒 <b>Buyer Dashboard</b>\n\nWhat would you like to do?",
   "btn_my_products": "📦 My Products",
   "btn_statistics": "📊 Statistics",

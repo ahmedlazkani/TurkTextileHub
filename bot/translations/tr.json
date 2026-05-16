@@ -1,6 +1,6 @@
 {
   "welcome_message": "🇹🇷 <b>TopKap'a Hoş Geldiniz!</b>\n\nTürkiye'nin Toptan Tekstil Merkezi.\nÜrünlerinizi ekleyin, binlerce alıcıya ulaşın.\n\n🌐 Lütfen dilinizi seçin:",
-  "main_menu_supplier": "🛍️ <b>Tedarikçi Paneli</b>\n\nNe yapmak istersiniz?",
+  "main_menu_supplier": "🛍️ <b>Tedarikçi Paneli</b>\n\nAşağıdaki menüden bir işlem seçin:\n\n➕ <b>Ürün Ekle</b> — Yeni ürün ekleyin ve yayınlayın\n📦 <b>Ürünlerim</b> — Mevcut ürünlerinizi yönetin\n📊 <b>İstatistikler</b> — Satış ve görüntülenme raporları\n🔗 <b>Kanal Yönetimi</b> — Telegram kanalınızı bağlayın\n⚙️ <b>Ayarlar</b> — Dil ve hesap ayarları\n💎 <b>Aboneliğim</b> — Plan ve abonelik bilgileri\n📱 <b>TopKap App</b> — Uygulamayı Telegram'dan açın",
   "main_menu_trader": "🛒 <b>Alıcı Paneli</b>\n\nNe yapmak istersiniz?",
   "btn_add_product": "➕ Ürün Ekle",
   "btn_my_products": "📦 Ürünlerim",
