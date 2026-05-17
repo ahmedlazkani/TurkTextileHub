@@ -346,6 +346,7 @@ async def handle_menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
         btn_map[get_string(_lang, "btn_subscription")]   = "subscription"
         btn_map[get_string(_lang, "btn_help")]           = "help"
         btn_map[get_string(_lang, "btn_why_topkap")]     = "why_topkap"
+        btn_map[get_string(_lang, "btn_share_topgate")]  = "share_topgate"
 
     action = btn_map.get(text)
 
@@ -388,6 +389,9 @@ async def handle_menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
             parse_mode=ParseMode.HTML,
         )
 
+    elif action == "share_topgate":
+        await handle_share_topgate(update, context, lang)
+
     elif action == "why_topkap":
         # Show Why TopKap infographic + detailed text
         why_image = os.path.join(ASSETS_DIR, "why_topkap.jpg")
@@ -415,6 +419,79 @@ async def handle_menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 # ─────────────────────────────────────────────
+# TOPGATE PROFILE SHARING
+# ─────────────────────────────────────────────
+async def handle_share_topgate(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    lang: str,
+) -> None:
+    """
+    Generates a ready-to-share message for the supplier to post on their
+    Telegram channel, inviting buyers to follow them on TopGate.
+
+    The message includes:
+    - A compelling call-to-action
+    - The supplier's TopGate profile link (from API or config)
+    - Branding for TopKap × TopGate
+    """
+    telegram_id = str(update.effective_user.id)
+    api = KayisoftAPI(telegram_user_id=telegram_id, language=lang)
+
+    # Try to get supplier's TopGate profile URL from API
+    topgate_url = None
+    try:
+        seller_info = await api.get_seller_info()
+        if seller_info:
+            # API may return topgate_url or profile_url
+            topgate_url = (
+                seller_info.get("topgate_url")
+                or seller_info.get("topgate_profile_url")
+                or seller_info.get("profile_url")
+            )
+    except Exception as e:
+        logger.warning(f"Could not fetch seller info for TopGate URL: {e}")
+
+    # Fallback to config URL if API doesn't return one
+    if not topgate_url:
+        topgate_base = os.getenv("TOPGATE_WEB_URL", "https://topgate.app")
+        topgate_url = topgate_base
+
+    # Format the share message
+    share_msg = get_string(lang, "topgate_share_message").format(
+        supplier_url=topgate_url
+    )
+
+    # Header message explaining what to do
+    header = {
+        "tr": (
+            "📲 <b>TopGate Profil Linkiniz Hazır!</b>\n\n"
+            "Aşağıdaki mesajı kanalınıza kopyalayıp yapıştırın.\n"
+            "Alıcılar sizi TopGate'de takip edebilecek."
+        ),
+        "ar": (
+            "📲 <b>رابط ملفك على TopGate جاهز!</b>\n\n"
+            "انسخ الرسالة أدناه وانشرها على قناتك.\n"
+            "سيتمكن المشترون من متابعتك على TopGate."
+        ),
+        "en": (
+            "📲 <b>Your TopGate Profile Link is Ready!</b>\n\n"
+            "Copy the message below and post it to your channel.\n"
+            "Buyers will be able to follow you on TopGate."
+        ),
+    }
+
+    await update.message.reply_text(
+        header.get(lang, header["tr"]),
+        parse_mode="HTML",
+    )
+    await update.message.reply_text(
+        share_msg,
+        parse_mode="HTML",
+    )
+
+
+# ─────────────────────────────────────────────
 # REGISTER HANDLERS
 # ─────────────────────────────────────────────
 def register_start_handlers(application) -> None:
@@ -427,7 +504,7 @@ def register_start_handlers(application) -> None:
         for key in [
             "btn_add_product", "btn_my_products", "btn_statistics",
             "btn_manage_channel", "btn_settings", "btn_subscription",
-            "btn_help", "btn_why_topkap",
+            "btn_help", "btn_why_topkap", "btn_share_topgate",
         ]:
             val = get_string(_lang, key)
             if val and val != key:

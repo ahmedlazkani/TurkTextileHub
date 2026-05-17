@@ -24,6 +24,12 @@ TOPKAP_APP_URL = os.getenv(
     "https://app-wholesale.dev.kayisoft.net"
 )
 
+# TopGate Buyer/Trader App URL — used for sharing supplier profile
+TOPGATE_WEB_URL = os.getenv(
+    "TOPGATE_WEB_URL",
+    "https://topgate.app"
+)
+
 def supplier_main_keyboard(lang: str) -> ReplyKeyboardMarkup:
     """
     Main navigation keyboard for verified suppliers.
@@ -33,7 +39,9 @@ def supplier_main_keyboard(lang: str) -> ReplyKeyboardMarkup:
         Row 2: [📦 My Products]  [📊 Statistics]
         Row 3: [🔗 Channel Management]             ← full width
         Row 4: [⚙️ Settings]    [💎 Subscription]
-        Row 5: [📱 TopKap App]                     ← WebApp button (opens in Telegram)
+        Row 5: [🌐 Share TopGate Profile]          ← share supplier page to buyers
+        Row 6: [💡 Why TopKap?]  [❓ Help]
+        Row 7: [📱 TopKap App]                     ← WebApp button (opens in Telegram)
 
     The WebApp button opens the TopKap supplier app directly inside Telegram
     using Telegram's built-in WebApp feature — no external browser needed.
@@ -53,10 +61,13 @@ def supplier_main_keyboard(lang: str) -> ReplyKeyboardMarkup:
             KeyboardButton(get_string(lang, "btn_settings")),
             KeyboardButton(get_string(lang, "btn_subscription")),
         ],
-        # Row 5: Why TopKap
-        [KeyboardButton(get_string(lang, "btn_why_topkap"))],
-        # Row 6: Help
-        [KeyboardButton(get_string(lang, "btn_help"))],
+        # Row 5: Share TopGate Profile — invite buyers to follow on TopGate
+        [KeyboardButton(get_string(lang, "btn_share_topgate"))],
+        # Row 6: Why TopKap + Help
+        [
+            KeyboardButton(get_string(lang, "btn_why_topkap")),
+            KeyboardButton(get_string(lang, "btn_help")),
+        ],
         # Row 7: TopKap App — WebApp button
         [
             KeyboardButton(
