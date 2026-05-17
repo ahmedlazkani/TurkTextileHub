@@ -76,29 +76,38 @@ class KayisoftAPI:
         Handles 2xx responses with empty body gracefully (returns {}).
         """
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
+        # ── DEBUG: طباعة الـ headers المرسلة للمساعدة في الـ debug ────────────
+        headers = self._headers()
+        logger.info(
+            "GET %s | Telegram-User-Id=%s | Token=%s... | Platform=%s",
+            endpoint,
+            self.telegram_user_id,
+            self.token[:8] if self.token else 'EMPTY',
+            headers.get('Platform', 'MISSING'),
+        )
         async with aiohttp.ClientSession() as session:
             try:
                 async with session.get(
                     url,
-                    headers=self._headers(),
+                    headers=headers,
                     params=params,
                     timeout=aiohttp.ClientTimeout(total=15),
                 ) as resp:
+                    text = await resp.text()
                     if resp.status >= 400:
-                        text = await resp.text()
                         logger.error(
                             "GET %s → HTTP %s: %s",
-                            endpoint, resp.status, text[:300],
+                            endpoint, resp.status, text[:500],
                         )
                         return None
-                    # ── 2xx: try to parse JSON, fall back to {} ──────────────
+                    # ── 2xx: try to parse JSON, fall back to {} ────────────
                     try:
-                        data = await resp.json(content_type=None)
-                        logger.debug("GET %s → HTTP %s OK", endpoint, resp.status)
+                        import json
+                        data = json.loads(text) if text.strip() else {}
+                        logger.info("GET %s → HTTP %s OK", endpoint, resp.status)
                         return data
                     except Exception:
-                        # 2xx but no JSON body (e.g. 204 No Content)
-                        logger.debug(
+                        logger.info(
                             "GET %s → HTTP %s OK (no JSON body)",
                             endpoint, resp.status,
                         )
@@ -119,39 +128,48 @@ class KayisoftAPI:
         causing the except block to return None — making the bot think
         the connection FAILED even when it SUCCEEDED.
 
-        Fix: use content_type=None in resp.json() to accept any content type,
-        and fall back to {} if the body is empty or non-JSON.
+        Fix: read text first, then parse JSON manually.
         """
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
+        headers = self._headers()
+        # ── DEBUG: طباعة الـ headers والـ body للمساعدة في الـ debug ────────────
+        logger.info(
+            "POST %s | Telegram-User-Id=%s | Token=%s... | Platform=%s | body=%s",
+            endpoint,
+            self.telegram_user_id,
+            self.token[:8] if self.token else 'EMPTY',
+            headers.get('Platform', 'MISSING'),
+            str(body)[:200] if body else '{}',
+        )
         async with aiohttp.ClientSession() as session:
             try:
                 async with session.post(
                     url,
-                    headers=self._headers(),
+                    headers=headers,
                     json=body or {},
                     timeout=aiohttp.ClientTimeout(total=15),
                 ) as resp:
+                    text = await resp.text()
+                    logger.info("POST %s → HTTP %s | response: %s", endpoint, resp.status, text[:300])
                     if resp.status >= 400:
-                        text = await resp.text()
                         logger.error(
-                            "POST %s → HTTP %s: %s",
-                            endpoint, resp.status, text[:300],
+                            "POST %s → HTTP %s FAILED: %s",
+                            endpoint, resp.status, text[:500],
                         )
                         return None
-                    # ── 2xx: try to parse JSON, fall back to {} ──────────────
-                    # IMPORTANT: content_type=None accepts text/plain, empty body, etc.
-                    # This fixes the connect endpoint which may return non-JSON on success.
+                    # ── 2xx: نجاح ────────────────────────────────────────────────
                     try:
-                        data = await resp.json(content_type=None)
-                        logger.debug("POST %s → HTTP %s OK", endpoint, resp.status)
+                        import json
+                        data = json.loads(text) if text.strip() else {}
+                        logger.info("POST %s → HTTP %s OK", endpoint, resp.status)
                         return data if data is not None else {}
                     except Exception:
                         # 2xx but no JSON body (e.g. 200 OK with empty body)
-                        logger.debug(
+                        logger.info(
                             "POST %s → HTTP %s OK (no JSON body)",
                             endpoint, resp.status,
                         )
-                        return {}  # ← Return {} not None — {} is truthy enough for success check
+                        return {}  # ← {} is not None → يعني نجاح
             except Exception as exc:
                 logger.error("POST %s network error: %s", endpoint, exc)
                 return None
