@@ -1,6 +1,6 @@
 {
-  "welcome_message": "🇹🇷 <b>TopKap'a Hoş Geldiniz!</b>\n\nTürkiye'nin Toptan Tekstil Merkezi.\nÜrünlerinizi ekleyin, binlerce alıcıya ulaşın.\n\n🌐 Lütfen dilinizi seçin:",
-  "main_menu_supplier": "🛍️ <b>Tedarikçi Paneli</b>\n\nAşağıdaki menüden bir işlem seçin:\n\n➕ <b>Ürün Ekle</b> — Yeni ürün ekleyin ve yayınlayın\n📦 <b>Ürünlerim</b> — Mevcut ürünlerinizi yönetin\n📊 <b>İstatistikler</b> — Satış ve görüntülenme raporları\n🔗 <b>Kanal Yönetimi</b> — Telegram kanalınızı bağlayın\n⚙️ <b>Ayarlar</b> — Dil ve hesap ayarları\n💎 <b>Aboneliğim</b> — Plan ve abonelik bilgileri\n📱 <b>TopKap App</b> — Uygulamayı Telegram'dan açın",
+  "welcome_message": "🇹🇷 <b>TopKap'a Hoş Geldiniz!</b>\n\nTürkiye'nin Toptan Tekstil Merkezi.\nÜrünlerinizi ekleyin, <b>180+ ülkeden</b> alıcılara ulaşın.\n\n🌍 Lütfen dilinizi seçin:",
+  "main_menu_supplier": "🛍️ <b>Tedarikçi Paneli</b>\n\nAşağıdaki menüden bir işlem seçin:\n\n➕ <b>Ürün Ekle</b> — Yeni ürün ekleyin ve yayınlayın\n📦 <b>Ürünlerim</b> — Mevcut ürünlerinizi yönetin\n📊 <b>İstatistikler</b> — Satış ve görüntülenme raporları\n🔗 <b>Kanal Yönetimi</b> — Telegram kanalınızı bağlayın\n⚙️ <b>Ayarlar</b> — Dil ve hesap ayarları\n💡 <b>Neden TopKap?</b> — Platformun avantajlarını keşfedin\n❓ <b>Yardım</b> — Adım adım kullanım kılavuzu",
   "main_menu_trader": "🛒 <b>Alıcı Paneli</b>\n\nNe yapmak istersiniz?",
   "btn_add_product": "➕ Ürün Ekle",
   "btn_my_products": "📦 Ürünlerim",
@@ -37,5 +37,13 @@
   "rfq_date_required": "Lütfen teslimat tarihini girin.",
   "rfq_save_error": "Talep kaydedilirken hata oluştu.",
   "rfq_session_expired": "Oturum süresi doldu, lütfen tekrar deneyin.",
-  "rfq_error": "Beklenmeyen bir hata oluştu."
+  "rfq_error": "Beklenmeyen bir hata oluştu.",
+  "why_topkap": "💡 <b>Neden TopKap?</b>\n\n━━━━━━━━━━━━━━━━━━━━\n🌍 <b>Dünya Genelinde Alıcı Ağı</b>\n   Orta Doğu, Avrupa, Afrika, Orta Asya ve\n   dünyanın dört bir yanındaki alıcılara ulaşın.\n   <b>Sadece Arap alıcılar değil — tüm dünya!</b>\n\n📦 <b>Kolay Ürün Yönetimi</b>\n   Ürünlerinizi dakikalar içinde ekleyin,\n   düzenleyin ve binlerce alıcıya yayınlayın.\n\n📢 <b>Otomatik Telegram Kanalı Yayını</b>\n   Ürünleriniz otomatik olarak kanalınıza\n   profesyonel formatta paylaşılır.\n\n🌐 <b>Çok Dilli Platform</b>\n   Türkçe, Arapça, İngilizce — 3 dilde\n   global alıcılara ulaşın.\n\n📊 <b>Gerçek Zamanlı Analitik</b>\n   Ürün görüntülenmeleri, tıklamalar ve\n   satış verilerini anlık takip edin.\n\n🔗 <b>TopKap & TopGate Ekosistemi</b>\n   İki güçlü platformda tek hesap —\n   maksimum görünürlük, minimum çaba.\n\n💎 <b>Premium Tedarikçi Desteği</b>\n   7/24 Türkçe destek ekibi her zaman yanınızda.\n\n━━━━━━━━━━━━━━━━━━━━\n🏆 <b>Türkiye'nin #1 Tekstil B2B Platformu</b>",
+  "onboarding_stats": "📈 <b>TopKap Rakamlarla</b>\n\n🌍 <b>180+</b> ülkeden alıcı erişimi\n🏭 <b>1.000+</b> Türk tekstil tedarikçisi\n📦 <b>50.000+</b> ürün kataloğu\n📢 <b>500+</b> aktif Telegram kanalı\n💰 Türkiye tekstil ihracatı: <b>$22 Milyar/yıl</b>\n\n⚡ <i>Siz de bu büyümenin parçası olun!</i>",
+  "motivational_1": "🌍 <b>Dünyaya açılan kapı: TopKap!</b>",
+  "motivational_2": "🚀 <b>180+ ülkeden alıcıya ulaşın — TopKap ile!</b>",
+  "motivational_3": "🏆 <b>Türkiye'nin #1 tekstil B2B platformu!</b>",
+  "motivational_4": "💼 <b>Ürünlerinizi dünyaya taşıyın — TopKap!</b>",
+  "motivational_5": "✨ <b>1.000+ tedarikçinin güvendiği platform!</b>",
+  "btn_why_topkap": "💡 Neden TopKap?"
 }

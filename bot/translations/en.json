@@ -137,8 +137,8 @@
   "reapply_request_admin": "🔄 <b>Reapplication Request</b>\n\n👤 <b>Supplier:</b> {supplier_name}\n🆔 <b>Telegram ID:</b> <code>{telegram_id}</code>\n📱 <b>Username:</b> {username}\n\nPlease review in the admin panel.",
   "contact_admin_sent": "✅ <b>Message Sent to Admin</b>\n\nOur support team will contact you soon.",
   "contact_admin_request": "📩 <b>Message from Rejected Supplier</b>\n\n👤 <b>Supplier:</b> {supplier_name}\n🆔 <b>Telegram ID:</b> <code>{telegram_id}</code>\n📱 <b>Username:</b> {username}\n\nRequests to contact admin.",
-  "welcome_message": "🇬🇧 <b>Welcome to TopKap!</b>\n\nTurkey's Wholesale Textile Hub.\nAdd your products and reach thousands of buyers.\n\n🌐 Please select your language:",
-  "main_menu_supplier": "🛍️ <b>Supplier Dashboard</b>\n\nSelect an action from the menu below:\n\n➕ <b>Add Product</b> — Add a new product and publish it\n📦 <b>My Products</b> — Manage your existing products\n📊 <b>Statistics</b> — Sales and views reports\n🔗 <b>Channel Management</b> — Connect your Telegram channel\n⚙️ <b>Settings</b> — Language and account settings\n💎 <b>My Subscription</b> — Plan and subscription details\n📱 <b>TopKap App</b> — Open the app inside Telegram",
+  "welcome_message": "🇹🇷 <b>Welcome to TopKap!</b>\n\nTurkey's Wholesale Textile Hub.\nAdd your products, reach buyers from <b>180+ countries</b>.\n\n🌍 Please select your language:",
+  "main_menu_supplier": "🛍️ <b>Supplier Dashboard</b>\n\nSelect an action from the menu below:\n\n➕ <b>Add Product</b> — Add a new product and publish it\n📦 <b>My Products</b> — Manage your existing products\n📊 <b>Statistics</b> — Sales and view reports\n🔗 <b>Channel Management</b> — Connect your Telegram channel\n⚙️ <b>Settings</b> — Language and account settings\n💡 <b>Why TopKap?</b> — Discover platform advantages\n❓ <b>Help</b> — Step-by-step usage guide",
   "main_menu_trader": "🛒 <b>Buyer Dashboard</b>\n\nWhat would you like to do?",
   "btn_my_products": "📦 My Products",
   "btn_statistics": "📊 Statistics",
@@ -158,5 +158,13 @@
   "add_product_upload_images": "📸 Please send product photos (1–5 photos):",
   "channel_add_admin": "📢 Add the bot as admin to your channel:\n\n1. Go to your channel\n2. Channel Info → Administrators\n3. Add @TopKapTR_bot\n4. Grant post permission",
   "channel_connected": "✅ <b>Channel connected successfully!</b>",
-  "error_fetching_categories": "❌ Error loading categories. Please try again."
+  "error_fetching_categories": "❌ Error loading categories. Please try again.",
+  "why_topkap": "💡 <b>Why TopKap?</b>\n\n━━━━━━━━━━━━━━━━━━━━\n🌍 <b>Global Buyer Network</b>\n   Connect with buyers from the Middle East, Europe,\n   Africa, Central Asia and 180+ countries worldwide.\n   <b>Not just Arab buyers — the entire world!</b>\n\n📦 <b>Easy Product Management</b>\n   Add your products in minutes and publish\n   them to thousands of global buyers.\n\n📢 <b>Automatic Telegram Channel Publishing</b>\n   Your products are automatically shared\n   to your channel in a professional format.\n\n🌐 <b>Multilingual Platform</b>\n   Turkish, Arabic, English — reach global\n   buyers in their own language.\n\n📊 <b>Real-Time Analytics</b>\n   Track product views, clicks and\n   sales data in real time.\n\n🔗 <b>TopKap & TopGate Ecosystem</b>\n   One account on two powerful platforms —\n   maximum visibility, minimum effort.\n\n💎 <b>Premium Supplier Support</b>\n   24/7 support team always by your side.\n\n━━━━━━━━━━━━━━━━━━━━\n🏆 <b>Turkey's #1 Textile B2B Platform</b>",
+  "onboarding_stats": "📈 <b>TopKap by the Numbers</b>\n\n🌍 <b>180+</b> countries with buyer access\n🏭 <b>1,000+</b> Turkish textile suppliers\n📦 <b>50,000+</b> product catalog\n📢 <b>500+</b> active Telegram channels\n💰 Turkish textile exports: <b>$22 Billion/year</b>\n\n⚡ <i>Be part of this growth!</i>",
+  "motivational_1": "🌍 <b>Your gateway to the world: TopKap!</b>",
+  "motivational_2": "🚀 <b>Reach buyers from 180+ countries — with TopKap!</b>",
+  "motivational_3": "🏆 <b>Turkey's #1 Textile B2B Platform!</b>",
+  "motivational_4": "💼 <b>Take your products global — TopKap!</b>",
+  "motivational_5": "✨ <b>Trusted by 1,000+ suppliers worldwide!</b>",
+  "btn_why_topkap": "💡 Why TopKap?"
 }

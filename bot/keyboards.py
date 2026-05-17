@@ -53,9 +53,11 @@ def supplier_main_keyboard(lang: str) -> ReplyKeyboardMarkup:
             KeyboardButton(get_string(lang, "btn_settings")),
             KeyboardButton(get_string(lang, "btn_subscription")),
         ],
-        # Row 5: Help
+        # Row 5: Why TopKap
+        [KeyboardButton(get_string(lang, "btn_why_topkap"))],
+        # Row 6: Help
         [KeyboardButton(get_string(lang, "btn_help"))],
-        # Row 6: TopKap App — WebApp button
+        # Row 7: TopKap App — WebApp button
         [
             KeyboardButton(
                 "📱 TopKap App",

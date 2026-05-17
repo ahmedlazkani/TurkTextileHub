@@ -28,37 +28,24 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
 WELCOME_BANNER = os.path.join(ASSETS_DIR, "welcome_banner.jpg")
+# ───────────────────────────────────────────────
+# MOTIVATIONAL MESSAGES — loaded from translation files
+# ───────────────────────────────────────────────
+MOTIVATIONAL_KEYS = [
+    "motivational_1", "motivational_2", "motivational_3",
+    "motivational_4", "motivational_5",
+]
 
-# ─────────────────────────────────────────────
-# MOTIVATIONAL MESSAGES — random on every /start
-# ─────────────────────────────────────────────
-MOTIVATIONAL = {
-    "tr": [
-        "🌟 <b>Türkiye'nin en büyük tekstil ağına hoş geldiniz!</b>",
-        "🚀 <b>Ürünlerinizi dünyaya açın — TopKap ile!</b>",
-        "💼 <b>Profesyonel tekstil ticaretinin adresi: TopKap</b>",
-        "🏆 <b>500+ başarılı tedarikçinin güvendiği platform!</b>",
-        "✨ <b>Markanızı büyütün, alıcılara ulaşın — TopKap!</b>",
-    ],
-    "ar": [
-        "🌟 <b>مرحباً بك في أكبر شبكة نسيج تركية!</b>",
-        "🚀 <b>افتح منتجاتك للعالم — مع TopKap!</b>",
-        "💼 <b>وجهة التجارة النسيجية الاحترافية: TopKap</b>",
-        "🏆 <b>المنصة التي يثق بها أكثر من 500 مورد ناجح!</b>",
-        "✨ <b>نمّ علامتك التجارية، وصل للمشترين — TopKap!</b>",
-    ],
-    "en": [
-        "🌟 <b>Welcome to Turkey's largest textile network!</b>",
-        "🚀 <b>Open your products to the world — with TopKap!</b>",
-        "💼 <b>The home of professional textile trade: TopKap</b>",
-        "🏆 <b>Trusted by 500+ successful suppliers!</b>",
-        "✨ <b>Grow your brand, reach buyers — TopKap!</b>",
-    ],
-}
+def _get_motivational(lang: str) -> str:
+    """Pick a random motivational message from translation files."""
+    msgs = [get_string(lang, k) for k in MOTIVATIONAL_KEYS]
+    # Filter out any keys that weren't found (returned as-is)
+    msgs = [m for m in msgs if not m.startswith("motivational_")]
+    return random.choice(msgs) if msgs else "🌟 <b>TopKap'a Hoş Geldiniz!</b>"
 
-# ─────────────────────────────────────────────
+# ───────────────────────────────────────────────
 # LANGUAGE CONFIRMED MESSAGES
-# ─────────────────────────────────────────────
+# ───────────────────────────────────────────────────
 LANG_CONFIRMED = {
     "tr": "🇹🇷 <b>Türkçe seçildi!</b>\n\nLütfen aşağıdaki paneli kullanın 👇",
     "ar": "🇸🇦 <b>تم اختيار العربية!</b>\n\nيرجى استخدام اللوحة أدناه 👇",
@@ -249,7 +236,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     set_user_lang(telegram_id, lang)
 
     # Random motivational message + welcome
-    motivation = random.choice(MOTIVATIONAL.get(lang, MOTIVATIONAL["tr"]))
+    motivation = _get_motivational(lang)
     caption = f"{motivation}\n\n{get_string(lang, 'welcome_message')}"
 
     # Send banner image with language keyboard
@@ -358,6 +345,7 @@ async def handle_menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
         btn_map[get_string(_lang, "btn_settings")]       = "settings"
         btn_map[get_string(_lang, "btn_subscription")]   = "subscription"
         btn_map[get_string(_lang, "btn_help")]           = "help"
+        btn_map[get_string(_lang, "btn_why_topkap")]     = "why_topkap"
 
     action = btn_map.get(text)
 
@@ -400,6 +388,23 @@ async def handle_menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
             parse_mode=ParseMode.HTML,
         )
 
+    elif action == "why_topkap":
+        # Show Why TopKap infographic + detailed text
+        why_image = os.path.join(ASSETS_DIR, "why_topkap.jpg")
+        try:
+            with open(why_image, "rb") as photo:
+                await update.message.reply_photo(
+                    photo=photo,
+                    caption=get_string(lang, "onboarding_stats"),
+                    parse_mode=ParseMode.HTML,
+                )
+        except Exception:
+            pass
+        await update.message.reply_text(
+            get_string(lang, "why_topkap"),
+            parse_mode=ParseMode.HTML,
+        )
+
     else:
         # Fallback: show main menu
         await update.message.reply_text(
@@ -421,7 +426,8 @@ def register_start_handlers(application) -> None:
     for _lang in ["tr", "ar", "en"]:
         for key in [
             "btn_add_product", "btn_my_products", "btn_statistics",
-            "btn_manage_channel", "btn_settings", "btn_subscription", "btn_help",
+            "btn_manage_channel", "btn_settings", "btn_subscription",
+            "btn_help", "btn_why_topkap",
         ]:
             val = get_string(_lang, key)
             if val and val != key:
