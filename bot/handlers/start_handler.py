@@ -1,12 +1,17 @@
 """
-bot/handlers/start_handler.py — TopKap Bot v3.0
-Professional Onboarding Experience
-- Welcome banner image
-- Random motivational messages
-- Language confirmation
-- Guided dashboard with descriptions
-- Full help center
-- Teaser messages for coming-soon features
+bot/handlers/start_handler.py — TopKap Bot v5.0
+================================================
+Professional Onboarding + Account Connection + Dashboard
+
+FEATURES:
+- Welcome banner image with random motivational messages
+- Language auto-detection + manual selection
+- Deep link account connection with motivational success/error messages
+- Guided supplier dashboard with all 7 action buttons
+- Full help center (step-by-step guide)
+- Why TopKap infographic
+- TopGate profile sharing
+- Settings (language change)
 """
 import re
 import os
@@ -24,13 +29,15 @@ from bot.services.kayisoft_api import KayisoftAPI
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────
-# ASSET PATH
+# ASSET PATHS
 # ─────────────────────────────────────────────
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
 WELCOME_BANNER = os.path.join(ASSETS_DIR, "welcome_banner.jpg")
-# ───────────────────────────────────────────────
-# MOTIVATIONAL MESSAGES — loaded from translation files
-# ───────────────────────────────────────────────
+WHY_TOPKAP_IMAGE = os.path.join(ASSETS_DIR, "why_topkap.jpg")
+
+# ─────────────────────────────────────────────
+# MOTIVATIONAL MESSAGES (random on each /start)
+# ─────────────────────────────────────────────
 MOTIVATIONAL_KEYS = [
     "motivational_1", "motivational_2", "motivational_3",
     "motivational_4", "motivational_5",
@@ -39,13 +46,12 @@ MOTIVATIONAL_KEYS = [
 def _get_motivational(lang: str) -> str:
     """Pick a random motivational message from translation files."""
     msgs = [get_string(lang, k) for k in MOTIVATIONAL_KEYS]
-    # Filter out any keys that weren't found (returned as-is)
     msgs = [m for m in msgs if not m.startswith("motivational_")]
     return random.choice(msgs) if msgs else "🌟 <b>TopKap'a Hoş Geldiniz!</b>"
 
-# ───────────────────────────────────────────────
+# ─────────────────────────────────────────────
 # LANGUAGE CONFIRMED MESSAGES
-# ───────────────────────────────────────────────────
+# ─────────────────────────────────────────────
 LANG_CONFIRMED = {
     "tr": "🇹🇷 <b>Türkçe seçildi!</b>\n\nLütfen aşağıdaki paneli kullanın 👇",
     "ar": "🇸🇦 <b>تم اختيار العربية!</b>\n\nيرجى استخدام اللوحة أدناه 👇",
@@ -59,6 +65,90 @@ SETTINGS_MSG = {
     "tr": "⚙️ <b>Ayarlar</b>\n\nDil değiştirmek için aşağıdan seçin:",
     "ar": "⚙️ <b>الإعدادات</b>\n\nاختر اللغة من الأزرار أدناه:",
     "en": "⚙️ <b>Settings</b>\n\nSelect your language from below:",
+}
+
+# ─────────────────────────────────────────────
+# CONNECTION SUCCESS — Motivational (3 languages)
+# ─────────────────────────────────────────────
+CONNECTION_SUCCESS = {
+    "tr": (
+        "🎉 <b>Hesabınız Başarıyla Bağlandı!</b>\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "✅ TopKap hesabınız Telegram'a bağlı\n"
+        "🌍 180+ ülkeden alıcılara ulaşmaya hazırsınız\n"
+        "📢 Ürünlerinizi kanalınıza otomatik yayınlayın\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        "🚀 <b>Başlamak için aşağıdaki paneli kullanın!</b>"
+    ),
+    "ar": (
+        "🎉 <b>تم ربط حسابك بنجاح!</b>\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "✅ حسابك على TopKap مرتبط بتيليغرام\n"
+        "🌍 أنت الآن جاهز للوصول لمشترين من 180+ دولة\n"
+        "📢 انشر منتجاتك تلقائياً على قناتك\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        "🚀 <b>استخدم اللوحة أدناه للبدء الآن!</b>"
+    ),
+    "en": (
+        "🎉 <b>Account Connected Successfully!</b>\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "✅ Your TopKap account is linked to Telegram\n"
+        "🌍 Ready to reach buyers from 180+ countries\n"
+        "📢 Auto-publish products to your channel\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        "🚀 <b>Use the panel below to get started!</b>"
+    ),
+}
+
+# ─────────────────────────────────────────────
+# CONNECTION ERROR — Clear instructions (3 languages)
+# ─────────────────────────────────────────────
+CONNECTION_ERROR = {
+    "tr": (
+        "❌ <b>Hesap Bağlama Başarısız</b>\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "Bu hata genellikle şu sebeplerden kaynaklanır:\n\n"
+        "1️⃣ <b>Bağlantı süresi dolmuş</b>\n"
+        "   → TopKap uygulamasından yeni bir bağlantı oluşturun\n\n"
+        "2️⃣ <b>Bağlantı daha önce kullanılmış</b>\n"
+        "   → Her bağlantı yalnızca bir kez kullanılabilir\n\n"
+        "3️⃣ <b>Hesap henüz onaylanmamış</b>\n"
+        "   → Hesabınızın onaylandığından emin olun\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "📱 <b>Çözüm:</b> TopKap uygulamasını açın\n"
+        "   Ayarlar → Telegram Botu → Yeniden Bağla\n\n"
+        "📞 Sorun devam ederse: @TopKapSupport"
+    ),
+    "ar": (
+        "❌ <b>فشل ربط الحساب</b>\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "يحدث هذا الخطأ عادةً بسبب:\n\n"
+        "1️⃣ <b>انتهت صلاحية رابط الربط</b>\n"
+        "   → أنشئ رابطاً جديداً من تطبيق TopKap\n\n"
+        "2️⃣ <b>تم استخدام الرابط مسبقاً</b>\n"
+        "   → كل رابط يُستخدم مرة واحدة فقط\n\n"
+        "3️⃣ <b>الحساب لم يُفعَّل بعد</b>\n"
+        "   → تأكد من اعتماد حسابك\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "📱 <b>الحل:</b> افتح تطبيق TopKap\n"
+        "   الإعدادات ← بوت تيليغرام ← إعادة الربط\n\n"
+        "📞 إذا استمرت المشكلة: @TopKapSupport"
+    ),
+    "en": (
+        "❌ <b>Account Connection Failed</b>\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "This error usually occurs because:\n\n"
+        "1️⃣ <b>Connection link has expired</b>\n"
+        "   → Generate a new link from the TopKap app\n\n"
+        "2️⃣ <b>Link was already used</b>\n"
+        "   → Each link can only be used once\n\n"
+        "3️⃣ <b>Account not yet approved</b>\n"
+        "   → Make sure your account is verified\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "📱 <b>Solution:</b> Open the TopKap app\n"
+        "   Settings → Telegram Bot → Reconnect\n\n"
+        "📞 If the issue persists: @TopKapSupport"
+    ),
 }
 
 # ─────────────────────────────────────────────
@@ -157,14 +247,18 @@ HELP_GUIDE = {
         "1️⃣ Telegram'da bir kanal oluşturun\n"
         "2️⃣ @TopKapTR_bot'u kanala <b>Admin</b> olarak ekleyin\n"
         "3️⃣ Kanal Yönetimi → Kanal Bağla\n"
-        "4️⃣ Kanal adını girin → Bağlantı tamamlandı ✅\n\n"
+        "4️⃣ Kanal otomatik olarak kaydedilir ✅\n\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         "➕ <b>Ürün Nasıl Eklerim?</b>\n"
         "1️⃣ Ürün Ekle butonuna basın\n"
-        "2️⃣ Kategori seçin\n"
-        "3️⃣ Ürün fotoğraflarını yükleyin\n"
-        "4️⃣ Fiyat ve açıklama girin\n"
-        "5️⃣ Yayınla → Kanalınıza otomatik gönderilir ✅\n\n"
+        "2️⃣ Ana kategori → Alt kategori seçin\n"
+        "3️⃣ Ürün bilgilerini girin (AI analiz eder)\n"
+        "4️⃣ Ürün fotoğraflarını yükleyin\n"
+        "5️⃣ Onayla → TopKap + TopGate + Kanalınıza otomatik gönderilir ✅\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "🌐 <b>TopGate Profilimi Nasıl Paylaşırım?</b>\n"
+        "TopGate Profilimi Paylaş butonuna basın.\n"
+        "Hazır mesajı kanalınıza kopyalayın.\n\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         "📞 <b>Destek için:</b> @TopKapSupport"
     ),
@@ -180,15 +274,18 @@ HELP_GUIDE = {
         "📢 <b>كيف أربط قناتي؟</b>\n"
         "1️⃣ أنشئ قناة على تيليغرام\n"
         "2️⃣ أضف @TopKapTR_bot كـ <b>مشرف</b> في القناة\n"
-        "3️⃣ إدارة القناة ← ربط قناة\n"
-        "4️⃣ أدخل اسم القناة ← اكتمل الربط ✅\n\n"
+        "3️⃣ ستُسجَّل القناة تلقائياً ✅\n\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         "➕ <b>كيف أضيف منتجاً؟</b>\n"
         "1️⃣ اضغط إضافة منتج\n"
-        "2️⃣ اختر الفئة\n"
-        "3️⃣ ارفع صور المنتج\n"
-        "4️⃣ أدخل السعر والوصف\n"
-        "5️⃣ انشر ← يُرسل تلقائياً لقناتك ✅\n\n"
+        "2️⃣ اختر الفئة الرئيسية ← الفئة الفرعية\n"
+        "3️⃣ أدخل بيانات المنتج (الذكاء الاصطناعي يحللها)\n"
+        "4️⃣ ارفع صور المنتج\n"
+        "5️⃣ أكّد ← يُنشر تلقائياً على TopKap + TopGate + قناتك ✅\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "🌐 <b>كيف أشارك ملفي على TopGate؟</b>\n"
+        "اضغط زر 'شارك ملفي على TopGate'.\n"
+        "انسخ الرسالة الجاهزة وانشرها على قناتك.\n\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         "📞 <b>للدعم:</b> @TopKapSupport"
     ),
@@ -204,42 +301,49 @@ HELP_GUIDE = {
         "📢 <b>How do I connect my channel?</b>\n"
         "1️⃣ Create a channel on Telegram\n"
         "2️⃣ Add @TopKapTR_bot as <b>Admin</b> to the channel\n"
-        "3️⃣ Channel Management → Connect Channel\n"
-        "4️⃣ Enter channel name → Connection complete ✅\n\n"
+        "3️⃣ Channel is registered automatically ✅\n\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         "➕ <b>How do I add a product?</b>\n"
         "1️⃣ Press Add Product button\n"
-        "2️⃣ Select a category\n"
-        "3️⃣ Upload product photos\n"
-        "4️⃣ Enter price and description\n"
-        "5️⃣ Publish → Auto-sent to your channel ✅\n\n"
+        "2️⃣ Select main category → subcategory\n"
+        "3️⃣ Enter product details (AI analyzes them)\n"
+        "4️⃣ Upload product photos\n"
+        "5️⃣ Confirm → Auto-published to TopKap + TopGate + your channel ✅\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "🌐 <b>How do I share my TopGate profile?</b>\n"
+        "Press 'Share My TopGate Profile' button.\n"
+        "Copy the ready message and post it to your channel.\n\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         "📞 <b>Support:</b> @TopKapSupport"
     ),
 }
 
+
 # ─────────────────────────────────────────────
 # /start COMMAND
 # ─────────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Entry point for the bot.
+    - If deep link token present → handle account connection
+    - Otherwise → show welcome banner + language selection
+    """
     user = update.effective_user
     telegram_id = str(user.id)
 
-    # Deep link token check
+    # ── Deep link token (from TopKap app) ─────────────────────────────────────
     if context.args:
         token = context.args[0]
         await handle_account_connection(update, context, telegram_id, token)
         return
 
-    # Detect language
+    # ── Normal /start — show onboarding ───────────────────────────────────────
     lang = get_user_lang(telegram_id) or detect_lang(user.language_code)
     set_user_lang(telegram_id, lang)
 
-    # Random motivational message + welcome
     motivation = _get_motivational(lang)
     caption = f"{motivation}\n\n{get_string(lang, 'welcome_message')}"
 
-    # Send banner image with language keyboard
     try:
         with open(WELCOME_BANNER, "rb") as photo:
             await update.message.reply_photo(
@@ -249,7 +353,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 parse_mode=ParseMode.HTML,
             )
     except Exception:
-        # Fallback to text if image unavailable
         await update.message.reply_text(
             caption,
             reply_markup=language_keyboard(),
@@ -258,7 +361,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 # ─────────────────────────────────────────────
-# ACCOUNT CONNECTION (deep link)
+# ACCOUNT CONNECTION (deep link from TopKap app)
 # ─────────────────────────────────────────────
 async def handle_account_connection(
     update: Update,
@@ -266,20 +369,48 @@ async def handle_account_connection(
     telegram_id: str,
     token: str,
 ) -> None:
+    """
+    Called when the supplier opens the deep link from the TopKap app.
+    Flow:
+      1. Show "connecting..." message
+      2. Call KAYISOFT API: POST api/seller/telegram-bot/connect
+      3. On success → motivational success message + dashboard
+      4. On failure → clear error message with instructions
+    """
     lang = get_user_lang(telegram_id) or "tr"
-    user_name = update.effective_user.username or update.effective_user.first_name
+    user = update.effective_user
+    user_name = user.username or user.first_name or ""
 
+    # Show connecting indicator
+    connecting_msgs = {
+        "tr": "🔄 <b>Hesap bağlanıyor...</b>",
+        "ar": "🔄 <b>جاري ربط الحساب...</b>",
+        "en": "🔄 <b>Connecting account...</b>",
+    }
+    connecting_msg = await update.message.reply_text(
+        connecting_msgs.get(lang, connecting_msgs["tr"]),
+        parse_mode=ParseMode.HTML,
+    )
+
+    # Call KAYISOFT API
     api = KayisoftAPI(telegram_user_id=telegram_id, language=lang)
-    response = await api.connect_account(deep_link_token=token, telegram_user_name=user_name)
+    response = await api.connect_account(
+        deep_link_token=token,
+        telegram_user_name=user_name,
+    )
+
+    # Delete the "connecting..." message
+    try:
+        await connecting_msg.delete()
+    except Exception:
+        pass
 
     if response is not None:
-        success_msgs = {
-            "tr": "🎉 <b>Hesabınız başarıyla bağlandı!</b>\n\nArtık TopKap'ın tüm özelliklerini kullanabilirsiniz.",
-            "ar": "🎉 <b>تم ربط حسابك بنجاح!</b>\n\nيمكنك الآن استخدام جميع ميزات TopKap.",
-            "en": "🎉 <b>Your account has been connected successfully!</b>\n\nYou can now use all TopKap features.",
-        }
+        # ── SUCCESS ────────────────────────────────────────────────────────────
+        logger.info("Account connected successfully: telegram_id=%s", telegram_id)
+
         await update.message.reply_text(
-            success_msgs.get(lang, success_msgs["tr"]),
+            CONNECTION_SUCCESS.get(lang, CONNECTION_SUCCESS["tr"]),
             parse_mode=ParseMode.HTML,
         )
         await update.message.reply_text(
@@ -288,8 +419,11 @@ async def handle_account_connection(
             parse_mode=ParseMode.HTML,
         )
     else:
+        # ── FAILURE ────────────────────────────────────────────────────────────
+        logger.warning("Account connection failed: telegram_id=%s, token=%s", telegram_id, token[:8] + "...")
+
         await update.message.reply_text(
-            get_string(lang, "connect_error"),
+            CONNECTION_ERROR.get(lang, CONNECTION_ERROR["tr"]),
             parse_mode=ParseMode.HTML,
         )
 
@@ -298,6 +432,7 @@ async def handle_account_connection(
 # LANGUAGE SELECTION (callback)
 # ─────────────────────────────────────────────
 async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles language selection button press."""
     query = update.callback_query
     await query.answer()
 
@@ -313,13 +448,10 @@ async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     set_user_lang(telegram_id, lang)
 
-    # Confirm language selection
     await query.message.reply_text(
         LANG_CONFIRMED[lang],
         parse_mode=ParseMode.HTML,
     )
-
-    # Show guided dashboard
     await query.message.reply_text(
         get_string(lang, "main_menu_supplier"),
         reply_markup=supplier_main_keyboard(lang),
@@ -328,9 +460,10 @@ async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 # ─────────────────────────────────────────────
-# MENU BUTTON HANDLER
+# MENU BUTTON HANDLER (ReplyKeyboard)
 # ─────────────────────────────────────────────
 async def handle_menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Routes all supplier dashboard button presses to the correct handler."""
     telegram_id = str(update.effective_user.id)
     lang = get_user_lang(telegram_id) or "tr"
     text = update.message.text
@@ -393,10 +526,8 @@ async def handle_menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await handle_share_topgate(update, context, lang)
 
     elif action == "why_topkap":
-        # Show Why TopKap infographic + detailed text
-        why_image = os.path.join(ASSETS_DIR, "why_topkap.jpg")
         try:
-            with open(why_image, "rb") as photo:
+            with open(WHY_TOPKAP_IMAGE, "rb") as photo:
                 await update.message.reply_photo(
                     photo=photo,
                     caption=get_string(lang, "onboarding_stats"),
@@ -429,40 +560,18 @@ async def handle_share_topgate(
     """
     Generates a ready-to-share message for the supplier to post on their
     Telegram channel, inviting buyers to follow them on TopGate.
-
-    The message includes:
-    - A compelling call-to-action
-    - The supplier's TopGate profile link (from API or config)
-    - Branding for TopKap × TopGate
     """
     telegram_id = str(update.effective_user.id)
-    api = KayisoftAPI(telegram_user_id=telegram_id, language=lang)
 
-    # Try to get supplier's TopGate profile URL from API
-    topgate_url = None
-    try:
-        seller_info = await api.get_seller_info()
-        if seller_info:
-            # API may return topgate_url or profile_url
-            topgate_url = (
-                seller_info.get("topgate_url")
-                or seller_info.get("topgate_profile_url")
-                or seller_info.get("profile_url")
-            )
-    except Exception as e:
-        logger.warning(f"Could not fetch seller info for TopGate URL: {e}")
-
-    # Fallback to config URL if API doesn't return one
-    if not topgate_url:
-        topgate_base = os.getenv("TOPGATE_WEB_URL", "https://topgate.app")
-        topgate_url = topgate_base
+    # Fallback to config URL (Universal Link will come from KAYISOFT)
+    topgate_base = os.getenv("TOPGATE_WEB_URL", "https://topgate.app")
+    topgate_url = topgate_base
 
     # Format the share message
     share_msg = get_string(lang, "topgate_share_message").format(
         supplier_url=topgate_url
     )
 
-    # Header message explaining what to do
     header = {
         "tr": (
             "📲 <b>TopGate Profil Linkiniz Hazır!</b>\n\n"
@@ -495,6 +604,7 @@ async def handle_share_topgate(
 # REGISTER HANDLERS
 # ─────────────────────────────────────────────
 def register_start_handlers(application) -> None:
+    """Register all start/menu handlers with the application."""
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(set_language, pattern="^set_lang_"))
 
