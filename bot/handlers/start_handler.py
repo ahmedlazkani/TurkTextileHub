@@ -331,11 +331,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     telegram_id = str(user.id)
 
+    # ── DIAGNOSTIC: log exactly what /start received ────────────────────────
+    msg_text = update.message.text if update.message else 'NO_MESSAGE'
+    logger.info(
+        "START received | telegram_id=%s | args=%s | message_text=%s",
+        telegram_id, context.args, msg_text,
+    )
+
     # ── Deep link token (from TopKap app) ─────────────────────────────────────
     if context.args:
         token = context.args[0]
+        logger.info("Deep link token detected: %s...", token[:8] if len(token) >= 8 else token)
         await handle_account_connection(update, context, telegram_id, token)
         return
+    logger.info("No deep link args — showing normal onboarding for telegram_id=%s", telegram_id)
 
     # ── Normal /start — show onboarding ───────────────────────────────────────
     lang = get_user_lang(telegram_id) or detect_lang(user.language_code)
