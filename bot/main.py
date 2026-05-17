@@ -36,6 +36,27 @@ def main():
         logger.error("ERROR — TELEGRAM_BOT_TOKEN not found in environment variables.")
         raise RuntimeError("TELEGRAM_BOT_TOKEN is required to start the bot.")
 
+    # ── DIAGNOSTIC: print all critical env vars at startup ──────────────────
+    kayisoft_token = (
+        os.getenv("KAYISOFT_API_TOKEN") or
+        os.getenv("TELEGRAM_BOT_API_ENDPOINT_KEY") or
+        ""
+    )
+    kayisoft_url = os.getenv("KAYISOFT_API_URL", "NOT SET")
+    deepseek_key = os.getenv("DEEPSEEK_API_KEY", "")
+
+    logger.info("=" * 60)
+    logger.info("DIAGNOSTIC — Environment Variables at startup:")
+    logger.info("  KAYISOFT_API_URL            = %s", kayisoft_url)
+    logger.info("  KAYISOFT_API_TOKEN          = %s", kayisoft_token[:8] + "..." if kayisoft_token else "EMPTY !!!")
+    logger.info("  TELEGRAM_BOT_API_ENDPOINT_KEY = %s", (os.getenv("TELEGRAM_BOT_API_ENDPOINT_KEY") or "NOT SET")[:8] + "...")
+    logger.info("  DEEPSEEK_API_KEY            = %s", "SET" if deepseek_key else "NOT SET")
+    logger.info("  BOT_TOKEN (first 8 chars)   = %s...", token[:8])
+    if not kayisoft_token:
+        logger.error("  *** KAYISOFT_API_TOKEN IS EMPTY — all API calls will fail with 401 ***")
+    logger.info("=" * 60)
+    # ── END DIAGNOSTIC ───────────────────────────────────────────────────────
+
     logger.info("TopKap Bot initializing...")
 
     application = ApplicationBuilder().token(token).build()
