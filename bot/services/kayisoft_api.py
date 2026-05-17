@@ -70,6 +70,11 @@ class KayisoftAPI:
     # ── Low-level helpers ─────────────────────────────────────────────────────
 
     async def _get(self, endpoint: str, params: dict = None):
+        """
+        Generic GET request.
+        Returns parsed JSON on 2xx, or None on 4xx/5xx/exception.
+        Handles 2xx responses with empty body gracefully (returns {}).
+        """
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
         async with aiohttp.ClientSession() as session:
             try:
@@ -81,15 +86,42 @@ class KayisoftAPI:
                 ) as resp:
                     if resp.status >= 400:
                         text = await resp.text()
-                        logger.error("GET %s → HTTP %s: %s", endpoint, resp.status, text[:200])
+                        logger.error(
+                            "GET %s → HTTP %s: %s",
+                            endpoint, resp.status, text[:300],
+                        )
                         return None
-                    data = await resp.json()
-                    return data
+                    # ── 2xx: try to parse JSON, fall back to {} ──────────────
+                    try:
+                        data = await resp.json(content_type=None)
+                        logger.debug("GET %s → HTTP %s OK", endpoint, resp.status)
+                        return data
+                    except Exception:
+                        # 2xx but no JSON body (e.g. 204 No Content)
+                        logger.debug(
+                            "GET %s → HTTP %s OK (no JSON body)",
+                            endpoint, resp.status,
+                        )
+                        return {}
             except Exception as exc:
-                logger.error("GET %s error: %s", endpoint, exc)
+                logger.error("GET %s network error: %s", endpoint, exc)
                 return None
 
     async def _post(self, endpoint: str, body: dict = None):
+        """
+        Generic POST request.
+        Returns parsed JSON on 2xx, or None on 4xx/5xx/exception.
+
+        CRITICAL FIX:
+        The KAYISOFT connect endpoint (api/seller/telegram-bot/connect)
+        returns HTTP 200 with a plain text or empty body on success.
+        The original code called resp.json() which threw ContentTypeError,
+        causing the except block to return None — making the bot think
+        the connection FAILED even when it SUCCEEDED.
+
+        Fix: use content_type=None in resp.json() to accept any content type,
+        and fall back to {} if the body is empty or non-JSON.
+        """
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
         async with aiohttp.ClientSession() as session:
             try:
@@ -101,12 +133,27 @@ class KayisoftAPI:
                 ) as resp:
                     if resp.status >= 400:
                         text = await resp.text()
-                        logger.error("POST %s → HTTP %s: %s", endpoint, resp.status, text[:200])
+                        logger.error(
+                            "POST %s → HTTP %s: %s",
+                            endpoint, resp.status, text[:300],
+                        )
                         return None
-                    data = await resp.json()
-                    return data
+                    # ── 2xx: try to parse JSON, fall back to {} ──────────────
+                    # IMPORTANT: content_type=None accepts text/plain, empty body, etc.
+                    # This fixes the connect endpoint which may return non-JSON on success.
+                    try:
+                        data = await resp.json(content_type=None)
+                        logger.debug("POST %s → HTTP %s OK", endpoint, resp.status)
+                        return data if data is not None else {}
+                    except Exception:
+                        # 2xx but no JSON body (e.g. 200 OK with empty body)
+                        logger.debug(
+                            "POST %s → HTTP %s OK (no JSON body)",
+                            endpoint, resp.status,
+                        )
+                        return {}  # ← Return {} not None — {} is truthy enough for success check
             except Exception as exc:
-                logger.error("POST %s error: %s", endpoint, exc)
+                logger.error("POST %s network error: %s", endpoint, exc)
                 return None
 
     # ── 1. Connect seller account ─────────────────────────────────────────────
