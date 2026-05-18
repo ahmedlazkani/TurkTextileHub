@@ -54,15 +54,25 @@ class KayisoftAPI:
 
     # ── Headers ──────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _clean(value: str) -> str:
+        """
+        Remove any characters that are illegal in HTTP headers:
+        newline (\n), carriage return (\r), and tab (\t).
+        aiohttp raises a security error if these appear in header values.
+        """
+        return str(value).replace('\n', '').replace('\r', '').replace('\t', '').strip()
+
     def _headers(self) -> dict:
         """
         Build the mandatory headers required by every KAYISOFT endpoint.
+        All values are sanitized to prevent HTTP header injection errors.
         """
         return {
-            "Telegram-User-Id": self.telegram_user_id,
-            "Authorization":    f"Bearer {self.token}",
+            "Telegram-User-Id": self._clean(self.telegram_user_id),
+            "Authorization":    f"Bearer {self._clean(self.token)}",
             "Platform":         "telegram",
-            "Accept-Language":  self.language,
+            "Accept-Language":  self._clean(self.language),
             "Content-Type":     "application/json",
             "Accept":           "application/json",
         }
