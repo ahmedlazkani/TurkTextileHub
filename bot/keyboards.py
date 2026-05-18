@@ -7,6 +7,17 @@ Purpose:
     Single source of truth for all Reply Keyboards and Inline Keyboards
     used throughout the bot. Separating keyboard definitions from handler
     logic keeps handlers clean and makes UI changes easy to apply globally.
+
+Layout (Supplier):
+    Row 1: [➕ Add Product]                    ← primary action, full width
+    Row 2: [📦 My Products]  [📊 Statistics]
+    Row 3: [🔗 Channel Management]             ← full width
+    Row 4: [⚙️ Settings]    [💎 Subscription]
+    Row 5: [💡 Why TopKap?]  [❓ Help]
+    Row 6: [📱 TopKap App]                     ← WebApp button (opens in Telegram)
+
+NOTE: "Share TopGate Profile" button removed — redundant with the blue WebApp
+      button and the TopKap App row button. Buyers can be reached via product posts.
 """
 import os
 from telegram import (
@@ -24,11 +35,12 @@ TOPKAP_APP_URL = os.getenv(
     "https://app-wholesale.dev.kayisoft.net"
 )
 
-# TopGate Buyer/Trader App URL — used for sharing supplier profile
+# TopGate Buyer/Trader App URL — used for product post buttons
 TOPGATE_WEB_URL = os.getenv(
     "TOPGATE_WEB_URL",
     "https://topgate.app"
 )
+
 
 def supplier_main_keyboard(lang: str) -> ReplyKeyboardMarkup:
     """
@@ -39,36 +51,33 @@ def supplier_main_keyboard(lang: str) -> ReplyKeyboardMarkup:
         Row 2: [📦 My Products]  [📊 Statistics]
         Row 3: [🔗 Channel Management]             ← full width
         Row 4: [⚙️ Settings]    [💎 Subscription]
-        Row 5: [🌐 Share TopGate Profile]          ← share supplier page to buyers
-        Row 6: [💡 Why TopKap?]  [❓ Help]
-        Row 7: [📱 TopKap App]                     ← WebApp button (opens in Telegram)
+        Row 5: [💡 Why TopKap?]  [❓ Help]
+        Row 6: [📱 TopKap App]                     ← WebApp button (opens in Telegram)
 
     The WebApp button opens the TopKap supplier app directly inside Telegram
     using Telegram's built-in WebApp feature — no external browser needed.
     """
     keyboard = [
-        # Row 1: Primary action
+        # Row 1: Primary action — full width
         [KeyboardButton(get_string(lang, "btn_add_product"))],
         # Row 2: Products & Stats
         [
             KeyboardButton(get_string(lang, "btn_my_products")),
             KeyboardButton(get_string(lang, "btn_statistics")),
         ],
-        # Row 3: Channel
+        # Row 3: Channel Management — full width
         [KeyboardButton(get_string(lang, "btn_manage_channel"))],
         # Row 4: Settings & Subscription
         [
             KeyboardButton(get_string(lang, "btn_settings")),
             KeyboardButton(get_string(lang, "btn_subscription")),
         ],
-        # Row 5: Share TopGate Profile — invite buyers to follow on TopGate
-        [KeyboardButton(get_string(lang, "btn_share_topgate"))],
-        # Row 6: Why TopKap + Help
+        # Row 5: Why TopKap + Help
         [
             KeyboardButton(get_string(lang, "btn_why_topkap")),
             KeyboardButton(get_string(lang, "btn_help")),
         ],
-        # Row 7: TopKap App — WebApp button
+        # Row 6: TopKap App — WebApp button (opens supplier app inside Telegram)
         [
             KeyboardButton(
                 "📱 TopKap App",
@@ -80,8 +89,11 @@ def supplier_main_keyboard(lang: str) -> ReplyKeyboardMarkup:
         keyboard,
         resize_keyboard=True,
         one_time_keyboard=False,
-        # NOTE: input_field_placeholder does NOT support HTML — strip tags
-        input_field_placeholder="🛍️ Tedarikçi Paneli" if lang == "tr" else ("🛍️ لوحة المورد" if lang == "ar" else "🛍️ Supplier Dashboard"),
+        input_field_placeholder=(
+            "🛍️ Tedarikçi Paneli" if lang == "tr"
+            else ("🛍️ لوحة المورد" if lang == "ar"
+            else "🛍️ Supplier Dashboard")
+        ),
     )
 
 
@@ -100,6 +112,7 @@ def trader_main_keyboard(lang: str) -> ReplyKeyboardMarkup:
         one_time_keyboard=False,
         input_field_placeholder=get_string(lang, "main_menu_trader"),
     )
+
 
 def language_keyboard() -> InlineKeyboardMarkup:
     """

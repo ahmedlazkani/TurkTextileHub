@@ -13,10 +13,19 @@ logger = logging.getLogger(__name__)
 
 async def start_channel_connection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Instructs the user to add the bot to their channel as an admin."""
-    user_id = str(update.effective_user.id)
-    lang = get_user_lang(user_id) or "tr"
+    user = update.effective_user
+    user_id = str(user.id)
+    # Resolve language: prefer saved lang, fallback to Telegram language_code
+    lang = get_user_lang(user_id)
+    if lang == "tr" and user.language_code:
+        detected = detect_lang(user.language_code)
+        if detected != "tr":
+            lang = detected
     
-    await update.message.reply_text(get_string(lang, "channel_add_admin"))
+    await update.message.reply_text(
+        get_string(lang, "channel_add_admin"),
+        parse_mode="HTML"
+    )
 
 async def handle_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
