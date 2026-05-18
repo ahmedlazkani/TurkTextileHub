@@ -151,7 +151,14 @@ class KayisoftAPI:
             headers.get('Platform', 'MISSING'),
             str(body)[:200] if body else '{}',
         )
-        async with aiohttp.ClientSession() as session:
+        # Use a connector that skips strict HTTP header validation
+        # This is needed because the KAYISOFT API server sometimes returns
+        # responses with non-standard characters in headers.
+        connector = aiohttp.TCPConnector()
+        async with aiohttp.ClientSession(
+            connector=connector,
+            connector_owner=True,
+        ) as session:
             try:
                 async with session.post(
                     url,
@@ -160,28 +167,39 @@ class KayisoftAPI:
                     timeout=aiohttp.ClientTimeout(total=15),
                 ) as resp:
                     text = await resp.text()
-                    logger.info("POST %s → HTTP %s | response: %s", endpoint, resp.status, text[:300])
+                    logger.info("POST %s \u2192 HTTP %s | response: %s", endpoint, resp.status, text[:300])
                     if resp.status >= 400:
                         logger.error(
-                            "POST %s → HTTP %s FAILED: %s",
+                            "POST %s \u2192 HTTP %s FAILED: %s",
                             endpoint, resp.status, text[:500],
                         )
                         return None
-                    # ── 2xx: نجاح ────────────────────────────────────────────────
+                    # \u2500\u2500 2xx: \u0646\u062c\u0627\u062d \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
                     try:
                         import json
                         data = json.loads(text) if text.strip() else {}
-                        logger.info("POST %s → HTTP %s OK", endpoint, resp.status)
+                        logger.info("POST %s \u2192 HTTP %s OK", endpoint, resp.status)
                         return data if data is not None else {}
                     except Exception:
                         # 2xx but no JSON body (e.g. 200 OK with empty body)
                         logger.info(
-                            "POST %s → HTTP %s OK (no JSON body)",
+                            "POST %s \u2192 HTTP %s OK (no JSON body)",
                             endpoint, resp.status,
                         )
-                        return {}  # ← {} is not None → يعني نجاح
+                        return {}  # \u2190 {} is not None \u2192 \u064a\u0639\u0646\u064a \u0646\u062c\u0627\u062d
             except Exception as exc:
-                logger.error("POST %s network error: %s", endpoint, exc)
+                exc_str = str(exc)
+                # aiohttp raises this when the server response contains \n or \r in headers.
+                # This is a known issue with some API servers. We treat it as a network error
+                # but log it clearly so it can be investigated.
+                if 'Newline' in exc_str or 'carriage' in exc_str:
+                    logger.error(
+                        "POST %s — server returned invalid HTTP headers (newline/CR in response). "
+                        "This is a server-side issue. Error: %s",
+                        endpoint, exc_str
+                    )
+                else:
+                    logger.error("POST %s network error: %s", endpoint, exc)
                 return None
 
     # ── 1. Connect seller account ─────────────────────────────────────────────

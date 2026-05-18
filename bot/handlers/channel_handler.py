@@ -58,18 +58,25 @@ async def handle_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TY
         
         try:
             if response is not None:
+                # Use {channel_name} placeholder from locale string
+                success_text = get_string(lang, "channel_connected").replace(
+                    "{channel_name}", channel_title
+                )
                 await context.bot.send_message(
                     chat_id=user.id,
-                    text=get_string(lang, "channel_connected") + f"\nKanal: {channel_title}"
+                    text=success_text,
+                    parse_mode="HTML"
                 )
             else:
                 logger.error(
                     "create_channel FAILED for user_id=%s channel_id=%s",
                     user_id, channel_id
                 )
+                error_text = get_string(lang, "channel_error")
                 await context.bot.send_message(
                     chat_id=user.id,
-                    text="Kanal kaydedilirken bir hata oluştu. Lütfen hesabınızı bağladığınızdan emin olun."
+                    text=error_text,
+                    parse_mode="HTML"
                 )
         except Exception as e:
             logger.error(f"Could not send confirmation to user {user_id}: {e}")
