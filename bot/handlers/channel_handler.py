@@ -41,11 +41,20 @@ async def handle_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TY
         channel_id = str(chat.id)
         channel_title = chat.title
         
-        logger.info(f"Bot added to channel {channel_title} ({channel_id}) by user {user_id}")
+        logger.info(
+            "Bot added to channel: title=%s | channel_id=%s | by user_id=%s",
+            channel_title, channel_id, user_id
+        )
         
         # Register channel with KAYISOFT API
         api = KayisoftAPI(telegram_user_id=user_id, language=lang)
+        logger.info(
+            "Calling create_channel: channel_id=%s | channel_name=%s | telegram_user_id=%s | token=%s...",
+            channel_id, channel_title, user_id,
+            api.token[:8] if api.token else 'EMPTY'
+        )
         response = await api.create_channel(channel_id=channel_id, channel_name=channel_title)
+        logger.info("create_channel response: %s", response)
         
         try:
             if response is not None:
@@ -54,6 +63,10 @@ async def handle_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TY
                     text=get_string(lang, "channel_connected") + f"\nKanal: {channel_title}"
                 )
             else:
+                logger.error(
+                    "create_channel FAILED for user_id=%s channel_id=%s",
+                    user_id, channel_id
+                )
                 await context.bot.send_message(
                     chat_id=user.id,
                     text="Kanal kaydedilirken bir hata oluştu. Lütfen hesabınızı bağladığınızdan emin olun."
