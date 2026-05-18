@@ -1,0 +1,43 @@
+graph TD
+    subgraph "Telegram Platform"
+        User[Supplier / User]
+        Channel[Telegram Channel]
+    end
+
+    subgraph "TopKap Bot (Railway)"
+        Bot[Telegram Bot API]
+        Router[Message Router]
+        
+        subgraph "Handlers"
+            StartH[Start Handler]
+            ProductH[Product Handler]
+            ChannelH[Channel Handler]
+        end
+        
+        subgraph "Services"
+            LangS[Language Service]
+            KayisoftS[Kayisoft API Client]
+            DeepSeekS[DeepSeek AI Service]
+        end
+    end
+
+    subgraph "External Services"
+        KayisoftAPI[Kayisoft Backend API]
+        DeepSeekAPI[DeepSeek LLM API]
+    end
+
+    User <-->|Commands/Messages| Bot
+    Bot --> Router
+    Router --> StartH
+    Router --> ProductH
+    Router --> ChannelH
+
+    StartH --> KayisoftS
+    ProductH --> DeepSeekS
+    ProductH --> KayisoftS
+    ChannelH --> KayisoftS
+
+    KayisoftS <-->|REST API| KayisoftAPI
+    DeepSeekS <-->|REST API| DeepSeekAPI
+    
+    KayisoftAPI -.->|Publish| Channel

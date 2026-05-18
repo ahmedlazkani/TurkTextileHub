@@ -1,0 +1,21 @@
+sequenceDiagram
+    participant User as Supplier
+    participant App as TopKap App
+    participant Bot as TopKap Bot
+    participant API as Kayisoft API
+
+    User->>App: Clicks "Connect Telegram"
+    App->>API: Request Deep Link Token
+    API-->>App: Returns JWT Token (15m expiry)
+    App->>User: Opens tg://resolve?domain=TopKapTR_bot&start=TOKEN
+    User->>Bot: Clicks Start (sends /start TOKEN)
+    Bot->>API: POST /api/seller/telegram-bot/connect
+    Note over Bot,API: Headers: Telegram-User-Id, Authorization, Platform, Accept-Language
+    API-->>Bot: 200 OK (Success)
+    Bot->>User: Shows Success Message & Main Menu
+
+    User->>Channel: Adds Bot as Admin
+    Channel->>Bot: my_chat_member event triggered
+    Bot->>API: POST /api/seller/telegram-bot/create-channel
+    API-->>Bot: 200 OK (Channel Registered)
+    Bot->>User: Shows Channel Connected Message
