@@ -217,11 +217,26 @@ class KayisoftAPI:
             channel_id          : str
             telegram_user_id    : str
             channel_name        : str
+
+        FIX: Telegram channel IDs for supergroups/channels start with -100.
+        The minus sign and the channel_name may contain newline/carriage-return
+        characters that cause aiohttp to raise:
+            "Newline or carriage return character detected in HTTP status message or header"
+        We sanitize both values before sending.
         """
+        # Sanitize: remove any newline / carriage-return / tab characters
+        safe_channel_id   = str(channel_id).replace('\n', '').replace('\r', '').replace('\t', '').strip()
+        safe_channel_name = str(channel_name).replace('\n', '').replace('\r', '').replace('\t', '').strip()
+
+        logger.info(
+            "create_channel sanitized: channel_id=%s → %s | channel_name=%s → %s",
+            channel_id, safe_channel_id, channel_name, safe_channel_name
+        )
+
         body = {
-            "channel_id":       str(channel_id),
+            "channel_id":       safe_channel_id,
             "telegram_user_id": self.telegram_user_id,
-            "channel_name":     channel_name,
+            "channel_name":     safe_channel_name,
         }
         return await self._post("api/seller/telegram-bot/create-channel", body)
 
