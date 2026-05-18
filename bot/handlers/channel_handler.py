@@ -6,8 +6,7 @@ Handles channel connection and management.
 import logging
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
-from bot.services.language_service import get_string
-from bot.services.language_service import get_user_lang
+from bot.services.language_service import get_string, get_user_lang, detect_lang
 from bot.services.kayisoft_api import KayisoftAPI
 
 logger = logging.getLogger(__name__)
@@ -36,7 +35,13 @@ async def handle_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TY
         # The user who added the bot
         user = result.from_user
         user_id = str(user.id)
-        lang = get_user_lang(user_id) or "tr"
+        # Use language_code from Telegram directly (more reliable than in-memory cache)
+        lang = get_user_lang(user_id)
+        if lang == "tr" and user.language_code:
+            detected = detect_lang(user.language_code)
+            if detected != "tr":
+                lang = detected
+        logger.info("Channel handler: user_id=%s lang=%s language_code=%s", user_id, lang, user.language_code)
         
         channel_id = str(chat.id)
         channel_title = chat.title

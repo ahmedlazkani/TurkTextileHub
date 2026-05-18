@@ -8,7 +8,7 @@ import json
 import os
 
 # المسار الكامل لمجلد الترجمات
-_TRANSLATIONS_DIR = os.path.join(os.path.dirname(__file__), "..", "translations")
+_TRANSLATIONS_DIR = os.path.join(os.path.dirname(__file__), "..", "locales")
 
 # قاموس يخزن جميع الترجمات بعد التحميل
 _translations: dict = {}
@@ -74,7 +74,9 @@ def detect_lang(language_code: str) -> str:
     if not language_code:
         return "tr"
 
-    if language_code.startswith("tr"):
+    if language_code.startswith("ar"):
+        return "ar"
+    elif language_code.startswith("tr"):
         return "tr"
     elif language_code.startswith("en"):
         return "en"
