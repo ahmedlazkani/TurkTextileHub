@@ -286,36 +286,54 @@ class KayisoftAPI:
             is_visible_for_creating, minimum_required_images,
             maximum_images, maximum_videos
         """
-        raw = await self._get("api/seller/categories", params={"parent": parent_id})
+        # ── Send language as both header (Accept-Language) and query param ──────────
+        # KAYISOFT confirmed: language must be passed as a query parameter
+        # in addition to the Accept-Language header.
+        params = {"parent": parent_id, "language": self.language}
+        raw = await self._get("api/seller/categories", params=params)
 
         # ── Normalize response format ─────────────────────────────────────────
         # KAYISOFT API may return:
         #   a) A plain list:          [{...}, {...}]
-        #   b) A wrapped dict:        {"data": [{...}]} or {"categories": [{...]}
+        #   b) A wrapped dict:        {"result": [{...}]}
         #   c) None on error
         if raw is None:
             logger.error("get_categories: API returned None (network/auth error)")
             return None
         if isinstance(raw, list):
-            logger.info("get_categories: got list with %d items", len(raw))
-            return raw if raw else None
-        if isinstance(raw, dict):
-            # Try common wrapper keys
+            categories = raw
+        elif isinstance(raw, dict):
+            categories = None
             for key in ("result", "data", "categories", "results", "items"):
                 if key in raw and isinstance(raw[key], list):
                     logger.info(
                         "get_categories: unwrapped '%s' key, got %d items",
                         key, len(raw[key]),
                     )
-                    return raw[key] if raw[key] else None
-            # Dict but no known list key — log full response for debugging
-            logger.error(
-                "get_categories: unexpected dict response (no list key found): %s",
-                str(raw)[:500],
-            )
+                    categories = raw[key]
+                    break
+            if categories is None:
+                logger.error(
+                    "get_categories: unexpected dict response (no list key found): %s",
+                    str(raw)[:500],
+                )
+                return None
+        else:
+            logger.error("get_categories: unexpected response type: %s", type(raw))
             return None
-        logger.error("get_categories: unexpected response type: %s", type(raw))
-        return None
+
+        # ── Filter: when fetching root categories (parent_id == ""), ────────────
+        # the API may return ALL categories (root + sub). We must show
+        # only root categories (parent == null) at the first step.
+        if parent_id == "":
+            root_only = [c for c in categories if c.get("parent") is None]
+            logger.info(
+                "get_categories: filtered root-only: %d/%d items",
+                len(root_only), len(categories),
+            )
+            categories = root_only
+
+        return categories if categories else None
 
     # ── 4. Get attributes for a leaf category ────────────────────────────────
 
