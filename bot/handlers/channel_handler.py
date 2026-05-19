@@ -72,6 +72,17 @@ async def handle_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TY
         
         try:
             if response is not None:
+                # ── حفظ channel_id في bot_data ليستخدمه product_handler ──────────
+                # bot_data مشترك بين جميع المستخدمين — نحفظ channel_id مع user_id كمفتاح
+                # حتى يتمكن product_handler من جلب channel_id الخاص بكل مورد عند النشر
+                if "user_channels" not in context.bot_data:
+                    context.bot_data["user_channels"] = {}
+                context.bot_data["user_channels"][user_id] = channel_id
+                logger.info(
+                    "Saved channel_id=%s for user_id=%s in bot_data",
+                    channel_id, user_id
+                )
+
                 # Use {channel_name} placeholder from locale string
                 success_text = get_string(lang, "channel_connected").replace(
                     "{channel_name}", channel_title

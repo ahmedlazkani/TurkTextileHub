@@ -671,9 +671,12 @@ async def _publish_to_channel(
             )
             # Inline buttons must be sent as a separate message after MediaGroup
             # (Telegram does not support reply_markup on MediaGroup)
+            # We send a minimal separator line so the buttons appear directly below the album
+            # without any distracting text — the caption on the first image carries all info.
+            sep = "─" * 24
             await context.bot.send_message(
                 chat_id=channel_id,
-                text="⬆️",
+                text=sep,
                 reply_markup=keyboard,
             )
 
@@ -1589,8 +1592,11 @@ async def handle_final_publish(
     )
 
     # ── Step 7: Publish professional post to Telegram Channel ─────────────────
-    # Channel ID is stored in user_data when supplier connects their channel
-    channel_id = context.user_data.get("channel_id")
+    # channel_id is stored in bot_data["user_channels"][user_id] by channel_handler
+    # when the supplier adds the bot as admin to their channel.
+    # bot_data is shared across all users, keyed by user_id for per-supplier lookup.
+    user_channels = context.bot_data.get("user_channels", {})
+    channel_id = user_channels.get(user_id) or context.user_data.get("channel_id")
 
     channel_published = False
     if channel_id:
