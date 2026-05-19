@@ -2,26 +2,46 @@
 bot/services/deepseek_service.py
 ================================
 AI Extraction Service — TopKap Telegram Bot
+Version: 3.0 (Built from KAYISOFT API spec — API_ENDPOINTS_FULL.md)
 
-Handles AI-powered extraction of structured product attributes from
-free-text descriptions provided by suppliers in Arabic, Turkish, or English.
+PURPOSE
+───────
+Extracts structured product data from a supplier's free-text description
+(Arabic, Turkish, or English) and maps it to the exact schema required by
+KAYISOFT API endpoint: POST api/seller/products
 
-Provider priority:
-  1. DeepSeek (DEEPSEEK_API_KEY env var) — preferred, cost-effective
-  2. OpenAI-compatible API (OPENAI_API_KEY env var) — automatic fallback
-     Uses gpt-4.1-mini by default; set FALLBACK_AI_MODEL to override.
-  3. Mock mode — if neither key is available (returns minimal data)
+KAYISOFT API PRODUCT SCHEMA (from API_ENDPOINTS_FULL.md §6):
+─────────────────────────────────────────────────────────────
+{
+  "name": "string",
+  "product_no": "auto",
+  "category_id": "uuid",
+  "shared_attributes": {
+    "<attr_uuid>": ["<option_uuid>"]   ← ARRAY, not plain string!
+  },
+  "variants": [{
+    "selector_attributes": [
+      {"attribute_id": "<uuid>", "option_id": "<uuid>"}
+    ],
+    "prices": [{"min_quantity": 1, "price": 1299.99}],
+    "stock_count": 100,
+    ...
+  }]
+}
 
-Key design decisions:
-  - The prompt explicitly maps each attribute to its UUID (id field from API)
-  - The AI is instructed to output JSON keyed by attribute UUID, not by name
-  - Options are listed with their UUIDs so the AI can match them correctly
-  - The output schema matches exactly what _check_missing_required() expects:
-      shared_attributes:    { attr_id: value_or_option_id }
-      selector_attributes:  [ { attribute_id: ..., option_id: ... } ]
-  - Fuzzy matching: if the user writes "شيفون" and the option is "Şifon",
-    the AI is instructed to match semantically, not just by exact string
+ATTRIBUTE TYPES (from GET api/seller/categories/{id}/attributes):
+─────────────────────────────────────────────────────────────────
+• is_variant_selector = true  → goes into variants[].selector_attributes[]
+• is_variant_selector = false → goes into shared_attributes{}
+• required = true             → MUST be present or product creation fails
+
+PROVIDER CASCADE:
+─────────────────
+  1. DeepSeek  (DEEPSEEK_API_KEY)  — preferred
+  2. OpenAI-compatible (OPENAI_API_KEY) — automatic fallback
+  3. Mock mode — if no keys configured
 """
+
 import os
 import json
 import logging
@@ -32,183 +52,288 @@ logger = logging.getLogger(__name__)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Prompt Builder
-# Converts raw_attributes list into a clear, structured prompt for the AI
+# PROMPT BUILDER
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _build_extraction_prompt(user_text: str, attributes: List[dict]) -> str:
     """
-    Builds a detailed, structured prompt for the AI to extract product
-    attributes from the supplier's free-text description.
+    Builds a professional, structured extraction prompt for DeepSeek.
 
-    The prompt:
-    1. Lists every attribute with its UUID, name, type, required flag
-    2. For selector/option attributes: lists all valid option UUIDs + values
-    3. Specifies the exact JSON output schema keyed by attribute UUID
-    4. Instructs the AI to handle Arabic/Turkish/English input
-    5. Instructs the AI to match semantically (e.g. "شيفون" → "Şifon")
+    DESIGN PRINCIPLES:
+    ──────────────────
+    1. Attributes are split into two clearly labeled groups matching the API:
+       • GROUP A (VARIANT SELECTORS): is_variant_selector=True
+         → output format: selector_attributes[] array
+         → each item: {"attribute_id": "<uuid>", "option_id": "<uuid>"}
+
+       • GROUP B (SHARED ATTRIBUTES): is_variant_selector=False
+         → output format: shared_attributes{} object
+         → each item: {"<attr_uuid>": ["<option_uuid>"]}  ← ARRAY per API spec!
+
+    2. Every attribute is listed with:
+       - Its exact UUID (so AI uses it directly, no guessing)
+       - Its Arabic/Turkish name
+       - Whether it's REQUIRED or optional
+       - All valid options with their exact UUIDs and display values
+
+    3. The prompt uses concrete Arabic examples to guide semantic matching:
+       "شيفون" → option "Şifon", "صيفي" → option "Yaz", etc.
+
+    4. Temperature is set to 0.0 to ensure deterministic, consistent output.
 
     Args:
-        user_text:   The supplier's free-text product description
-        attributes:  List of attribute dicts from KAYISOFT API
+        user_text:   Supplier's free-text description (any language)
+        attributes:  List of attribute dicts from GET /categories/{id}/attributes
 
     Returns:
-        str: The complete prompt to send to the AI
+        Complete prompt string ready to send to DeepSeek
     """
-    # ── Build attribute catalog ───────────────────────────────────────────────
-    attr_lines = []
+    # ── Separate attributes into two groups ───────────────────────────────────
+    selector_attrs = []  # is_variant_selector = True  → selector_attributes[]
+    shared_attrs   = []  # is_variant_selector = False → shared_attributes{}
+
     for attr in attributes:
-        attr_id     = attr.get("id", "")
-        attr_name   = attr.get("name", "")
-        attr_key    = attr.get("key", "")
-        ui_type     = attr.get("ui_type", "text")
-        required    = attr.get("required", False)
-        is_selector = attr.get("is_variant_selector", False)
-        options     = attr.get("options", [])
+        if attr.get("is_variant_selector", False):
+            selector_attrs.append(attr)
+        else:
+            shared_attrs.append(attr)
 
-        req_label = "REQUIRED" if required else "optional"
-        sel_label = " [VARIANT SELECTOR]" if is_selector else ""
+    # ── Format GROUP A: Variant Selector Attributes ───────────────────────────
+    def format_attr_block(attr: dict) -> str:
+        attr_id   = attr.get("id", "")
+        attr_name = attr.get("name", "")
+        attr_key  = attr.get("key", "")
+        ui_type   = attr.get("ui_type", "text")
+        required  = attr.get("required", False)
+        options   = attr.get("options", [])
 
-        line = (
-            f'  - id="{attr_id}" | name="{attr_name}" | key="{attr_key}" '
-            f'| type={ui_type} | {req_label}{sel_label}'
-        )
+        req_tag = "[REQUIRED]" if required else "[optional]"
+        block = f'  Attribute:\n    id: "{attr_id}"\n    name: "{attr_name}" (key: {attr_key})\n    type: {ui_type} | {req_tag}'
 
         if options:
-            opts_str = ", ".join(
-                f'id="{o.get("id","")}" value="{o.get("value","")}"'
-                for o in options
-            )
-            line += f'\n    Options: [{opts_str}]'
+            block += "\n    Valid options (use ONLY these UUIDs):"
+            for opt in options:
+                block += f'\n      - option_id: "{opt.get("id","")}"  →  value: "{opt.get("value","")}"'
+        else:
+            block += "\n    (free text — no predefined options)"
 
-        attr_lines.append(line)
+        return block
 
-    attrs_catalog = "\n".join(attr_lines) if attr_lines else "  (no attributes defined)"
+    group_a_lines = "\n\n".join(format_attr_block(a) for a in selector_attrs) \
+                    if selector_attrs else "  (none — no variant selectors for this category)"
 
-    # ── Build output schema example ───────────────────────────────────────────
-    schema_example = json.dumps({
-        "name": "Product name extracted from text",
-        "description": "Full product description",
-        "price": "100.00",
-        "min_quantity": 1,
-        "stock_count": 200,
+    group_b_lines = "\n\n".join(format_attr_block(a) for a in shared_attrs) \
+                    if shared_attrs else "  (none — no shared attributes for this category)"
+
+    # ── Output schema example ─────────────────────────────────────────────────
+    # This mirrors the exact structure expected by _check_missing_required()
+    # and the KAYISOFT POST api/seller/products endpoint.
+    output_example = {
+        "name": "شال شيفون صيفي",
+        "description": "شال شيفون مناسب للصيف ومريح لكل الوجوه",
+        "price": "120",
+        "min_quantity": 200,
+        "stock_count": 4000,
         "shared_attributes": {
-            "<attr_uuid_for_non_variant_attr>": "<extracted_value_or_option_id>"
+            "<GROUP_B_attr_uuid>": ["<option_uuid_from_valid_options>"]
         },
         "selector_attributes": [
             {
-                "attribute_id": "<attr_uuid_for_variant_selector_attr>",
-                "option_id": "<option_uuid_that_matches_user_text>"
+                "attribute_id": "<GROUP_A_attr_uuid>",
+                "option_id": "<option_uuid_from_valid_options>"
             }
         ]
-    }, ensure_ascii=False, indent=2)
+    }
 
-    prompt = f"""You are an AI assistant for TopKap, a wholesale textile marketplace.
-Your task: extract structured product data from a supplier's free-text description.
+    # ── Assemble the full prompt ───────────────────────────────────────────────
+    prompt = f"""You are a precise data extraction engine for TopKap, a wholesale textile marketplace.
+Your ONLY job: read the supplier's product description and output a single valid JSON object.
 
-=== SUPPLIER TEXT ===
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SUPPLIER TEXT (may be Arabic, Turkish, or English):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 {user_text}
 
-=== AVAILABLE ATTRIBUTES (from KAYISOFT API) ===
-{attrs_catalog}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+GROUP A — VARIANT SELECTOR ATTRIBUTES
+→ These define product variants (size, color, etc.)
+→ In your output: put them inside "selector_attributes" as an ARRAY
+→ Format per item: {{"attribute_id": "<uuid>", "option_id": "<uuid>"}}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{group_a_lines}
 
-=== EXTRACTION RULES ===
-1. For each attribute, find the matching value in the supplier text.
-2. The supplier may write in Arabic, Turkish, or English — handle all three.
-3. For attributes WITH options: match semantically (e.g. "شيفون"→"Şifon", "صيفي"→"Yaz").
-   Use the OPTION UUID (id field) as the value in selector_attributes.
-4. For attributes WITHOUT options (numeric/text): use the raw extracted value as string.
-5. For shared (non-variant) attributes: put them in "shared_attributes" keyed by attribute UUID.
-6. For variant selector attributes (marked [VARIANT SELECTOR]): put them in "selector_attributes"
-   as objects with "attribute_id" and "option_id".
-7. Extract "name", "description", "price" (numeric string), "min_quantity" (int), "stock_count" (int).
-8. If a value is not found in the text, OMIT that key entirely (do not set null or empty string).
-9. For price: extract the numeric value only (e.g. "100 ليرة" → "100", "120 lira" → "120").
-10. For quantities: "200 قطعة" → min_quantity=200, "4000 قطعة" → stock_count=4000.
-    If only one quantity is given, use it for both min_quantity and stock_count.
-11. For size/dimensions like "170 سم ب 80 سم" or "170x80": extract as a string value.
-12. For colors like "سكري" (sugar/beige), "أبيض" (white), "أسود" (black): match to the closest option.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+GROUP B — SHARED ATTRIBUTES
+→ These apply to the whole product (material, usage pattern, etc.)
+→ In your output: put them inside "shared_attributes" as an OBJECT
+→ Format per item: {{"<attr_uuid>": ["<option_uuid>"]}}  ← value is an ARRAY!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{group_b_lines}
 
-=== REQUIRED OUTPUT FORMAT ===
-Return ONLY a valid JSON object matching this schema (no markdown, no explanation):
-{schema_example}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EXTRACTION RULES — READ CAREFULLY:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-=== IMPORTANT ===
-- Keys in shared_attributes and attribute_id in selector_attributes MUST be attribute UUIDs from the catalog above.
-- Do NOT use attribute names as keys — use the UUID id field.
-- Do NOT include attributes that are not found in the supplier text.
+RULE 1 — PLACEMENT IS CRITICAL:
+  • GROUP A attributes → ONLY in "selector_attributes" array
+  • GROUP B attributes → ONLY in "shared_attributes" object
+  • NEVER mix them. A GROUP A attribute must NEVER appear in shared_attributes.
+  • A GROUP B attribute must NEVER appear in selector_attributes.
+
+RULE 2 — OPTION MATCHING (for attributes WITH options):
+  Use SEMANTIC matching — the supplier writes in Arabic but options may be Turkish:
+  • "شيفون" or "chiffon"         → find option with value containing "Şifon" or "Chiffon"
+  • "صيفي" or "صيف" or "summer"  → find option with value containing "Yaz" or "Summer"
+  • "يومي" or "daily"            → find option with value containing "Günlük" or "Daily"
+  • "سكري" (sugar = light beige) → find closest color option (cream/beige/şeker)
+  • "180 سم ب 70 سم" or "180x70" → find size option closest to "180*70" or "180x70" or "180 cm"
+  • "أبيض" or "white"            → find option with value containing "Beyaz" or "White"
+  • "أسود" or "black"            → find option with value containing "Siyah" or "Black"
+  Always use the option's UUID (id field), NOT the display value string.
+
+RULE 3 — FREE TEXT ATTRIBUTES (no options list):
+  Use the raw extracted value as a plain string.
+  Example: size "180 سم ب 70 سم" → "180x70"
+
+RULE 4 — TOP-LEVEL FIELDS:
+  • "name":         Product title (e.g. "شال شيفون")
+  • "description":  Full description sentence from the text
+  • "price":        Numeric string only — "120 ليرة" → "120", "120 lira" → "120"
+  • "min_quantity": Integer — "200 قطعة" → 200
+  • "stock_count":  Integer — "4000 قطعة" → 4000
+  If only ONE quantity is mentioned, use it for BOTH min_quantity AND stock_count.
+
+RULE 5 — MISSING VALUES:
+  If a value is NOT found in the supplier text → OMIT that key entirely.
+  Do NOT set null, 0, "", or [] for missing values.
+
+RULE 6 — CLOSEST MATCH:
+  If no exact option matches, pick the CLOSEST semantic match from the valid options list.
+  Never leave a [REQUIRED] attribute empty if there is any reasonable match.
+
+RULE 7 — shared_attributes VALUE FORMAT:
+  The value for each shared_attribute MUST be an array: ["<option_uuid>"]
+  NOT a plain string. This matches the KAYISOFT API specification exactly.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REQUIRED OUTPUT FORMAT:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Output ONLY a valid JSON object. No markdown. No explanation. No extra text.
+Example structure (use actual UUIDs from the attribute lists above):
+{json.dumps(output_example, ensure_ascii=False, indent=2)}
 """
     return prompt
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# AI Response Parser
+# RESPONSE PARSER
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _parse_ai_response(content: str) -> Optional[Dict[str, Any]]:
     """
-    Parses the raw AI response string into a Python dict.
+    Parses the raw AI response string into a validated Python dict.
 
     Handles:
-    - Markdown code fences (```json ... ```)
-    - Extra whitespace
-    - Invalid JSON (returns None)
+    - Markdown code fences (```json ... ```) that some models add
+    - Leading/trailing whitespace
+    - Invalid JSON (returns None with error log)
+
+    Also normalizes shared_attributes values:
+    - If AI returns {"attr_id": "option_uuid"} (string) instead of
+      {"attr_id": ["option_uuid"]} (array), we wrap it automatically.
+    This ensures compatibility with the KAYISOFT API spec.
 
     Args:
         content: Raw string from AI response
 
     Returns:
-        Parsed dict or None on failure
+        Parsed and normalized dict, or None on failure
     """
     content = content.strip()
 
-    # Strip markdown fences if the model adds them despite instructions
+    # Strip markdown code fences if present
     if content.startswith("```json"):
         content = content[7:]
     elif content.startswith("```"):
         content = content[3:]
     if content.endswith("```"):
         content = content[:-3]
-
     content = content.strip()
 
     try:
         parsed = json.loads(content)
-        logger.info("AI extraction OK — keys: %s", list(parsed.keys()))
-        return parsed
     except json.JSONDecodeError as e:
-        logger.error("AI returned invalid JSON: %s | content: %s", e, content[:200])
+        logger.error(
+            "AI returned invalid JSON: %s\nContent preview: %s",
+            e, content[:500]
+        )
         return None
+
+    # ── Normalize shared_attributes values to arrays ──────────────────────────
+    # KAYISOFT API requires: {"attr_uuid": ["option_uuid"]}
+    # Some AI responses return: {"attr_uuid": "option_uuid"} (plain string)
+    # We fix this automatically here so the API call never fails.
+    shared = parsed.get("shared_attributes", {})
+    if isinstance(shared, dict):
+        normalized_shared = {}
+        for k, v in shared.items():
+            if isinstance(v, str) and v:
+                normalized_shared[k] = [v]   # wrap string in array
+            elif isinstance(v, list):
+                normalized_shared[k] = v      # already correct
+            elif v:
+                normalized_shared[k] = [str(v)]
+        parsed["shared_attributes"] = normalized_shared
+
+    logger.info(
+        "AI extraction parsed OK — name=%s, price=%s, "
+        "shared_attrs=%d, selector_attrs=%d",
+        parsed.get("name", "?")[:40],
+        parsed.get("price", "?"),
+        len(parsed.get("shared_attributes", {})),
+        len(parsed.get("selector_attributes", [])),
+    )
+    return parsed
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# AI Extraction Service
+# AI EXTRACTION SERVICE
 # ══════════════════════════════════════════════════════════════════════════════
 
 class DeepSeekService:
     """
     Async AI client for structured product attribute extraction.
 
-    Provider priority:
-      1. DeepSeek (DEEPSEEK_API_KEY) — https://api.deepseek.com/v1
+    Implements a provider cascade for maximum reliability:
+      1. DeepSeek (DEEPSEEK_API_KEY) — preferred, cost-effective
       2. OpenAI-compatible (OPENAI_API_KEY) — automatic fallback
-      3. Mock mode — if neither key is set
+      3. Mock mode — returns minimal data if no keys configured
 
-    The service is transparent: callers always call analyze_product_text()
-    regardless of which provider is actually used.
+    All providers use the same prompt and response parsing logic,
+    ensuring consistent output regardless of which provider is active.
+
+    Usage:
+        result = await deepseek_service.analyze_product_text(text, attributes)
+        # result is a dict with: name, description, price, min_quantity,
+        #   stock_count, shared_attributes, selector_attributes
     """
 
+    # DeepSeek API config
     DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
     DEEPSEEK_MODEL    = "deepseek-chat"
 
-    # OpenAI-compatible fallback (supports gpt-4.1-mini, gemini-2.5-flash, etc.)
-    OPENAI_BASE_URL   = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
-    FALLBACK_MODEL    = os.getenv("FALLBACK_AI_MODEL", "gpt-4.1-mini")
+    # OpenAI-compatible fallback config
+    OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+    FALLBACK_MODEL  = os.getenv("FALLBACK_AI_MODEL", "gpt-4.1-mini")
 
+    # System prompt: sets the AI's role and output constraints
     SYSTEM_PROMPT = (
-        "You are a precise data extraction assistant for a wholesale textile marketplace. "
-        "You always output valid JSON only, with no markdown fences, no explanation, "
-        "no extra text. You understand Arabic, Turkish, and English product descriptions."
+        "You are a precise JSON extraction engine for a wholesale textile marketplace. "
+        "You ALWAYS output valid JSON only — no markdown fences, no explanation, no extra text. "
+        "You are an expert at understanding Arabic, Turkish, and English product descriptions. "
+        "You match Arabic textile terms to their Turkish/English equivalents with high accuracy. "
+        "You follow the extraction rules exactly as specified in the user prompt. "
+        "Your output is consumed directly by an API — any formatting error will cause a failure."
     )
 
     def __init__(self):
@@ -216,16 +341,21 @@ class DeepSeekService:
         self.openai_key   = os.getenv("OPENAI_API_KEY", "").strip()
 
         if self.deepseek_key:
-            logger.info("AI provider: DeepSeek (primary)")
+            logger.info(
+                "DeepSeekService initialized — provider: DeepSeek (model=%s)",
+                self.DEEPSEEK_MODEL
+            )
         elif self.openai_key:
             logger.info(
-                "AI provider: OpenAI-compatible fallback (model=%s, base=%s)",
-                self.FALLBACK_MODEL, self.OPENAI_BASE_URL,
+                "DeepSeekService initialized — provider: OpenAI fallback "
+                "(model=%s, base=%s)",
+                self.FALLBACK_MODEL, self.OPENAI_BASE_URL
             )
         else:
-            logger.warning("AI provider: MOCK MODE — no API keys found")
-
-    # ── Internal: call any OpenAI-compatible endpoint ─────────────────────────
+            logger.warning(
+                "DeepSeekService initialized — MOCK MODE "
+                "(set DEEPSEEK_API_KEY or OPENAI_API_KEY in Railway Variables)"
+            )
 
     async def _call_openai_compatible(
         self,
@@ -235,16 +365,19 @@ class DeepSeekService:
         prompt: str,
     ) -> Optional[str]:
         """
-        Makes a POST request to an OpenAI-compatible /chat/completions endpoint.
+        Makes an async POST to any OpenAI-compatible /chat/completions endpoint.
+
+        Uses temperature=0.0 for deterministic, reproducible output.
+        Timeout is 45 seconds to handle slow API responses gracefully.
 
         Args:
             base_url: API base URL (e.g. "https://api.deepseek.com/v1")
-            api_key:  Bearer token
-            model:    Model name (e.g. "deepseek-chat", "gpt-4.1-mini")
-            prompt:   User prompt text
+            api_key:  Bearer authentication token
+            model:    Model identifier (e.g. "deepseek-chat", "gpt-4.1-mini")
+            prompt:   The full extraction prompt
 
         Returns:
-            Raw response content string, or None on error
+            Raw response content string from the AI, or None on any error
         """
         headers = {
             "Authorization": f"Bearer {api_key}",
@@ -256,8 +389,8 @@ class DeepSeekService:
                 {"role": "system", "content": self.SYSTEM_PROMPT},
                 {"role": "user",   "content": prompt},
             ],
-            "temperature": 0.0,   # Deterministic output for structured extraction
-            "max_tokens":  1024,
+            "temperature": 0.0,    # deterministic output — no randomness
+            "max_tokens":  2000,   # enough for complex multi-attribute products
         }
 
         async with aiohttp.ClientSession() as session:
@@ -269,22 +402,27 @@ class DeepSeekService:
                     timeout=aiohttp.ClientTimeout(total=45),
                 ) as resp:
                     if resp.status >= 400:
-                        error_text = await resp.text()
+                        error_body = await resp.text()
                         logger.error(
-                            "AI API error %s (model=%s): %s",
-                            resp.status, model, error_text[:300],
+                            "AI API HTTP %d (model=%s, base=%s): %s",
+                            resp.status, model, base_url, error_body[:300]
                         )
                         return None
 
                     result  = await resp.json()
                     content = result["choices"][0]["message"]["content"]
+                    logger.debug(
+                        "AI raw response (model=%s): %s",
+                        model, content[:200]
+                    )
                     return content
 
-            except Exception as e:
-                logger.error("AI API exception (model=%s): %s", model, e)
+            except aiohttp.ClientError as e:
+                logger.error("AI network error (model=%s): %s", model, e)
                 return None
-
-    # ── Public interface ──────────────────────────────────────────────────────
+            except Exception as e:
+                logger.error("AI unexpected error (model=%s): %s", model, e)
+                return None
 
     async def analyze_product_text(
         self,
@@ -292,28 +430,37 @@ class DeepSeekService:
         expected_attributes: List[dict],
     ) -> Optional[Dict[str, Any]]:
         """
-        Analyzes the supplier's free-text description and extracts structured
-        product data including all required and optional attributes.
+        Analyzes a supplier's free-text product description and extracts
+        structured data matching the KAYISOFT POST api/seller/products schema.
 
-        Provider cascade:
-          1. Try DeepSeek if DEEPSEEK_API_KEY is set
-          2. Try OpenAI-compatible if OPENAI_API_KEY is set
-          3. Return mock data if neither key is available
+        PROVIDER CASCADE:
+          1. DeepSeek (if DEEPSEEK_API_KEY is set)
+          2. OpenAI-compatible (if OPENAI_API_KEY is set)
+          3. Mock data (if neither key is configured)
+
+        OUTPUT SCHEMA:
+          {
+            "name":                str,
+            "description":         str,
+            "price":               str (numeric only, e.g. "120"),
+            "min_quantity":        int,
+            "stock_count":         int,
+            "shared_attributes":   { "<attr_uuid>": ["<option_uuid>"] },
+            "selector_attributes": [ {"attribute_id": "<uuid>", "option_id": "<uuid>"} ]
+          }
 
         Args:
-            text:                The supplier's product description (any language)
-            expected_attributes: List of attribute dicts from KAYISOFT API
+            text:                Supplier's product description (any language)
+            expected_attributes: Attribute list from GET /categories/{id}/attributes
 
         Returns:
-            dict with keys: name, description, price, min_quantity, stock_count,
-                            shared_attributes, selector_attributes
-            or None on complete failure.
+            Extracted data dict, or None if all providers fail
         """
         prompt = _build_extraction_prompt(text, expected_attributes)
 
-        # ── 1. Try DeepSeek ───────────────────────────────────────────────────
+        # ── Provider 1: DeepSeek ──────────────────────────────────────────────
         if self.deepseek_key:
-            logger.info("Attempting extraction via DeepSeek...")
+            logger.info("Calling DeepSeek API for product extraction...")
             content = await self._call_openai_compatible(
                 base_url=self.DEEPSEEK_BASE_URL,
                 api_key=self.deepseek_key,
@@ -323,16 +470,17 @@ class DeepSeekService:
             if content is not None:
                 result = _parse_ai_response(content)
                 if result is not None:
+                    logger.info("DeepSeek extraction successful")
                     return result
-                logger.warning("DeepSeek returned unparseable response — trying fallback")
+                logger.warning("DeepSeek returned unparseable JSON — trying fallback")
             else:
                 logger.warning("DeepSeek API call failed — trying OpenAI fallback")
 
-        # ── 2. Try OpenAI-compatible fallback ─────────────────────────────────
+        # ── Provider 2: OpenAI-compatible fallback ────────────────────────────
         if self.openai_key:
             logger.info(
-                "Attempting extraction via OpenAI-compatible API (model=%s)...",
-                self.FALLBACK_MODEL,
+                "Calling OpenAI-compatible API (model=%s) for product extraction...",
+                self.FALLBACK_MODEL
             )
             content = await self._call_openai_compatible(
                 base_url=self.OPENAI_BASE_URL,
@@ -343,16 +491,18 @@ class DeepSeekService:
             if content is not None:
                 result = _parse_ai_response(content)
                 if result is not None:
+                    logger.info("OpenAI fallback extraction successful")
                     return result
-                logger.warning("OpenAI fallback returned unparseable response")
+                logger.warning("OpenAI fallback returned unparseable JSON")
             else:
                 logger.warning("OpenAI fallback API call also failed")
 
-        # ── 3. Mock mode ──────────────────────────────────────────────────────
+        # ── Provider 3: Mock mode ─────────────────────────────────────────────
         if not self.deepseek_key and not self.openai_key:
             logger.warning(
-                "MOCK MODE: No AI API keys configured. "
-                "Set DEEPSEEK_API_KEY or OPENAI_API_KEY in Railway environment variables."
+                "MOCK MODE ACTIVE — Returning minimal product data. "
+                "To enable AI extraction, set DEEPSEEK_API_KEY or OPENAI_API_KEY "
+                "in Railway → Variables."
             )
             return {
                 "name":                text[:80],
@@ -364,13 +514,15 @@ class DeepSeekService:
                 "selector_attributes": [],
             }
 
-        # Both providers failed
+        # All configured providers failed
         logger.error(
-            "All AI providers failed for text: %s...",
-            text[:100],
+            "All AI providers failed. Supplier text: %s...",
+            text[:100]
         )
         return None
 
 
-# ── Singleton instance ────────────────────────────────────────────────────────
+# ── Module-level singleton ────────────────────────────────────────────────────
+# Import and use this instance throughout the bot:
+#   from bot.services.deepseek_service import deepseek_service
 deepseek_service = DeepSeekService()
