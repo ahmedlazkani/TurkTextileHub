@@ -286,10 +286,11 @@ class KayisoftAPI:
             is_visible_for_creating, minimum_required_images,
             maximum_images, maximum_videos
         """
-        # ── Send language as both header (Accept-Language) and query param ──────────
-        # KAYISOFT confirmed: language must be passed as a query parameter
-        # in addition to the Accept-Language header.
-        params = {"parent": parent_id, "language": self.language}
+        # ── Language is sent via Accept-Language header ONLY ────────────────────
+        # DO NOT send language as a query param — API returns HTTP 422
+        # "in query.language: Unauthorized query" if language is in params.
+        # The Accept-Language header in _headers() handles localization.
+        params = {"parent": parent_id}
         raw = await self._get("api/seller/categories", params=params)
 
         # ── Normalize response format ─────────────────────────────────────────
