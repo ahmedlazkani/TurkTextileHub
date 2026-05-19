@@ -1884,44 +1884,52 @@ async def handle_final_publish(
     api = KayisoftAPI(telegram_user_id=user_id, language=lang)
 
     # ── Step 1: Download images from Telegram ─────────────────────────────────
+    logger.info("🖼️ Starting image upload: %d images to process", len(image_file_ids))
     image_bytes_list = []
     for file_id in image_file_ids:
         try:
             tg_file    = await query.get_bot().get_file(file_id)
             file_bytes = await tg_file.download_as_bytearray()
             image_bytes_list.append(bytes(file_bytes))
-            logger.debug("Downloaded image %s (%d bytes)", file_id[:8], len(file_bytes))
+            logger.info("✅ Downloaded image %s (%d bytes)", file_id[:8], len(file_bytes))
         except Exception as exc:
-            logger.warning("Could not download image %s: %s", file_id[:8], exc)
+            logger.warning("❌ Could not download image %s: %s", file_id[:8], exc)
 
     # ── Step 2: Generate filenames (ISO-8601 timestamp + SHA-256) ─────────────
     uploaded_file_names = []
     if image_bytes_list:
         file_names = [_generate_filename(img) for img in image_bytes_list]
 
-        # ── Step 3: Get signed S3 URLs from KAYISOFT API ───────────────────────
+        # ── Step 3: Get signed S3 URLs from KAYISOFT API ─────────────────────
+        logger.info("🔗 Requesting signed URLs for %d files, category=%s", len(file_names), category_id)
         signed_urls = await api.get_signed_urls(
             file_names=file_names,
             category_id=category_id,
         )
+        logger.info("🔗 get_signed_urls response: %s", str(signed_urls)[:500] if signed_urls else "None/Empty")
 
-        # ── Step 4: Upload images to S3 ───────────────────────────────────────
+        # ── Step 4: Upload images to S3 ────────────────────────────────────────────────────
         if signed_urls:
             for i, signed in enumerate(signed_urls):
                 if i < len(image_bytes_list):
+                    s3_url = signed.get("url", "")
+                    file_name = signed.get("fileName", "")
+                    logger.info("☁️ Uploading image %d/%d to S3: fileName=%s", i + 1, len(image_bytes_list), file_name)
                     success = await api.upload_media_to_s3(
-                        signed_url=signed.get("url", ""),
+                        signed_url=s3_url,
                         file_bytes=image_bytes_list[i],
                     )
                     if success:
-                        uploaded_file_names.append(signed.get("fileName", ""))
-                        logger.debug("Uploaded image %d/%d to S3", i + 1, len(image_bytes_list))
+                        uploaded_file_names.append(file_name)
+                        logger.info("✅ S3 upload success %d/%d: %s", i + 1, len(image_bytes_list), file_name)
                     else:
-                        logger.warning("S3 upload failed for image %d/%d", i + 1, len(image_bytes_list))
+                        logger.warning("❌ S3 upload FAILED for image %d/%d (url=%s)", i + 1, len(image_bytes_list), s3_url[:80])
         else:
-            logger.warning("Could not get signed URLs for user %s", user_id)
+            logger.warning("❌ Could not get signed URLs for user %s — signed_urls=%s", user_id, signed_urls)
 
-    # ── Step 5: Build product payload ─────────────────────────────────────────
+    logger.info("📊 Image upload summary: %d/%d uploaded successfully", len(uploaded_file_names), len(image_file_ids))
+
+    # ── Step 5: Build product payload ─────────────────────────────────────────────────────
     product_name = product_details.get("name", product_details.get("raw_text", "")[:80])
     description  = product_details.get("description", "")
     price_raw    = product_details.get("price", "0")
