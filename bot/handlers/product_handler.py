@@ -985,11 +985,39 @@ def _check_missing_required(
             logger.info("  OK shared required: %s = %s", attr_name, str(value)[:50])
 
     for attr in selector_required:
-        attr_id   = attr.get("id")
-        attr_name = attr.get("name", attr_id)
+        attr_id          = attr.get("id")
+        attr_name        = attr.get("name", attr_id)
+        default_opt_id   = attr.get("default_option_id")
+        options          = attr.get("options", [])
+
         if attr_id not in ai_selector_attr_ids:
-            logger.info("  MISSING selector required: %s (id=%s)", attr_name, attr_id)
-            missing.append(attr_name)
+            # ── Fallback: use default_option_id or first option if available ─────────────────────
+            fallback_opt = None
+            if default_opt_id:
+                fallback_opt = default_opt_id
+            elif options:
+                fallback_opt = options[0].get("id")
+
+            if fallback_opt:
+                # Auto-inject the fallback option into ai_data
+                if "selector_attributes" not in ai_data:
+                    ai_data["selector_attributes"] = []
+                ai_data["selector_attributes"].append({
+                    "attribute_id": attr_id,
+                    "option_id":    fallback_opt,
+                })
+                ai_selector_attr_ids.add(attr_id)
+                fallback_val = next(
+                    (o.get("value","") for o in options if o.get("id") == fallback_opt),
+                    fallback_opt[:8]
+                )
+                logger.info(
+                    "  AUTO-FILLED selector required: %s = %s (fallback)",
+                    attr_name, fallback_val
+                )
+            else:
+                logger.info("  MISSING selector required: %s (id=%s)", attr_name, attr_id)
+                missing.append(attr_name)
         else:
             logger.info("  OK selector required: %s", attr_name)
 

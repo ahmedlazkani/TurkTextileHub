@@ -212,9 +212,21 @@ RULE 5 — MISSING VALUES:
   If a value is NOT found in the supplier text → OMIT that key entirely.
   Do NOT set null, 0, "", or [] for missing values.
 
-RULE 6 — CLOSEST MATCH:
+RULE 6 — CLOSEST MATCH (CRITICAL FOR REQUIRED ATTRIBUTES):
   If no exact option matches, pick the CLOSEST semantic match from the valid options list.
-  Never leave a [REQUIRED] attribute empty if there is any reasonable match.
+  For [REQUIRED] attributes: you MUST always pick an option — NEVER leave it empty.
+  Fallback priority for [REQUIRED] attributes with no match:
+    1. Pick the option whose value is closest semantically
+    2. If still unsure, pick the FIRST option in the list
+    3. NEVER omit a [REQUIRED] attribute from selector_attributes
+
+RULE 8 — SIZE ATTRIBUTE SPECIAL HANDLING:
+  When the supplier mentions a specific measurement like "180 سم ب 70 سم" or "180x70":
+  • If the size options list contains ONLY "مقاس موحد" or "Tek Beden" or "One Size" → choose that option
+  • If the size options list contains numeric sizes (S, M, L, XL, 38, 40, etc.) → pick the closest
+  • If the size options list contains dimension-based options (180x70, 170x80) → pick the closest match
+  • NEVER leave the size attribute empty — always pick the best available option
+  • Store the actual measurement in the product name or description if needed
 
 RULE 7 — shared_attributes VALUE FORMAT:
   The value for each shared_attribute MUST be an array: ["<option_uuid>"]
