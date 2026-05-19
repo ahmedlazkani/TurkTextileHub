@@ -1364,7 +1364,9 @@ async def handle_fix_missing(
     )
 
     if not extracted_data:
-        extracted_data = original_details  # Keep previous data if re-extraction fails
+        # Fallback: keep previous AI-extracted data if re-extraction fails
+        # original_details was the old name — fixed to use user_data directly
+        extracted_data = context.user_data.get("product_details", {})
 
     context.user_data["product_details"] = extracted_data
 
