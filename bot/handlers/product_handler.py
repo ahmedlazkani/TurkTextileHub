@@ -959,14 +959,18 @@ async def start_add_product(
 
     # Build inline keyboard — one button per visible root category
     # is_visible_for_creating=True means this category accepts new products
-    keyboard = [
-        [InlineKeyboardButton(
-            cat.get("name", "—"),
-            callback_data=f"cat_{cat.get('id')}",
-        )]
-        for cat in categories
-        if cat.get("is_visible_for_creating", True)
-    ]
+    # Also build a name lookup map so later steps can show the selected category name
+    categories_map = {}
+    keyboard = []
+    for cat in categories:
+        if cat.get("is_visible_for_creating", True):
+            cid   = cat.get("id")
+            cname = cat.get("name", "—")
+            categories_map[cid] = cname
+            keyboard.append([InlineKeyboardButton(cname, callback_data=f"cat_{cid}")])
+
+    # Store the map so handle_category_selection can look up the selected name
+    context.user_data["categories_map"] = categories_map
 
     if not keyboard:
         no_cat_texts = {
@@ -1017,8 +1021,11 @@ async def handle_category_selection(
     lang    = get_user_lang(user_id, telegram_language_code=query.from_user.language_code or "")
     cat_id  = query.data.split("_", 1)[1]
 
-    # Store selected root category
+    # Store selected root category ID and resolve its name from the map
     context.user_data["selected_category"] = cat_id
+    categories_map = context.user_data.get("categories_map", {})
+    cat_name = categories_map.get(cat_id, "")
+    context.user_data["selected_category_name"] = cat_name
 
     progress = _progress_bar(2)
 
@@ -1038,17 +1045,30 @@ async def handle_category_selection(
         return FILL_FORM
 
     # Build subcategory keyboard — one button per visible subcategory
-    keyboard = [
-        [InlineKeyboardButton(
-            sub.get("name", "—"),
-            callback_data=f"sub_{sub.get('id')}",
-        )]
-        for sub in subcategories
-        if sub.get("is_visible_for_creating", True)
-    ]
+    # Also build a name map for later steps
+    subcategories_map = {}
+    keyboard = []
+    for sub in subcategories:
+        if sub.get("is_visible_for_creating", True):
+            sid   = sub.get("id")
+            sname = sub.get("name", "—")
+            subcategories_map[sid] = sname
+            keyboard.append([InlineKeyboardButton(sname, callback_data=f"sub_{sid}")])
+    context.user_data["subcategories_map"] = subcategories_map
+
+    # Build breadcrumb label: "✅ الفئة: Giyim"
+    breadcrumb_label = {
+        "tr": "Kategori",
+        "ar": "الفئة",
+        "en": "Category",
+    }.get(lang, "Category")
+    breadcrumb = f"✅ <b>{breadcrumb_label}:</b> {cat_name}" if cat_name else ""
+
+    subcategory_prompt = get_string(lang, "add_product_select_subcategory")
+    body = f"{breadcrumb}\n\n{subcategory_prompt}" if breadcrumb else subcategory_prompt
 
     await query.edit_message_text(
-        f"{progress}\n\n{get_string(lang, 'add_product_select_subcategory')}",
+        f"{progress}\n\n{body}",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode=ParseMode.HTML,
     )
@@ -1078,6 +1098,11 @@ async def handle_subcategory_selection(
     user_id = str(query.from_user.id)
     lang    = get_user_lang(user_id, telegram_language_code=query.from_user.language_code or "")
     sub_id  = query.data.split("_", 1)[1]
+
+    # Resolve subcategory name from the map saved in handle_category_selection
+    subcategories_map = context.user_data.get("subcategories_map", {})
+    sub_name = subcategories_map.get(sub_id, "")
+    context.user_data["selected_subcategory_name"] = sub_name
 
     progress = _progress_bar(3)
 
@@ -1134,7 +1159,22 @@ async def _load_attributes_and_ask_form(
     # Default to 10 if not available
     context.user_data.setdefault("max_images", 10)
 
-    # Build the form prompt showing required attributes
+    # ── Build breadcrumb: shows selected category path above the form ────────────────
+    # Example (AR): "✅ الفئة: Giyim ← الفئة الفرعية: Şallar"
+    cat_name = context.user_data.get("selected_category_name", "")
+    sub_name = context.user_data.get("selected_subcategory_name", "")
+
+    cat_label = {"tr": "Kategori", "ar": "الفئة", "en": "Category"}.get(lang, "Category")
+    sub_label = {"tr": "Alt Kategori", "ar": "الفئة الفرعية", "en": "Subcategory"}.get(lang, "Subcategory")
+
+    breadcrumb_parts = []
+    if cat_name:
+        breadcrumb_parts.append(f"✅ <b>{cat_label}:</b> {cat_name}")
+    if sub_name and sub_name != cat_name:
+        breadcrumb_parts.append(f"📌 <b>{sub_label}:</b> {sub_name}")
+    breadcrumb = "\n".join(breadcrumb_parts)
+
+    # ── Build the form prompt showing required attributes ────────────────────────
     required_names = (
         [a.get("name") for a in processed["shared_required"]]
         + [a.get("name") for a in processed["selector_required"]]
@@ -1151,8 +1191,15 @@ async def _load_attributes_and_ask_form(
             f"  • {name}" for name in required_names if name
         )
 
+    # Compose final message: progress bar + breadcrumb + form prompt
+    body_parts = [progress]
+    if breadcrumb:
+        body_parts.append(breadcrumb)
+    body_parts.append(form_prompt)
+    full_body = "\n\n".join(body_parts)
+
     await query.edit_message_text(
-        f"{progress}\n\n{form_prompt}",
+        full_body,
         parse_mode=ParseMode.HTML,
     )
 
@@ -1240,8 +1287,21 @@ async def handle_form_input(
             "en": "Please add the following information and send again:",
         }
 
+        # Build breadcrumb to remind supplier of their selected category
+        cat_name = context.user_data.get("selected_category_name", "")
+        sub_name = context.user_data.get("selected_subcategory_name", "")
+        cat_label = {"tr": "Kategori", "ar": "الفئة", "en": "Category"}.get(lang, "Category")
+        sub_label = {"tr": "Alt Kategori", "ar": "الفئة الفرعية", "en": "Subcategory"}.get(lang, "Subcategory")
+        breadcrumb_parts = []
+        if cat_name:
+            breadcrumb_parts.append(f"✅ <b>{cat_label}:</b> {cat_name}")
+        if sub_name and sub_name != cat_name:
+            breadcrumb_parts.append(f"📌 <b>{sub_label}:</b> {sub_name}")
+        breadcrumb = "\n".join(breadcrumb_parts)
+
         missing_text = (
-            f"⚠️ <b>{missing_labels.get(lang, missing_labels['en'])}:</b>\n"
+            (f"{breadcrumb}\n\n" if breadcrumb else "")
+            + f"⚠️ <b>{missing_labels.get(lang, missing_labels['en'])}:</b>\n"
             + "\n".join(f"  • {m}" for m in missing)
             + f"\n\n{missing_prompt.get(lang, missing_prompt['en'])}"
         )
@@ -1320,9 +1380,29 @@ async def handle_fix_missing(
             "ar": "لا تزال هناك حقول ناقصة",
             "en": "Still missing required fields",
         }
+        missing_prompt = {
+            "tr": "Lütfen eksik bilgileri ekleyin ve tekrar gönderin:",
+            "ar": "يرجى إضافة المعلومات الناقصة وإعادة الإرسال:",
+            "en": "Please add the missing information and send again:",
+        }
+
+        # Breadcrumb reminder
+        cat_name = context.user_data.get("selected_category_name", "")
+        sub_name = context.user_data.get("selected_subcategory_name", "")
+        cat_label = {"tr": "Kategori", "ar": "الفئة", "en": "Category"}.get(lang, "Category")
+        sub_label = {"tr": "Alt Kategori", "ar": "الفئة الفرعية", "en": "Subcategory"}.get(lang, "Subcategory")
+        breadcrumb_parts = []
+        if cat_name:
+            breadcrumb_parts.append(f"✅ <b>{cat_label}:</b> {cat_name}")
+        if sub_name and sub_name != cat_name:
+            breadcrumb_parts.append(f"📌 <b>{sub_label}:</b> {sub_name}")
+        breadcrumb = "\n".join(breadcrumb_parts)
+
         missing_text = (
-            f"⚠️ <b>{missing_labels.get(lang, missing_labels['en'])}:</b>\n"
+            (f"{breadcrumb}\n\n" if breadcrumb else "")
+            + f"⚠️ <b>{missing_labels.get(lang, missing_labels['en'])}:</b>\n"
             + "\n".join(f"  • {m}" for m in missing)
+            + f"\n\n{missing_prompt.get(lang, missing_prompt['en'])}"
         )
         await update.message.reply_text(missing_text, parse_mode=ParseMode.HTML)
         return FIX_MISSING
