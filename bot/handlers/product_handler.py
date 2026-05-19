@@ -819,6 +819,10 @@ def _check_missing_required(
     Compares the AI-extracted attributes against the required attribute list
     from the KAYISOFT API. Returns a list of missing attribute names.
 
+    The AI output is expected to have:
+        shared_attributes:    { attr_uuid: value }   for non-variant attrs
+        selector_attributes:  [ { attribute_id, option_id } ]  for variant attrs
+
     Args:
         ai_data:          AI extraction result dict
         processed_attrs:  Output of _process_attributes()
@@ -831,19 +835,40 @@ def _check_missing_required(
     shared_required   = processed_attrs.get("shared_required", [])
     selector_required = processed_attrs.get("selector_required", [])
 
-    ai_shared   = ai_data.get("shared_attributes", {})
-    ai_selector = ai_data.get("selector_attributes", [])
-    ai_selector_attr_ids = {s.get("attribute_id") for s in ai_selector}
+    ai_shared   = ai_data.get("shared_attributes", {}) or {}
+    ai_selector = ai_data.get("selector_attributes", []) or []
+
+    # Build set of attribute_ids present in selector_attributes
+    ai_selector_attr_ids = {s.get("attribute_id") for s in ai_selector if s.get("attribute_id")}
+
+    # ── Log for debugging ─────────────────────────────────────────────────────
+    logger.info(
+        "_check_missing_required: shared_required=%d, selector_required=%d, "
+        "ai_shared_keys=%s, ai_selector_attr_ids=%s",
+        len(shared_required), len(selector_required),
+        list(ai_shared.keys())[:10],
+        list(ai_selector_attr_ids)[:10],
+    )
 
     for attr in shared_required:
-        attr_id = attr.get("id")
-        if attr_id not in ai_shared or not ai_shared[attr_id]:
-            missing.append(attr.get("name", attr_id))
+        attr_id   = attr.get("id")
+        attr_name = attr.get("name", attr_id)
+        value     = ai_shared.get(attr_id)
+        # Consider the attribute present if it has any non-empty value
+        if value is None or value == "" or value == []:
+            logger.info("  MISSING shared required: %s (id=%s)", attr_name, attr_id)
+            missing.append(attr_name)
+        else:
+            logger.info("  OK shared required: %s = %s", attr_name, str(value)[:50])
 
     for attr in selector_required:
-        attr_id = attr.get("id")
+        attr_id   = attr.get("id")
+        attr_name = attr.get("name", attr_id)
         if attr_id not in ai_selector_attr_ids:
-            missing.append(attr.get("name", attr_id))
+            logger.info("  MISSING selector required: %s (id=%s)", attr_name, attr_id)
+            missing.append(attr_name)
+        else:
+            logger.info("  OK selector required: %s", attr_name)
 
     return missing
 
@@ -1194,6 +1219,8 @@ async def handle_form_input(
         )
 
     context.user_data["product_details"] = extracted_data
+    # Save the original raw text so handle_fix_missing can combine it with corrections
+    context.user_data["original_text"] = text
 
     await processing_msg.delete()
 
@@ -1255,10 +1282,10 @@ async def handle_fix_missing(
     raw_attributes  = context.user_data.get("raw_attributes", [])
     processed_attrs = context.user_data.get("processed_attributes", {})
 
-    # Combine original description with new input for re-extraction
-    original_details = context.user_data.get("product_details", {})
-    original_text    = original_details.get("description", "")
-    combined_text    = f"{original_text}\n{new_text}"
+    # Combine original raw text with new correction for re-extraction
+    # Use original_text (full raw input) not description (AI-extracted) for better context
+    original_text = context.user_data.get("original_text", "")
+    combined_text = f"{original_text}\n{new_text}" if original_text else new_text
 
     # Show AI processing indicator
     await context.bot.send_chat_action(
