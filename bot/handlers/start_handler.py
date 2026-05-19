@@ -492,8 +492,11 @@ async def handle_menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
     action = btn_map.get(text)
 
     if action == "add_product":
-        from bot.handlers.product_handler import start_add_product
-        await start_add_product(update, context)
+        # NOTE: This branch should NEVER be reached in normal operation.
+        # ConversationHandler is registered BEFORE this handler in main.py,
+        # so it intercepts "➕ إضافة منتج" / "➕ Ürün Ekle" directly.
+        # This fallback is kept only as a safety net in case of handler ordering issues.
+        pass
 
     elif action == "my_products":
         await update.message.reply_text(

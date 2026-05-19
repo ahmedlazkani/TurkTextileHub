@@ -62,8 +62,10 @@ def main():
     application = ApplicationBuilder().token(token).build()
 
     # ── Register all handlers ──────────────────────────────────────────────
+    # IMPORTANT: ConversationHandler MUST be registered BEFORE start_handler
+    # so it intercepts "➕ إضافة منتج" / "➕ Ürün Ekle" before handle_menu_button
+    application.add_handler(get_product_conv_handler())  # Product upload flow (FIRST)
     register_start_handlers(application)           # /start + language selection
-    application.add_handler(get_product_conv_handler())  # Product upload flow
     register_channel_handlers(application)         # Channel management
     application.add_handler(                       # Detect bot added to channel
         ChatMemberHandler(handle_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER)
