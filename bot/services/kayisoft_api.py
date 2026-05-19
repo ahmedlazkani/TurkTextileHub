@@ -277,13 +277,45 @@ class KayisoftAPI:
         Pass parent_id="" (empty string) for root-level categories.
         Pass parent_id=<uuid> to get subcategories of a root category.
 
-        Response: list of category objects
+        Response: list of category objects OR {"data": [...]} wrapper.
+        This method normalizes both formats and always returns a list or None.
+
+        Response fields:
             id, name, selected_image, unselected_image, parent,
             ui_order, visible, home_image, is_visible_for_browsing,
             is_visible_for_creating, minimum_required_images,
             maximum_images, maximum_videos
         """
-        return await self._get("api/seller/categories", params={"parent": parent_id})
+        raw = await self._get("api/seller/categories", params={"parent": parent_id})
+
+        # ── Normalize response format ─────────────────────────────────────────
+        # KAYISOFT API may return:
+        #   a) A plain list:          [{...}, {...}]
+        #   b) A wrapped dict:        {"data": [{...}]} or {"categories": [{...]}
+        #   c) None on error
+        if raw is None:
+            logger.error("get_categories: API returned None (network/auth error)")
+            return None
+        if isinstance(raw, list):
+            logger.info("get_categories: got list with %d items", len(raw))
+            return raw if raw else None
+        if isinstance(raw, dict):
+            # Try common wrapper keys
+            for key in ("data", "categories", "results", "items"):
+                if key in raw and isinstance(raw[key], list):
+                    logger.info(
+                        "get_categories: unwrapped '%s' key, got %d items",
+                        key, len(raw[key]),
+                    )
+                    return raw[key] if raw[key] else None
+            # Dict but no known list key — log full response for debugging
+            logger.error(
+                "get_categories: unexpected dict response (no list key found): %s",
+                str(raw)[:500],
+            )
+            return None
+        logger.error("get_categories: unexpected response type: %s", type(raw))
+        return None
 
     # ── 4. Get attributes for a leaf category ────────────────────────────────
 

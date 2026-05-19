@@ -165,9 +165,14 @@ CONFIRM_PUBLISH    = 7   # Waiting for final publish confirmation
 
 def _progress_bar(current: int, total: int = 5) -> str:
     """
-    Generates a visual progress bar string.
+    Generates a visual progress bar string compatible with all platforms
+    including iOS (which renders ▓/░ as empty boxes).
 
-    Example: _progress_bar(2, 5) → "▓▓░░░  2/5"
+    Uses standard Unicode bullet symbols that render correctly everywhere:
+      ● = filled step (U+25CF BLACK CIRCLE)
+      ○ = empty step  (U+25CB WHITE CIRCLE)
+
+    Example: _progress_bar(2, 5) → "●●○○○  2/5"
 
     Args:
         current: Current step number (1-based)
@@ -176,8 +181,8 @@ def _progress_bar(current: int, total: int = 5) -> str:
     Returns:
         str: Progress bar with step counter
     """
-    filled = "▓" * current
-    empty  = "░" * (total - current)
+    filled = "●" * current
+    empty  = "○" * (total - current)
     return f"{filled}{empty}  {current}/{total}"
 
 
