@@ -86,9 +86,40 @@ def detect_lang(language_code: str) -> str:
 
 # تحميل الترجمات مرة واحدة عند استيراد الوحدة
 _translations = load_translations()
-# قاموس بسيط لتخزين لغة المستخدمين في الذاكرة (للتجربة)
-_user_langs = {}
-def get_user_lang(telegram_id: str) -> str:
-    return _user_langs.get(str(telegram_id), "tr")
+
+# ── In-memory language store ──────────────────────────────────────────────────
+# NOTE: This dict lives in RAM and is cleared on every Railway restart.
+# Until a persistent DB is added, we use telegram_language_code as a fallback
+# so users don't revert to Turkish after every deployment.
+_user_langs: dict = {}
+
+
+def get_user_lang(telegram_id: str, telegram_language_code: str = "") -> str:
+    """
+    Return the stored language for this user, or detect it from Telegram's
+    language_code if not yet set.
+
+    Priority:
+      1. Explicitly set by user via language button  → stored in _user_langs
+      2. Detected from Telegram account language     → detect_lang(language_code)
+      3. Default fallback                            → "tr"
+
+    Args:
+        telegram_id:           Telegram user ID as string
+        telegram_language_code: user.language_code from the Update object
+                                (e.g. "ar", "tr-TR", "en-US").  Optional.
+    """
+    stored = _user_langs.get(str(telegram_id))
+    if stored:
+        return stored
+    if telegram_language_code:
+        detected = detect_lang(telegram_language_code)
+        # Cache it so subsequent calls in the same session are consistent
+        _user_langs[str(telegram_id)] = detected
+        return detected
+    return "tr"
+
+
 def set_user_lang(telegram_id: str, lang: str) -> None:
+    """Explicitly set the language for a user (called from language selection button)."""
     _user_langs[str(telegram_id)] = lang

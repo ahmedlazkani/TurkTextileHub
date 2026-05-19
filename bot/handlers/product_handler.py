@@ -868,8 +868,9 @@ async def start_add_product(
     On success  → returns SELECT_CATEGORY state
     On API fail → shows error message and ends conversation
     """
-    user_id = str(update.effective_user.id)
-    lang    = get_user_lang(user_id) or "tr"
+    user    = update.effective_user
+    user_id = str(user.id)
+    lang    = get_user_lang(user_id, telegram_language_code=user.language_code or "")
 
     # Clear any previous product data to start fresh
     context.user_data.pop("product_data", None)
@@ -988,7 +989,7 @@ async def handle_category_selection(
     await query.answer()
 
     user_id = str(query.from_user.id)
-    lang    = get_user_lang(user_id) or "tr"
+    lang    = get_user_lang(user_id, telegram_language_code=query.from_user.language_code or "")
     cat_id  = query.data.split("_", 1)[1]
 
     # Store selected root category
@@ -1050,7 +1051,7 @@ async def handle_subcategory_selection(
     await query.answer()
 
     user_id = str(query.from_user.id)
-    lang    = get_user_lang(user_id) or "tr"
+    lang    = get_user_lang(user_id, telegram_language_code=query.from_user.language_code or "")
     sub_id  = query.data.split("_", 1)[1]
 
     progress = _progress_bar(3)
@@ -1151,8 +1152,9 @@ async def handle_form_input(
 
     Progress: Step 3/5 → Step 4/5
     """
-    user_id = str(update.effective_user.id)
-    lang    = get_user_lang(user_id) or "tr"
+    user    = update.effective_user
+    user_id = str(user.id)
+    lang    = get_user_lang(user_id, telegram_language_code=user.language_code or "")
     text    = update.message.text
 
     raw_attributes  = context.user_data.get("raw_attributes", [])
@@ -1245,8 +1247,9 @@ async def handle_fix_missing(
 
     This allows the supplier to just add the missing info without retyping everything.
     """
-    user_id = str(update.effective_user.id)
-    lang    = get_user_lang(user_id) or "tr"
+    user    = update.effective_user
+    user_id = str(user.id)
+    lang    = get_user_lang(user_id, telegram_language_code=user.language_code or "")
     new_text = update.message.text
 
     raw_attributes  = context.user_data.get("raw_attributes", [])
@@ -1329,8 +1332,9 @@ async def handle_image_upload(
 
     Progress: Step 5/5
     """
-    user_id = str(update.effective_user.id)
-    lang    = get_user_lang(user_id) or "tr"
+    user    = update.effective_user
+    user_id = str(user.id)
+    lang    = get_user_lang(user_id, telegram_language_code=user.language_code or "")
 
     # Initialize image list on first upload
     if "images" not in context.user_data:
@@ -1394,7 +1398,7 @@ async def handle_variants_confirmation(
     await query.answer()
 
     user_id = str(query.from_user.id)
-    lang    = get_user_lang(user_id) or "tr"
+    lang    = get_user_lang(user_id, telegram_language_code=query.from_user.language_code or "")
 
     # ── Add more images ────────────────────────────────────────────────────────
     if query.data == "add_more":
@@ -1496,7 +1500,7 @@ async def handle_final_publish(
     await query.answer()
 
     user_id = str(query.from_user.id)
-    lang    = get_user_lang(user_id) or "tr"
+    lang    = get_user_lang(user_id, telegram_language_code=query.from_user.language_code or "")
 
     # ── Cancel ─────────────────────────────────────────────────────────────────
     if query.data == "publish_no":
@@ -1684,8 +1688,9 @@ async def cancel_product(
 
     Triggered by /cancel command.
     """
-    user_id = str(update.effective_user.id)
-    lang    = get_user_lang(user_id) or "tr"
+    user    = update.effective_user
+    user_id = str(user.id)
+    lang    = get_user_lang(user_id, telegram_language_code=user.language_code or "")
 
     context.user_data.clear()
 
