@@ -323,18 +323,36 @@ class KayisoftAPI:
             logger.error("get_categories: unexpected response type: %s", type(raw))
             return None
 
-        # ── Filter: when fetching root categories (parent_id == ""), ────────────
-        # the API may return ALL categories (root + sub). We must show
-        # only root categories (parent == null) at the first step.
+         # ── Filter: the API may return ALL categories regardless of the
+        # 'parent' query param. We must filter client-side:
+        #
+        #   parent_id == ""   → show only root categories (parent == null)
+        #   parent_id == uuid → show only direct children (parent == parent_id)
         if parent_id == "":
-            root_only = [c for c in categories if c.get("parent") is None]
+            filtered = [c for c in categories if c.get("parent") is None]
             logger.info(
                 "get_categories: filtered root-only: %d/%d items",
-                len(root_only), len(categories),
+                len(filtered), len(categories),
             )
-            categories = root_only
+        else:
+            # Match by parent UUID — field may be a string UUID or a dict with 'id'
+            def _parent_matches(cat: dict) -> bool:
+                p = cat.get("parent")
+                if p is None:
+                    return False
+                if isinstance(p, str):
+                    return p == parent_id
+                if isinstance(p, dict):
+                    return p.get("id") == parent_id
+                return False
 
-        return categories if categories else None
+            filtered = [c for c in categories if _parent_matches(c)]
+            logger.info(
+                "get_categories: filtered subcategories of %s: %d/%d items",
+                parent_id[:8], len(filtered), len(categories),
+            )
+
+        return filtered if filtered else None
 
     # ── 4. Get attributes for a leaf category ────────────────────────────────
 
