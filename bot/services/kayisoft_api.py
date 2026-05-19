@@ -301,7 +301,7 @@ class KayisoftAPI:
             return raw if raw else None
         if isinstance(raw, dict):
             # Try common wrapper keys
-            for key in ("data", "categories", "results", "items"):
+            for key in ("result", "data", "categories", "results", "items"):
                 if key in raw and isinstance(raw[key], list):
                     logger.info(
                         "get_categories: unwrapped '%s' key, got %d items",
@@ -326,12 +326,29 @@ class KayisoftAPI:
         Returns all attributes (with their options) for the selected leaf category.
         Used to dynamically build the product form shown to the seller.
 
-        Response: list of attribute objects
+        Response: list of attribute objects OR {"result": [...]} wrapper.
+        Normalized same as get_categories.
+
+        Response fields:
             id, parent, associated, key, ui_type, ui_filter_type, name, description,
             is_variant_selector, variant_meta, ui_order, required,
             default_value, default_option_id, is_primary_variant_attribute, options[]
         """
-        return await self._get(f"api/seller/categories/{category_id}/attributes")
+        raw = await self._get(f"api/seller/categories/{category_id}/attributes")
+        if raw is None:
+            logger.error("get_attributes: API returned None")
+            return None
+        if isinstance(raw, list):
+            logger.info("get_attributes: got list with %d items", len(raw))
+            return raw
+        if isinstance(raw, dict):
+            for key in ("result", "data", "attributes", "results", "items"):
+                if key in raw and isinstance(raw[key], list):
+                    logger.info("get_attributes: unwrapped '%s' key, got %d items", key, len(raw[key]))
+                    return raw[key]
+            logger.error("get_attributes: unexpected dict response: %s", str(raw)[:500])
+            return None
+        return None
 
     # ── 5. Get signed URLs for media upload ──────────────────────────────────
 
