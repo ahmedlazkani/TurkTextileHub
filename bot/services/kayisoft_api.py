@@ -412,13 +412,42 @@ class KayisoftAPI:
         file_names must follow format: <ISO-8601 timestamp>-<SHA-256 hash>
 
         Response: list of {fileName, url}
+        Normalizes both plain-list and wrapped-dict responses.
         """
         body = {
             "operation":   "put_product_variant_media",
             "file_names":  file_names,
             "category_id": category_id,
         }
-        return await self._post("api/extensions/signed-urls", body)
+        raw = await self._post("api/extensions/signed-urls", body)
+        logger.info("get_signed_urls raw response type=%s value=%s", type(raw).__name__, str(raw)[:300])
+
+        if raw is None:
+            logger.error("get_signed_urls: API returned None")
+            return None
+
+        # Normalize: API may return plain list OR wrapped dict
+        if isinstance(raw, list):
+            logger.info("get_signed_urls: got list with %d items", len(raw))
+            return raw
+
+        if isinstance(raw, dict):
+            for key in ("result", "data", "urls", "signed_urls", "results", "items"):
+                if key in raw and isinstance(raw[key], list):
+                    logger.info(
+                        "get_signed_urls: unwrapped '%s' key, got %d items",
+                        key, len(raw[key]),
+                    )
+                    return raw[key]
+            # Dict with no list key — log and return None
+            logger.error(
+                "get_signed_urls: unexpected dict response (no list key): %s",
+                str(raw)[:300],
+            )
+            return None
+
+        logger.error("get_signed_urls: unexpected response type: %s", type(raw))
+        return None
 
     async def upload_media_to_s3(self, signed_url: str, file_bytes: bytes, content_type: str = "image/jpeg") -> bool:
         """

@@ -974,13 +974,37 @@ def _check_missing_required(
     )
 
     for attr in shared_required:
-        attr_id   = attr.get("id")
-        attr_name = attr.get("name", attr_id)
-        value     = ai_shared.get(attr_id)
+        attr_id          = attr.get("id")
+        attr_name        = attr.get("name", attr_id)
+        default_opt_id   = attr.get("default_option_id")
+        options          = attr.get("options", [])
+        value            = ai_shared.get(attr_id)
+
         # Consider the attribute present if it has any non-empty value
         if value is None or value == "" or value == []:
-            logger.info("  MISSING shared required: %s (id=%s)", attr_name, attr_id)
-            missing.append(attr_name)
+            # ── Fallback: use default_option_id or first option if available ─────────────────────
+            fallback_opt = None
+            if default_opt_id:
+                fallback_opt = default_opt_id
+            elif options:
+                fallback_opt = options[0].get("id")
+
+            if fallback_opt:
+                # Auto-inject the fallback option into ai_data shared_attributes
+                if "shared_attributes" not in ai_data:
+                    ai_data["shared_attributes"] = {}
+                ai_data["shared_attributes"][attr_id] = [fallback_opt]
+                fallback_val = next(
+                    (o.get("value", "") for o in options if o.get("id") == fallback_opt),
+                    fallback_opt[:8]
+                )
+                logger.info(
+                    "  AUTO-FILLED shared required: %s = %s (fallback)",
+                    attr_name, fallback_val
+                )
+            else:
+                logger.info("  MISSING shared required: %s (id=%s)", attr_name, attr_id)
+                missing.append(attr_name)
         else:
             logger.info("  OK shared required: %s = %s", attr_name, str(value)[:50])
 
