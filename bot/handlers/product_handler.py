@@ -886,12 +886,43 @@ async def start_add_product(
     api        = KayisoftAPI(telegram_user_id=user_id, language=lang)
     categories = await api.get_categories()
 
-    await loading_msg.delete()
-
+    # ── Error handling: API returned None or empty list ───────────────────────
+    # FIX: Previously the loading message was deleted BEFORE checking for errors,
+    # causing the message to vanish with no feedback to the supplier.
+    # Now we EDIT the loading message in-place instead of deleting it,
+    # so the supplier always sees a clear result (categories or error).
     if not categories:
-        await update.message.reply_text(
-            get_string(lang, "add_product_categories_error"),
+        error_texts = {
+            "tr": (
+                "❌ <b>Kategoriler yüklenemedi.</b>\n\n"
+                "Sunucuya bağlanırken bir sorun oluştu. "
+                "Lütfen birkaç saniye bekleyip tekrar deneyin.\n\n"
+                "<i>Sorun devam ederse destek ekibiyle iletişime geçin.</i>"
+            ),
+            "ar": (
+                "❌ <b>تعذّر تحميل الفئات.</b>\n\n"
+                "حدثت مشكلة في الاتصال بالخادم. "
+                "يرجى الانتظار لحظة والمحاولة مجدداً.\n\n"
+                "<i>إذا استمرت المشكلة، تواصل مع فريق الدعم.</i>"
+            ),
+            "en": (
+                "❌ <b>Could not load categories.</b>\n\n"
+                "A connection error occurred. "
+                "Please wait a moment and try again.\n\n"
+                "<i>If the issue persists, contact support.</i>"
+            ),
+        }
+        retry_labels = {"tr": "🔄 Tekrar Dene", "ar": "🔄 أعد المحاولة", "en": "🔄 Try Again"}
+        retry_keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton(
+                retry_labels.get(lang, retry_labels["en"]),
+                callback_data="retry_add_product",
+            )
+        ]])
+        await loading_msg.edit_text(
+            error_texts.get(lang, error_texts["en"]),
             parse_mode=ParseMode.HTML,
+            reply_markup=retry_keyboard,
         )
         return ConversationHandler.END
 
@@ -907,13 +938,21 @@ async def start_add_product(
     ]
 
     if not keyboard:
-        await update.message.reply_text(
-            get_string(lang, "add_product_categories_error"),
+        no_cat_texts = {
+            "tr": "⚠️ Şu an aktif kategori bulunmuyor. Lütfen daha sonra tekrar deneyin.",
+            "ar": "⚠️ لا توجد فئات نشطة حالياً. يرجى المحاولة لاحقاً.",
+            "en": "⚠️ No active categories available right now. Please try again later.",
+        }
+        await loading_msg.edit_text(
+            no_cat_texts.get(lang, no_cat_texts["en"]),
             parse_mode=ParseMode.HTML,
         )
         return ConversationHandler.END
 
-    await update.message.reply_text(
+    # ── Success: edit loading message to show category selection ─────────────
+    # FIX: Use edit_text instead of delete + reply_text.
+    # This avoids the "message disappears" UX issue and is more professional.
+    await loading_msg.edit_text(
         f"{progress}\n\n{get_string(lang, 'add_product_select_category')}",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode=ParseMode.HTML,
