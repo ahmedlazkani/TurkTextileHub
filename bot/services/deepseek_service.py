@@ -197,7 +197,12 @@ RULE 3 — FREE TEXT ATTRIBUTES (no options list):
 
 RULE 4 — TOP-LEVEL FIELDS:
   • "name":         Product title (e.g. "شال شيفون")
-  • "description":  Full description sentence from the text
+  • "description":  Write a PROFESSIONAL 2-sentence marketing description in Arabic.
+                    Do NOT copy the supplier's raw text. Write like a copywriter:
+                    Sentence 1: Highlight the product's key benefit or material quality.
+                    Sentence 2: Mention the use case, target customer, or occasion.
+                    Example input: "شال شيفون صيفي جودة عالية"
+                    Example output: "شال شيفون فاخر بجودة عالية يمنحك إطلالة أنيقة وراحة تامة طوال اليوم. مثالي للاستخدام اليومي والمناسبات الصيفية، يتميز بخامته الخفيفة التي تلائم جميع الأذواق."
   • "price":        Numeric string only — "120 ليرة" → "120", "120 lira" → "120"
   • "min_quantity": Integer — "200 قطعة" → 200
   • "stock_count":  Integer — "4000 قطعة" → 4000

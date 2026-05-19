@@ -153,6 +153,7 @@ SELECT_CATEGORY    = 1   # Waiting for root category selection
 SELECT_SUBCATEGORY = 2   # Waiting for subcategory selection
 FILL_FORM          = 3   # Waiting for free-text product description (AI-assisted)
 FIX_MISSING        = 4   # Waiting for supplier to fill missing required attributes
+CONFIRM_DETAILS    = 8   # Waiting for supplier to confirm or edit AI summary
 UPLOAD_IMAGES      = 5   # Waiting for image uploads
 CONFIRM_VARIANTS   = 6   # Waiting for variant preview confirmation
 CONFIRM_PUBLISH    = 7   # Waiting for final publish confirmation
@@ -719,26 +720,49 @@ async def _publish_to_channel(
 # Shows supplier a clean summary of what the AI understood
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _build_extraction_summary(lang: str, data: dict, attr_map: dict) -> str:
+def _build_extraction_summary(
+    lang: str,
+    data: dict,
+    attr_map: dict,
+    cat_name: str = "",
+    sub_name: str = "",
+) -> str:
     """
     Builds a human-readable summary of the AI-extracted product data.
 
     Shown to the supplier after AI extraction so they can verify the data
-    before uploading images. Includes attribute values for transparency.
+    before uploading images. Includes:
+      - Category breadcrumb at the top (cat_name ← sub_name)
+      - Product name, professional description, price, min order
+      - All extracted attributes with human-readable option values
 
     Args:
-        lang:     Supplier's language code
+        lang:     Supplier's language code ('ar', 'tr', 'en')
         data:     AI extraction result dict
         attr_map: Dict mapping attr_id → attr dict (for attribute name lookup)
+        cat_name: Root category name (e.g. "Giyim / ملابس")
+        sub_name: Subcategory name (e.g. "Şallar / شالات")
 
     Returns:
-        str: HTML-formatted summary text
+        str: HTML-formatted summary text ready to send via Telegram
     """
     name        = data.get("name", "—")
     description = data.get("description", "—")
     price       = data.get("price", "—")
     min_qty     = data.get("min_quantity", data.get("min_order", "1"))
 
+    # ── Breadcrumb labels ───────────────────────────────────────────────────────────────────────────────────
+    cat_label = {"tr": "Kategori", "ar": "الفئة", "en": "Category"}.get(lang, "Category")
+    sub_label = {"tr": "Alt Kategori", "ar": "الفئة الفرعية", "en": "Subcategory"}.get(lang, "Subcategory")
+
+    breadcrumb_parts = []
+    if cat_name:
+        breadcrumb_parts.append(f"✅ <b>{cat_label}:</b> {cat_name}")
+    if sub_name and sub_name != cat_name:
+        breadcrumb_parts.append(f"📌 <b>{sub_label}:</b> {sub_name}")
+    breadcrumb = "\n".join(breadcrumb_parts)
+
+    # ── Summary header ─────────────────────────────────────────────────────────────────────────────────────
     headers = {
         "tr": "🤖 <b>Yapay Zeka Özeti</b>",
         "ar": "🤖 <b>ملخص الذكاء الاصطناعي</b>",
@@ -749,17 +773,19 @@ def _build_extraction_summary(lang: str, data: dict, attr_map: dict) -> str:
         "ar": {"name": "🏷️ اسم المنتج", "desc": "📝 الوصف", "price": "💰 السعر", "min": "📦 الحد الأدنى"},
         "en": {"name": "🏷️ Product Name", "desc": "📝 Description", "price": "💰 Price", "min": "📦 Min. Order"},
     }
-    confirm_prompts = {
-        "tr": "✅ <i>Bilgiler doğruysa fotoğrafları gönderin.</i>",
-        "ar": "✅ <i>إذا كانت البيانات صحيحة، أرسل الصور الآن.</i>",
-        "en": "✅ <i>If the details look correct, send your product images.</i>",
-    }
 
-    L = field_labels.get(lang, field_labels["en"])
-    header  = headers.get(lang, headers["en"])
-    confirm = confirm_prompts.get(lang, confirm_prompts["en"])
+    L      = field_labels.get(lang, field_labels["en"])
+    header = headers.get(lang, headers["en"])
 
-    lines = [
+    # ── Build message lines ────────────────────────────────────────────────────────────────────────────────────
+    lines = []
+
+    # Breadcrumb at the very top (above AI header)
+    if breadcrumb:
+        lines.append(breadcrumb)
+        lines.append("")
+
+    lines += [
         header, "",
         f"{L['name']}: <b>{name}</b>",
         f"{L['desc']}: {description}",
@@ -800,7 +826,6 @@ def _build_extraction_summary(lang: str, data: dict, attr_map: dict) -> str:
                     break
             lines.append(f"  • {attr_name}: {option_value} 🔄")
 
-    lines.extend(["", confirm])
     return "\n".join(lines)
 
 
@@ -1308,18 +1333,30 @@ async def handle_form_input(
         await update.message.reply_text(missing_text, parse_mode=ParseMode.HTML)
         return FIX_MISSING
 
-    # All required attributes present → show summary and ask for images
+    # All required attributes present → show summary with confirm/edit buttons
+    cat_name = context.user_data.get("selected_category_name", "")
+    sub_name = context.user_data.get("selected_subcategory_name", "")
     attr_map = processed_attrs.get("all_by_id", {})
-    summary  = _build_extraction_summary(lang, extracted_data, attr_map)
-    await update.message.reply_text(summary, parse_mode=ParseMode.HTML)
+    summary  = _build_extraction_summary(lang, extracted_data, attr_map, cat_name, sub_name)
 
-    # Ask for images with progress bar
-    progress = _progress_bar(4)
+    # Build confirm/edit inline keyboard
+    confirm_labels = {
+        "tr": ("✅ Onayla", "✏️ Düzenle"),
+        "ar": ("✅ موافق", "✏️ تعديل"),
+        "en": ("✅ Confirm", "✏️ Edit"),
+    }
+    ok_label, edit_label = confirm_labels.get(lang, confirm_labels["en"])
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton(ok_label,   callback_data="details_confirm"),
+        InlineKeyboardButton(edit_label, callback_data="details_edit"),
+    ]])
+
     await update.message.reply_text(
-        f"{progress}\n\n{get_string(lang, 'add_product_upload_images')}",
+        summary,
         parse_mode=ParseMode.HTML,
+        reply_markup=keyboard,
     )
-    return UPLOAD_IMAGES
+    return CONFIRM_DETAILS
 
 
 async def handle_fix_missing(
@@ -1409,17 +1446,91 @@ async def handle_fix_missing(
         await update.message.reply_text(missing_text, parse_mode=ParseMode.HTML)
         return FIX_MISSING
 
-    # All good now — show summary and proceed to images
+    # All good now — show summary with confirm/edit buttons
+    cat_name = context.user_data.get("selected_category_name", "")
+    sub_name = context.user_data.get("selected_subcategory_name", "")
     attr_map = processed_attrs.get("all_by_id", {})
-    summary  = _build_extraction_summary(lang, extracted_data, attr_map)
-    await update.message.reply_text(summary, parse_mode=ParseMode.HTML)
+    summary  = _build_extraction_summary(lang, extracted_data, attr_map, cat_name, sub_name)
 
-    progress = _progress_bar(4)
+    confirm_labels = {
+        "tr": ("✅ Onayla", "✏️ Düzenle"),
+        "ar": ("✅ موافق", "✏️ تعديل"),
+        "en": ("✅ Confirm", "✏️ Edit"),
+    }
+    ok_label, edit_label = confirm_labels.get(lang, confirm_labels["en"])
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton(ok_label,   callback_data="details_confirm"),
+        InlineKeyboardButton(edit_label, callback_data="details_edit"),
+    ]])
+
     await update.message.reply_text(
-        f"{progress}\n\n{get_string(lang, 'add_product_upload_images')}",
+        summary,
         parse_mode=ParseMode.HTML,
+        reply_markup=keyboard,
     )
-    return UPLOAD_IMAGES
+    return CONFIRM_DETAILS
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 4b — Confirm or Edit AI Summary
+# Supplier presses ✅ Confirm → proceeds to image upload
+# Supplier presses ✏️ Edit → goes back to FILL_FORM to re-enter description
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def handle_confirm_details(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> int:
+    """
+    STATE: CONFIRM_DETAILS → UPLOAD_IMAGES (confirm) or FILL_FORM (edit)
+
+    Handles the two inline buttons shown below the AI summary:
+      - ✅ موافق / Confirm → proceeds to image upload step
+      - ✏️ تعديل / Edit     → returns to FILL_FORM so supplier can re-enter description
+
+    Design note:
+      We answer the callback query immediately to remove the loading spinner,
+      then send the appropriate follow-up message.
+    """
+    query   = update.callback_query
+    user    = update.effective_user
+    user_id = str(user.id)
+    lang    = get_user_lang(user_id, telegram_language_code=user.language_code or "")
+
+    await query.answer()  # Remove Telegram's loading spinner
+
+    if query.data == "details_confirm":
+        # ── Supplier confirmed → proceed to image upload ──────────────────────────────────────
+        progress = _progress_bar(4)
+        upload_prompts = {
+            "tr": f"{progress}\n\n📸 <b>Adım 4 — Ürün Fotoğrafları</b>\n\n"
+                  f"Ürün fotoğraflarınızı gönderin.\n"
+                  f"Kameradan çekebilir veya galerinizden seçebilirsiniz.",
+            "ar": f"{progress}\n\n📸 <b>الخطوة 4 — صور المنتج</b>\n\n"
+                  f"أرسل صور منتجك الآن.\n"
+                  f"يمكنك التصوير مباشرةً من الكاميرا أو الاختيار من المعرض.",
+            "en": f"{progress}\n\n📸 <b>Step 4 — Product Images</b>\n\n"
+                  f"Send your product photos now.\n"
+                  f"You can take a photo directly from your camera or choose from your gallery.",
+        }
+        await query.message.reply_text(
+            upload_prompts.get(lang, upload_prompts["en"]),
+            parse_mode=ParseMode.HTML,
+        )
+        return UPLOAD_IMAGES
+
+    else:  # details_edit
+        # ── Supplier wants to edit → return to FILL_FORM ──────────────────────────────────────
+        edit_prompts = {
+            "tr": "✏️ Ürün bilgilerini yeniden girin:",
+            "ar": "✏️ أعد كتابة تفاصيل المنتج:",
+            "en": "✏️ Please re-enter your product details:",
+        }
+        await query.message.reply_text(
+            edit_prompts.get(lang, edit_prompts["en"]),
+            parse_mode=ParseMode.HTML,
+        )
+        return FILL_FORM
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1449,9 +1560,18 @@ async def handle_image_upload(
     if "images" not in context.user_data:
         context.user_data["images"] = []
 
-    # Accept the highest-resolution version of the photo
+    # Accept photo from two sources:
+    # 1. update.message.photo  → standard compressed photo (gallery or camera)
+    # 2. update.message.document → high-res image sent as file (some camera apps)
+    # Both are valid; we store the file_id for later download and S3 upload.
     if update.message.photo:
+        # Standard photo: use the highest-resolution variant (last in the list)
         photo_file_id = update.message.photo[-1].file_id
+        context.user_data["images"].append(photo_file_id)
+    elif update.message.document and update.message.document.mime_type and \
+            update.message.document.mime_type.startswith("image/"):
+        # Document-as-image: high-res camera shot sent without compression
+        photo_file_id = update.message.document.file_id
         context.user_data["images"].append(photo_file_id)
 
     image_count = len(context.user_data["images"])
@@ -1876,8 +1996,21 @@ def get_product_conv_handler() -> ConversationHandler:
                     handle_fix_missing,
                 ),
             ],
+            CONFIRM_DETAILS: [
+                # Supplier presses ✅ Confirm or ✏️ Edit below the AI summary
+                CallbackQueryHandler(
+                    handle_confirm_details,
+                    pattern=r"^(details_confirm|details_edit)$",
+                ),
+            ],
             UPLOAD_IMAGES: [
+                # Accept photos from camera or gallery
                 MessageHandler(filters.PHOTO, handle_image_upload),
+                # Accept photos sent as documents (high-res camera shots on some devices)
+                MessageHandler(
+                    filters.Document.IMAGE,
+                    handle_image_upload,
+                ),
             ],
             CONFIRM_VARIANTS: [
                 CallbackQueryHandler(
