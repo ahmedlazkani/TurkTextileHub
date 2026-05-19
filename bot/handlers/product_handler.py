@@ -402,16 +402,30 @@ def _build_variants(
             "dimensions":          None,
         }]
 
-    # Distribute images across variants (first variant gets all if only one)
+    # ── Distribute images across variants ───────────────────────────────────────
+    # Strategy:
+    #   - 1 variant  → all images go to that variant
+    #   - N variants, images >= N → distribute evenly (first variant gets remainder)
+    #   - N variants, images < N  → all images go to EVERY variant (same photos for all colors)
+    #     This handles the case where supplier uploads photos for a single color sample
+    #     and wants all colors to show those photos.
     images_per_variant = []
-    if len(primary_options) == 1:
-        images_per_variant = [uploaded_file_names]
+    n_variants = len(primary_options)
+    n_images   = len(uploaded_file_names)
+
+    if n_variants <= 1 or n_images == 0:
+        # Single variant or no images → all images to first (only) variant
+        images_per_variant = [uploaded_file_names] * max(1, n_variants)
+    elif n_images < n_variants:
+        # Fewer images than variants → duplicate all images across every variant
+        # (supplier uploaded sample photos; all colors share the same images)
+        images_per_variant = [uploaded_file_names] * n_variants
     else:
-        # Distribute images evenly; first variant gets any remainder
-        chunk = max(1, len(uploaded_file_names) // len(primary_options))
-        for i, _ in enumerate(primary_options):
+        # Enough images to distribute — split evenly; last variant gets remainder
+        chunk = n_images // n_variants
+        for i in range(n_variants):
             start = i * chunk
-            end   = start + chunk if i < len(primary_options) - 1 else len(uploaded_file_names)
+            end   = start + chunk if i < n_variants - 1 else n_images
             images_per_variant.append(uploaded_file_names[start:end])
 
     variants = []
@@ -716,6 +730,80 @@ async def _publish_to_channel(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Color Value Renderer
+# Converts hex color codes to human-friendly colored emoji squares
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _render_color_value(value: str) -> str:
+    """
+    Converts a hex color code (e.g. "#FFFFDD0" or "#FFC0CB") into a
+    human-readable label with a colored square emoji.
+
+    Telegram does not support HTML color spans in bot messages, so we use
+    a lookup table of common color hues mapped to Unicode colored squares.
+
+    If the value is not a hex color, it is returned unchanged.
+
+    Examples:
+        "#FF0000"  → "🟥 #FF0000"   (red)
+        "#FFFFDD0" → "🟨 #FFFFDD0"  (yellow-ish, strip leading zeros)
+        "Pamuk"    → "Pamuk"         (not a color, unchanged)
+    """
+    import re
+    v = value.strip() if value else ""
+
+    # Match hex color: optional # followed by 6 or 8 hex digits
+    hex_match = re.match(r'^#?([0-9A-Fa-f]{6,8})$', v)
+    if not hex_match:
+        return value  # Not a hex color — return as-is
+
+    hex_digits = hex_match.group(1)[:6]  # Take first 6 digits (ignore alpha)
+    try:
+        r = int(hex_digits[0:2], 16)
+        g = int(hex_digits[2:4], 16)
+        b = int(hex_digits[4:6], 16)
+    except (ValueError, IndexError):
+        return value
+
+    # Map RGB to the nearest color emoji using simple hue/saturation rules
+    # This gives a visual hint without requiring image rendering
+    max_c = max(r, g, b)
+    min_c = min(r, g, b)
+    delta = max_c - min_c
+
+    if delta < 30:  # Low saturation → grayscale
+        if max_c > 200:
+            emoji = "⬜"  # white
+        elif max_c > 100:
+            emoji = "🏦"  # light gray (building)
+        else:
+            emoji = "⬛"  # black
+    elif r > g and r > b:  # Red dominant
+        if g > 100:
+            emoji = "🟧"  # orange
+        else:
+            emoji = "🟥"  # red
+    elif g > r and g > b:  # Green dominant
+        emoji = "🟩"  # green
+    elif b > r and b > g:  # Blue dominant
+        emoji = "🟦"  # blue
+    elif r > 180 and g > 180 and b < 100:  # Yellow
+        emoji = "🟨"  # yellow
+    elif r > 150 and b > 150 and g < 100:  # Purple/Magenta
+        emoji = "🟣"  # purple
+    elif r > 150 and g > 100 and b < 80:  # Brown/Beige
+        emoji = "🟤"  # brown
+    elif r > 180 and g > 150 and b > 150:  # Pink
+        emoji = "💗"  # pink heart (closest)
+    else:
+        emoji = "🔵"  # default blue circle
+
+    # Show emoji + the original hex value for reference
+    display_hex = f"#{hex_digits.upper()}"
+    return f"{emoji} {display_hex}"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # AI Extraction Summary Builder
 # Shows supplier a clean summary of what the AI understood
 # ══════════════════════════════════════════════════════════════════════════════
@@ -812,7 +900,15 @@ def _build_extraction_summary(
                         break
                 else:
                     option_values.append(str(opt_id))
-            lines.append(f"  • {attr_name}: {', '.join(option_values)}")
+            # ── Color rendering: convert hex codes to colored square emoji ──────
+            # If the attribute key is 'color' and value looks like #RRGGBB,
+            # replace the raw hex with a Unicode block character in that color.
+            # Telegram does not render HTML color spans, so we use a workaround:
+            # prepend a colored square emoji based on the hue of the hex value.
+            rendered_values = []
+            for v in option_values:
+                rendered_values.append(_render_color_value(v))
+            lines.append(f"  • {attr_name}: {', '.join(rendered_values)}")
 
         for sel in selector_attrs:
             attr_id   = sel.get("attribute_id", "")
@@ -824,6 +920,8 @@ def _build_extraction_summary(
                 if opt.get("id") == option_id:
                     option_value = opt.get("value", option_id)
                     break
+            # Apply color rendering for selector attributes too
+            option_value = _render_color_value(option_value)
             lines.append(f"  • {attr_name}: {option_value} 🔄")
 
     return "\n".join(lines)
@@ -1846,6 +1944,13 @@ async def handle_final_publish(
     }
 
     # ── Step 6: Create product via KAYISOFT API ────────────────────────────────
+    # ── DEBUG: log full payload to Railway logs for inspection ────────────────────
+    import json as _json
+    logger.info(
+        "📦 PRODUCT PAYLOAD SENT TO API:\n%s",
+        _json.dumps(product_payload, ensure_ascii=False, indent=2)[:4000],
+    )
+
     created_product = await api.create_product(product_payload)
 
     if not created_product:
