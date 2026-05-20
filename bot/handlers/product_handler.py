@@ -355,9 +355,9 @@ def _build_variants(
             attr_id   = sel.get("attribute_id", "")
             option_id = sel.get("option_id", "")
             attr_key  = _key_map.get(attr_id, attr_id)  # fallback to UUID if key missing
-            if attr_key not in result:
-                result[attr_key] = []
-            if option_id:
+            if option_id:  # Only add if option_id is not empty
+                if attr_key not in result:
+                    result[attr_key] = []
                 result[attr_key].append(option_id)
         return result
 
@@ -366,17 +366,14 @@ def _build_variants(
         return [{
             "stock_id":            f"VAR-{uuid.uuid4().hex[:8].upper()}",
             "stock_count":         stock_count,
-            "status":              "review",
             "visibility_status":   "public",
             "tax_percentage":      None,
             "cost_price":          None,
             "titles":              [{"language": lang, "text": product_name}],
             "descriptions":        [{"language": lang, "text": description}],
-            "selector_attributes": [],
             "prices":              [{"min_quantity": min_quantity, "price": price_float}],
             "images":              uploaded_file_names,
             "videos":              [],
-            "currency":            "TRY",
             "dimensions":          None,
         }]
 
@@ -410,7 +407,6 @@ def _build_variants(
         return [{
             "stock_id":            f"VAR-{uuid.uuid4().hex[:8].upper()}",
             "stock_count":         stock_count,
-            "status":              "review",
             "visibility_status":   "public",
             "tax_percentage":      None,
             "cost_price":          None,
@@ -420,7 +416,6 @@ def _build_variants(
             "prices":              [{"min_quantity": min_quantity, "price": price_float}],
             "images":              uploaded_file_names,
             "videos":              [],
-            "currency":            "TRY",
             "dimensions":          None,
         }]
 
@@ -461,7 +456,6 @@ def _build_variants(
         variants.append({
             "stock_id":            f"VAR-{uuid.uuid4().hex[:8].upper()}",
             "stock_count":         stock_count,
-            "status":              "review",
             "visibility_status":   "public",
             "tax_percentage":      None,
             "cost_price":          None,
@@ -471,7 +465,6 @@ def _build_variants(
             "prices":              [{"min_quantity": min_quantity, "price": price_float}],
             "images":              variant_images,
             "videos":              [],
-            "currency":            "TRY",
             "dimensions":          None,
         })
 
@@ -2113,9 +2106,11 @@ async def handle_final_publish(
         # Convert UUID key → string key using id_to_key map
         attr_key = id_to_key.get(attr_id, attr_id)  # fallback to UUID if key not found
         if isinstance(option_ids, list):
-            shared_attributes[attr_key] = option_ids
+            if option_ids:  # Only add if not empty
+                shared_attributes[attr_key] = option_ids
         else:
-            shared_attributes[attr_key] = [option_ids]
+            if option_ids:  # Only add if not empty
+                shared_attributes[attr_key] = [option_ids]
     logger.info("📋 shared_attributes (key-based): %s", str(shared_attributes)[:500])
 
     # Build selector_attributes: [{attribute_id, option_id}] — variant-defining
