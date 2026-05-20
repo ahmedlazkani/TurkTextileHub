@@ -1905,6 +1905,22 @@ async def handle_final_publish(
         or context.user_data.get("selected_category", "")
     )
 
+    # ── DEBUG: log user_data keys and image count ────────────────────────────────────────────────────
+    logger.info(
+        "🔑 handle_final_publish: user_data keys=%s",
+        list(context.user_data.keys())
+    )
+    logger.info(
+        "🖼️ image_file_ids count=%d, category_id=%s",
+        len(image_file_ids), category_id[:8] if category_id else 'EMPTY'
+    )
+    logger.info(
+        "📦 product_details keys=%s, shared_attrs=%s, selector_attrs=%d",
+        list(product_details.keys())[:10],
+        str(product_details.get('shared_attributes', {}))[:200],
+        len(product_details.get('selector_attributes', []))
+    )
+
     api = KayisoftAPI(telegram_user_id=user_id, language=lang)
 
     # ── Step 1: Download images from Telegram ─────────────────────────────────
