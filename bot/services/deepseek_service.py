@@ -598,8 +598,15 @@ class DeepSeekService:
                         )
                         return None
                     image_bytes   = await img_resp.read()
-                    image_b64     = base64.b64encode(image_bytes).decode("utf-8")
-                    content_type  = img_resp.headers.get("Content-Type", "image/jpeg").split(";")[0]
+                    image_b64    = base64.b64encode(image_bytes).decode("utf-8")
+                    # Force image/jpeg — Telegram CDN may return 'application/octet-stream'
+                    # which GPT-4o-mini rejects as invalid_image_format.
+                    # JPEG is safe for all textile product photos.
+                    raw_ct       = img_resp.headers.get("Content-Type", "").split(";")[0].strip().lower()
+                    if raw_ct in ("image/jpeg", "image/png", "image/gif", "image/webp"):
+                        content_type = raw_ct
+                    else:
+                        content_type = "image/jpeg"  # safe default
                     image_data_url = f"data:{content_type};base64,{image_b64}"
 
                 # ── Step 2: Build vision payload with base64 inline image ─────
