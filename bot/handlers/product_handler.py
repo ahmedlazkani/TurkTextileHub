@@ -367,8 +367,8 @@ def _build_variants(
             "stock_id":            f"VAR-{uuid.uuid4().hex[:8].upper()}",
             "stock_count":         stock_count,
             "visibility_status":   "public",
-            "tax_percentage":      None,
-            "cost_price":          None,
+            # tax_percentage & cost_price omitted entirely:
+            # API requires positive number or absence; null causes HTTP 422
             "titles":              [{"language": lang, "text": product_name}],
             "descriptions":        [{"language": lang, "text": description}],
             "prices":              [{"min_quantity": min_quantity, "price": price_float}],
@@ -408,8 +408,8 @@ def _build_variants(
             "stock_id":            f"VAR-{uuid.uuid4().hex[:8].upper()}",
             "stock_count":         stock_count,
             "visibility_status":   "public",
-            "tax_percentage":      None,
-            "cost_price":          None,
+            # tax_percentage & cost_price omitted entirely:
+            # API requires positive number or absence; null causes HTTP 422
             "titles":              [{"language": lang, "text": product_name}],
             "descriptions":        [{"language": lang, "text": description}],
             "selector_attributes": _to_selector_dict(ai_selector_attrs),
@@ -457,8 +457,8 @@ def _build_variants(
             "stock_id":            f"VAR-{uuid.uuid4().hex[:8].upper()}",
             "stock_count":         stock_count,
             "visibility_status":   "public",
-            "tax_percentage":      None,
-            "cost_price":          None,
+            # tax_percentage & cost_price omitted entirely:
+            # API requires positive number or absence; null causes HTTP 422
             "titles":              [{"language": lang, "text": product_name}],
             "descriptions":        [{"language": lang, "text": description}],
             "selector_attributes": variant_selectors_dict,
