@@ -544,34 +544,28 @@ class DeepSeekService:
         image_url: str,
     ) -> Optional[Dict[str, Any]]:
         """
-        Analyzes a product image using GPT-4o mini (vision) to extract:
-          - color_name:  International standard color name (e.g. "Navy Blue", "Burgundy")
-          - color_emoji: Unicode circle emoji representing the color (e.g. "🔵", "🔴")
-
-        This is called after the supplier uploads a product image, so the bot
-        can display the detected color with a visual indicator instead of a
-        raw HEX code.
-
-        DESIGN NOTES:
-        ─────────────
-        - Uses GPT-4o mini vision (not DeepSeek, which lacks image support)
-        - Returns both the English standard name AND the closest Unicode circle emoji
-        - Falls back gracefully if vision API is unavailable
-        - Temperature 0.0 for deterministic color naming
-
-        Args:
-            image_url: Public URL of the product image (Telegram CDN URL)
+        Analyzes a product image to extract the primary textile color.
 
         Returns:
             Dict with keys:
               - "color_name":  str  e.g. "Navy Blue"
               - "color_emoji": str  e.g. "🔵"
             Or None if analysis fails
+
+        IMPLEMENTATION NOTES:
+        ─────────────────────
+        - DeepSeek does NOT support `image_url` content type in messages.
+          It only accepts `text` content type.
+        - FIX: Download the image bytes, encode as base64, and send as
+          `data:image/jpeg;base64,...` inline URL — this is the only format
+          DeepSeek-VL and most OpenAI-compatible vision APIs accept.
+        - If OPENAI_API_KEY is set, use GPT-4o-mini (supports image_url natively).
+        - If only DEEPSEEK_API_KEY is set, use deepseek-chat with base64 inline.
         """
-        # Use OPENAI_API_KEY if available, otherwise try DEEPSEEK_API_KEY
-        # (DeepSeek-V3 supports vision via OpenAI-compatible API)
-        vision_key  = self.openai_key or self.deepseek_key
-        vision_base = "https://api.openai.com/v1" if self.openai_key else self.DEEPSEEK_BASE_URL
+        import base64
+
+        vision_key   = self.openai_key or self.deepseek_key
+        vision_base  = "https://api.openai.com/v1" if self.openai_key else self.DEEPSEEK_BASE_URL
         vision_model = "gpt-4o-mini" if self.openai_key else "deepseek-chat"
 
         if not vision_key:
@@ -584,39 +578,59 @@ class DeepSeekService:
             "Return ONLY a valid JSON object with exactly two keys: "
             '"color_name" (the international standard English color name, e.g. \'Navy Blue\', \'Burgundy\', \'Ivory\') '
             'and "color_emoji" (the single Unicode circle emoji that best represents the color). '
-            "Use ONLY these circle emojis: 🔴🟠🟡🟢🔵🟣🟤⚫⚪🟥🟧🟨🟩🚢🔵. "
+            "Use ONLY these circle emojis: 🔴🟠🟡🟢🔵🟣🟤⚫⚪. "
             "No markdown, no explanation, just JSON."
         )
 
-        payload = {
-            "model": vision_model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": image_url, "detail": "low"},
-                        },
-                        {
-                            "type": "text",
-                            "text": "What is the primary color of this textile product? Return JSON only.",
-                        },
-                    ],
-                },
-            ],
-            "temperature": 0.0,
-            "max_tokens": 100,
-        }
-
-        headers = {
-            "Authorization": f"Bearer {vision_key}",
-            "Content-Type":  "application/json",
-        }
-
         async with aiohttp.ClientSession() as session:
             try:
+                # ── Step 1: Download the image and encode as base64 ───────────
+                # DeepSeek rejects `image_url` content type — must use base64
+                # GPT-4o-mini accepts both, but base64 works universally
+                async with session.get(
+                    image_url,
+                    timeout=aiohttp.ClientTimeout(total=20),
+                ) as img_resp:
+                    if img_resp.status != 200:
+                        logger.error(
+                            "Color analysis: failed to download image (HTTP %d)",
+                            img_resp.status
+                        )
+                        return None
+                    image_bytes   = await img_resp.read()
+                    image_b64     = base64.b64encode(image_bytes).decode("utf-8")
+                    content_type  = img_resp.headers.get("Content-Type", "image/jpeg").split(";")[0]
+                    image_data_url = f"data:{content_type};base64,{image_b64}"
+
+                # ── Step 2: Build vision payload with base64 inline image ─────
+                payload = {
+                    "model": vision_model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "image_url",
+                                    "image_url": {"url": image_data_url},
+                                },
+                                {
+                                    "type": "text",
+                                    "text": "What is the primary color of this textile product? Return JSON only.",
+                                },
+                            ],
+                        },
+                    ],
+                    "temperature": 0.0,
+                    "max_tokens":  100,
+                }
+
+                headers = {
+                    "Authorization": f"Bearer {vision_key}",
+                    "Content-Type":  "application/json",
+                }
+
+                # ── Step 3: Call vision API ───────────────────────────────────
                 async with session.post(
                     f"{vision_base}/chat/completions",
                     headers=headers,
@@ -641,14 +655,11 @@ class DeepSeekService:
                         content = content.rsplit("```", 1)[0]
                     content = content.strip()
 
-                    parsed = json.loads(content)
+                    parsed      = json.loads(content)
                     color_name  = parsed.get("color_name", "")
                     color_emoji = parsed.get("color_emoji", "🔵")
 
-                    logger.info(
-                        "Color analysis result: %s %s",
-                        color_emoji, color_name
-                    )
+                    logger.info("Color analysis result: %s %s", color_emoji, color_name)
                     return {"color_name": color_name, "color_emoji": color_emoji}
 
             except json.JSONDecodeError as e:
