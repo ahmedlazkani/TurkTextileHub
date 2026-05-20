@@ -848,9 +848,9 @@ def _render_color_value(value: str) -> str:
     else:
         emoji = "🔵"  # default blue circle
 
-    # Show emoji + the original hex value for reference
-    display_hex = f"#{hex_digits.upper()}"
-    return f"{emoji} {display_hex}"
+    # Show only the emoji — no raw hex code in user-facing messages
+    # The hex is resolved to a visual color indicator; showing #RRGGBB is confusing
+    return emoji
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -946,18 +946,32 @@ def _build_extraction_summary(
             for opt_id in (option_ids if isinstance(option_ids, list) else [option_ids]):
                 for opt in attr.get("options", []):
                     if opt.get("id") == opt_id:
-                        option_values.append(opt.get("value", opt_id))
+                        # Prefer label/name over value (which may be a raw hex code)
+                        # label = human-readable color name (e.g. "Bej", "بيج")
+                        # value = raw hex code (e.g. "#FFF5F5DC") — used for API, not display
+                        display = (
+                            opt.get("label")
+                            or opt.get("name")
+                            or opt.get("value", opt_id)
+                        )
+                        option_values.append((display, opt.get("value", "")))
                         break
                 else:
-                    option_values.append(str(opt_id))
-            # ── Color rendering: convert hex codes to colored square emoji ──────
-            # If the attribute key is 'color' and value looks like #RRGGBB,
-            # replace the raw hex with a Unicode block character in that color.
-            # Telegram does not render HTML color spans, so we use a workaround:
-            # prepend a colored square emoji based on the hue of the hex value.
+                    option_values.append((str(opt_id), ""))
+            # ── Color rendering: show emoji + human label (never raw hex) ──────────────
+            # If the display value is still a hex code (no label field in API),
+            # show only the emoji. If a human label exists, show: "⚫ Bej"
             rendered_values = []
-            for v in option_values:
-                rendered_values.append(_render_color_value(v))
+            for display, raw_val in option_values:
+                emoji = _render_color_value(raw_val if raw_val else display)
+                import re as _re
+                is_hex = bool(_re.match(r'^#?[0-9A-Fa-f]{6,8}$', display.strip()))
+                if is_hex:
+                    # Only hex available — show emoji only
+                    rendered_values.append(emoji)
+                else:
+                    # Human label available — show emoji + label
+                    rendered_values.append(f"{emoji} {display}" if emoji != display else display)
             lines.append(f"  • {attr_name}: {', '.join(rendered_values)}")
 
         for sel in selector_attrs:
@@ -965,13 +979,26 @@ def _build_extraction_summary(
             option_id = sel.get("option_id", "")
             attr      = attr_map.get(attr_id, {})
             attr_name = attr.get("name", attr_id)
-            option_value = option_id
+            display_val = option_id
+            raw_val     = ""
             for opt in attr.get("options", []):
                 if opt.get("id") == option_id:
-                    option_value = opt.get("value", option_id)
+                    # Prefer human label over raw hex value
+                    display_val = (
+                        opt.get("label")
+                        or opt.get("name")
+                        or opt.get("value", option_id)
+                    )
+                    raw_val = opt.get("value", "")
                     break
-            # Apply color rendering for selector attributes too
-            option_value = _render_color_value(option_value)
+            # Apply color rendering: emoji + human label (never raw hex)
+            import re as _re
+            emoji = _render_color_value(raw_val if raw_val else display_val)
+            is_hex = bool(_re.match(r'^#?[0-9A-Fa-f]{6,8}$', display_val.strip()))
+            if is_hex:
+                option_value = emoji
+            else:
+                option_value = f"{emoji} {display_val}" if emoji != display_val else display_val
             lines.append(f"  • {attr_name}: {option_value} 🔄")
 
     return "\n".join(lines)
