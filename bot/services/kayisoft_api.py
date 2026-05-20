@@ -419,7 +419,7 @@ class KayisoftAPI:
             "file_names":  file_names,
             "category_id": category_id,
         }
-        raw = await self._post("api/extensions/signed-urls", body)
+        raw = await self._post("extensions/signed-urls", body)
         logger.info("get_signed_urls raw response type=%s value=%s", type(raw).__name__, str(raw)[:300])
 
         if raw is None:
