@@ -910,6 +910,9 @@ def _build_extraction_summary(
     price       = data.get("price", "—")
     min_qty     = data.get("min_quantity", data.get("min_order", "1"))
 
+    # Build reverse lookup: attr_key → attr dict (for cases where attr_id is UUID but attr_map uses UUID too)
+    attr_key_map = {v.get("key", ""): v for v in attr_map.values() if v.get("key")}
+
     # ── Breadcrumb labels ───────────────────────────────────────────────────────────────────────────────────
     cat_label = {"tr": "Kategori", "ar": "الفئة", "en": "Category"}.get(lang, "Category")
     sub_label = {"tr": "Alt Kategori", "ar": "الفئة الفرعية", "en": "Subcategory"}.get(lang, "Subcategory")
@@ -998,8 +1001,9 @@ def _build_extraction_summary(
         for sel in selector_attrs:
             attr_id   = sel.get("attribute_id", "")
             option_id = sel.get("option_id", "")
-            attr      = attr_map.get(attr_id, {})
-            attr_name = attr.get("name", attr_id)
+            # Try attr_map by UUID first, then by key as fallback
+            attr      = attr_map.get(attr_id) or attr_key_map.get(attr_id, {})
+            attr_name = attr.get("name") or attr.get("key") or attr_id
             display_val = option_id
             raw_val     = ""
             for opt in attr.get("options", []):
@@ -1020,7 +1024,7 @@ def _build_extraction_summary(
                 option_value = emoji
             else:
                 option_value = f"{emoji} {display_val}" if emoji != display_val else display_val
-            lines.append(f"  • {attr_name}: {option_value} 🔄")
+            lines.append(f"  • {attr_name}: {option_value}")
 
     return "\n".join(lines)
 
@@ -1939,6 +1943,14 @@ async def handle_variants_confirmation(
     min_quantity = int(product_details.get("min_quantity", product_details.get("min_order", 1)))
     stock_count  = int(product_details.get("stock_count", product_details.get("stock", 100)))
 
+    # Build id_to_key map for preview (attr_uuid → attr_key string)
+    id_to_key_preview = {}
+    for attr in raw_attributes:
+        attr_id_raw  = attr.get("id", "")
+        attr_key_raw = attr.get("key", "")
+        if attr_id_raw and attr_key_raw:
+            id_to_key_preview[attr_id_raw] = attr_key_raw
+
     # Build variants (using placeholder filenames for preview — real filenames come after upload)
     ai_selector_attrs = product_details.get("selector_attributes", [])
     preview_variants  = _build_variants(
@@ -1951,6 +1963,7 @@ async def handle_variants_confirmation(
         uploaded_file_names = [],  # Empty for preview — real files uploaded in next step
         ai_selector_attrs   = ai_selector_attrs,
         raw_attributes      = raw_attributes,
+        id_to_key           = id_to_key_preview,
     )
 
     # Store preview variants for use in publish step
