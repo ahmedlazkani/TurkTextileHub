@@ -539,6 +539,126 @@ class DeepSeekService:
         return None
 
 
+    async def analyze_image_color(
+        self,
+        image_url: str,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Analyzes a product image using GPT-4o mini (vision) to extract:
+          - color_name:  International standard color name (e.g. "Navy Blue", "Burgundy")
+          - color_emoji: Unicode circle emoji representing the color (e.g. "🔵", "🔴")
+
+        This is called after the supplier uploads a product image, so the bot
+        can display the detected color with a visual indicator instead of a
+        raw HEX code.
+
+        DESIGN NOTES:
+        ─────────────
+        - Uses GPT-4o mini vision (not DeepSeek, which lacks image support)
+        - Returns both the English standard name AND the closest Unicode circle emoji
+        - Falls back gracefully if vision API is unavailable
+        - Temperature 0.0 for deterministic color naming
+
+        Args:
+            image_url: Public URL of the product image (Telegram CDN URL)
+
+        Returns:
+            Dict with keys:
+              - "color_name":  str  e.g. "Navy Blue"
+              - "color_emoji": str  e.g. "🔵"
+            Or None if analysis fails
+        """
+        if not self.openai_key:
+            logger.warning("analyze_image_color: No OPENAI_API_KEY set — skipping color analysis")
+            return None
+
+        system_prompt = (
+            "You are a professional color analyst for a textile marketplace. "
+            "When given a product image, identify the PRIMARY color of the textile/fabric. "
+            "Return ONLY a valid JSON object with exactly two keys: "
+            '"color_name" (the international standard English color name, e.g. \'Navy Blue\', \'Burgundy\', \'Ivory\') '
+            'and "color_emoji" (the single Unicode circle emoji that best represents the color). '
+            "Use ONLY these circle emojis: 🔴🟠🟡🟢🔵🟣🟤⚫⚪🟥🟧🟨🟩🚢🔵. "
+            "No markdown, no explanation, just JSON."
+        )
+
+        payload = {
+            "model": "gpt-4o-mini",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": image_url, "detail": "low"},
+                        },
+                        {
+                            "type": "text",
+                            "text": "What is the primary color of this textile product? Return JSON only.",
+                        },
+                    ],
+                },
+            ],
+            "temperature": 0.0,
+            "max_tokens": 100,
+        }
+
+        headers = {
+            "Authorization": f"Bearer {self.openai_key}",
+            "Content-Type":  "application/json",
+        }
+
+        # Use original OpenAI endpoint (vision requires real OpenAI, not proxy)
+        vision_base = "https://api.openai.com/v1"
+
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.post(
+                    f"{vision_base}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as resp:
+                    if resp.status >= 400:
+                        error_body = await resp.text()
+                        logger.error(
+                            "Color analysis API HTTP %d: %s",
+                            resp.status, error_body[:300]
+                        )
+                        return None
+
+                    result  = await resp.json()
+                    content = result["choices"][0]["message"]["content"].strip()
+
+                    # Strip markdown fences if present
+                    if content.startswith("```"):
+                        content = content.split("\n", 1)[-1]
+                    if content.endswith("```"):
+                        content = content.rsplit("```", 1)[0]
+                    content = content.strip()
+
+                    parsed = json.loads(content)
+                    color_name  = parsed.get("color_name", "")
+                    color_emoji = parsed.get("color_emoji", "🔵")
+
+                    logger.info(
+                        "Color analysis result: %s %s",
+                        color_emoji, color_name
+                    )
+                    return {"color_name": color_name, "color_emoji": color_emoji}
+
+            except json.JSONDecodeError as e:
+                logger.error("Color analysis: invalid JSON response: %s", e)
+                return None
+            except aiohttp.ClientError as e:
+                logger.error("Color analysis: network error: %s", e)
+                return None
+            except Exception as e:
+                logger.error("Color analysis: unexpected error: %s", e)
+                return None
+
+
 # ── Module-level singleton ────────────────────────────────────────────────────
 # Import and use this instance throughout the bot:
 #   from bot.services.deepseek_service import deepseek_service
