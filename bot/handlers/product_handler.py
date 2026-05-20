@@ -512,18 +512,33 @@ def _build_variants_preview(lang: str, variants: list, attr_map: dict) -> str:
         selector_labels = []
         if isinstance(selectors, dict):
             # New format: {attr_key: [option_uuid, ...]}
-            # Find attr by key in attr_map values, then resolve option value
+            # Find attr by key in attr_map values, then resolve option label/value
             for attr_key, option_ids in selectors.items():
                 # Try to find attr by key in attr_map
-                attr_name = attr_key  # fallback to key itself
-                option_value = option_ids[0] if option_ids else ""
+                attr_name    = attr_key  # fallback to key itself
+                option_uuid  = option_ids[0] if option_ids else ""
+                option_value = option_uuid  # fallback
                 for attr_id_candidate, attr_obj in attr_map.items():
                     if attr_obj.get("key") == attr_key:
                         attr_name = attr_obj.get("name", attr_key)
-                        # Resolve option UUID → display value
+                        # Resolve option UUID → human label (prefer label > name > value)
                         for opt in attr_obj.get("options", []):
-                            if opt.get("id") == option_value:
-                                option_value = opt.get("value", option_value)
+                            if opt.get("id") == option_uuid:
+                                option_value = (
+                                    opt.get("label")
+                                    or opt.get("name")
+                                    or opt.get("value", option_uuid)
+                                )
+                                # Apply color emoji if value is a hex code
+                                raw_val = opt.get("value", "")
+                                import re as _re
+                                if raw_val and _re.match(r'^#?[0-9A-Fa-f]{6,8}$', raw_val.strip()):
+                                    emoji = _render_color_value(raw_val)
+                                    # If option_value is still hex, show emoji only
+                                    if _re.match(r'^#?[0-9A-Fa-f]{6,8}$', option_value.strip()):
+                                        option_value = emoji
+                                    else:
+                                        option_value = f"{emoji} {option_value}"
                                 break
                         break
                 selector_labels.append(f"{attr_name}: {option_value}")
@@ -538,11 +553,24 @@ def _build_variants_preview(lang: str, variants: list, attr_map: dict) -> str:
                 attr      = attr_map.get(attr_id, {})
                 attr_name = attr.get("name", attr_id)
 
-                # Find option value
+                # Find option label (prefer label > name > value)
                 option_value = option_id
                 for opt in attr.get("options", []):
                     if opt.get("id") == option_id:
-                        option_value = opt.get("value", option_id)
+                        option_value = (
+                            opt.get("label")
+                            or opt.get("name")
+                            or opt.get("value", option_id)
+                        )
+                        # Apply color emoji if raw value is hex
+                        raw_val = opt.get("value", "")
+                        import re as _re2
+                        if raw_val and _re2.match(r'^#?[0-9A-Fa-f]{6,8}$', raw_val.strip()):
+                            emoji = _render_color_value(raw_val)
+                            if _re2.match(r'^#?[0-9A-Fa-f]{6,8}$', option_value.strip()):
+                                option_value = emoji
+                            else:
+                                option_value = f"{emoji} {option_value}"
                         break
 
                 selector_labels.append(f"{attr_name}: {option_value}")

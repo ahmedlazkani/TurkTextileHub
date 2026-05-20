@@ -568,8 +568,14 @@ class DeepSeekService:
               - "color_emoji": str  e.g. "🔵"
             Or None if analysis fails
         """
-        if not self.openai_key:
-            logger.warning("analyze_image_color: No OPENAI_API_KEY set — skipping color analysis")
+        # Use OPENAI_API_KEY if available, otherwise try DEEPSEEK_API_KEY
+        # (DeepSeek-V3 supports vision via OpenAI-compatible API)
+        vision_key  = self.openai_key or self.deepseek_key
+        vision_base = "https://api.openai.com/v1" if self.openai_key else self.DEEPSEEK_BASE_URL
+        vision_model = "gpt-4o-mini" if self.openai_key else "deepseek-chat"
+
+        if not vision_key:
+            logger.warning("analyze_image_color: No OPENAI_API_KEY or DEEPSEEK_API_KEY set — skipping color analysis")
             return None
 
         system_prompt = (
@@ -583,7 +589,7 @@ class DeepSeekService:
         )
 
         payload = {
-            "model": "gpt-4o-mini",
+            "model": vision_model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {
@@ -605,12 +611,9 @@ class DeepSeekService:
         }
 
         headers = {
-            "Authorization": f"Bearer {self.openai_key}",
+            "Authorization": f"Bearer {vision_key}",
             "Content-Type":  "application/json",
         }
-
-        # Use original OpenAI endpoint (vision requires real OpenAI, not proxy)
-        vision_base = "https://api.openai.com/v1"
 
         async with aiohttp.ClientSession() as session:
             try:
