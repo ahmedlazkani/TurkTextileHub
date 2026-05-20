@@ -312,6 +312,7 @@ def _build_variants(
     uploaded_file_names: list,
     ai_selector_attrs: list,
     raw_attributes: list,
+    id_to_key: dict = None,
 ) -> list:
     """
     Builds the variants list for the KAYISOFT product payload.
@@ -340,6 +341,26 @@ def _build_variants(
     Returns:
         list: List of variant dicts matching KAYISOFT API spec
     """
+    # ── Helper: convert [{attribute_id, option_id}] → {attr_key: [option_uuid]} ───────────
+    # KAYISOFT API PDF spec: selector_attributes in each variant must be a dict
+    # where key = attribute.key (e.g. "color", "size") and value = [option_uuid]
+    # NOT a list of {attribute_id, option_id} objects.
+    # id_to_key maps UUID → key string; if not provided, UUID is used as fallback.
+    _key_map = id_to_key or {}
+
+    def _to_selector_dict(selectors: list) -> dict:
+        """Convert [{attribute_id, option_id}] → {attr_key: [option_id]}"""
+        result = {}
+        for sel in selectors:
+            attr_id   = sel.get("attribute_id", "")
+            option_id = sel.get("option_id", "")
+            attr_key  = _key_map.get(attr_id, attr_id)  # fallback to UUID if key missing
+            if attr_key not in result:
+                result[attr_key] = []
+            if option_id:
+                result[attr_key].append(option_id)
+        return result
+
     # If no selector attributes → single variant
     if not ai_selector_attrs:
         return [{
@@ -385,6 +406,7 @@ def _build_variants(
 
     if not primary_options:
         # Fallback: single variant with all selector attributes
+        # Convert list → dict format: {attr_key: [option_uuid]}
         return [{
             "stock_id":            f"VAR-{uuid.uuid4().hex[:8].upper()}",
             "stock_count":         stock_count,
@@ -394,7 +416,7 @@ def _build_variants(
             "cost_price":          None,
             "titles":              [{"language": lang, "text": product_name}],
             "descriptions":        [{"language": lang, "text": description}],
-            "selector_attributes": ai_selector_attrs,
+            "selector_attributes": _to_selector_dict(ai_selector_attrs),
             "prices":              [{"min_quantity": min_quantity, "price": price_float}],
             "images":              uploaded_file_names,
             "videos":              [],
@@ -430,8 +452,11 @@ def _build_variants(
 
     variants = []
     for i, primary_opt in enumerate(primary_options):
-        variant_selectors = [primary_opt] + other_selectors
-        variant_images    = images_per_variant[i] if i < len(images_per_variant) else []
+        # Each variant's selector_attributes = primary option + shared non-primary selectors
+        # Convert from list format [{attribute_id, option_id}] → dict {attr_key: [option_uuid]}
+        variant_selectors_list = [primary_opt] + other_selectors
+        variant_selectors_dict = _to_selector_dict(variant_selectors_list)
+        variant_images         = images_per_variant[i] if i < len(images_per_variant) else []
 
         variants.append({
             "stock_id":            f"VAR-{uuid.uuid4().hex[:8].upper()}",
@@ -442,7 +467,7 @@ def _build_variants(
             "cost_price":          None,
             "titles":              [{"language": lang, "text": product_name}],
             "descriptions":        [{"language": lang, "text": description}],
-            "selector_attributes": variant_selectors,
+            "selector_attributes": variant_selectors_dict,
             "prices":              [{"min_quantity": min_quantity, "price": price_float}],
             "images":              variant_images,
             "videos":              [],
@@ -1984,20 +2009,42 @@ async def handle_final_publish(
         price_float = 0.0
     price_str = str(price_raw)
 
-    # Build shared_attributes: {attr_id: [option_id]} — NON-variant attributes
-    # This is the correct format for KAYISOFT API (list of option IDs, not raw values)
+    # ── Build id→key map from raw_attributes ─────────────────────────────────
+    # KAYISOFT API requires attribute KEY (e.g. "condition", "brand") as the dict key
+    # for BOTH shared_attributes and selector_attributes — NOT the UUID.
+    # raw_attributes is the full list from GET /categories/{id}/attributes.
+    # We build a lookup: {attr_id (UUID) → attr_key (string)} for fast conversion.
+    id_to_key = {}
+    for attr in raw_attributes:
+        attr_id_raw  = attr.get("id", "")
+        attr_key_raw = attr.get("key", "")
+        if attr_id_raw and attr_key_raw:
+            id_to_key[attr_id_raw] = attr_key_raw
+    logger.info("🔑 id_to_key map: %s", str(id_to_key)[:500])
+
+    # Build shared_attributes: {attr_key: [option_id]} — NON-variant attributes
+    # PDF spec: key = attribute.key (e.g. "condition"), value = [option_uuid, ...]
+    # WRONG (old): {attr_uuid: [option_uuid]}  ← caused HTTP 422 Missing required attribute
+    # RIGHT (new): {attr_key: [option_uuid]}   ← matches KAYISOFT API spec exactly
     ai_shared_attrs = product_details.get("shared_attributes", {})
     shared_attributes = {}
     for attr_id, option_ids in ai_shared_attrs.items():
+        # Convert UUID key → string key using id_to_key map
+        attr_key = id_to_key.get(attr_id, attr_id)  # fallback to UUID if key not found
         if isinstance(option_ids, list):
-            shared_attributes[attr_id] = option_ids
+            shared_attributes[attr_key] = option_ids
         else:
-            shared_attributes[attr_id] = [option_ids]
+            shared_attributes[attr_key] = [option_ids]
+    logger.info("📋 shared_attributes (key-based): %s", str(shared_attributes)[:500])
 
     # Build selector_attributes: [{attribute_id, option_id}] — variant-defining
+    # NOTE: selector_attributes in variants also need key-based format per PDF spec
+    # The conversion is done inside _build_variants using id_to_key map
     ai_selector_attrs = product_details.get("selector_attributes", [])
 
     # Build variants with real uploaded filenames
+    # id_to_key is passed so _build_variants can convert selector_attributes
+    # from {attribute_id: uuid, option_id: uuid} to {attr_key: [option_uuid]}
     variants = _build_variants(
         product_name        = product_name,
         description         = description,
@@ -2008,6 +2055,7 @@ async def handle_final_publish(
         uploaded_file_names = uploaded_file_names,
         ai_selector_attrs   = ai_selector_attrs,
         raw_attributes      = raw_attributes,
+        id_to_key           = id_to_key,
     )
 
     # Build the complete product payload matching KAYISOFT API spec exactly
