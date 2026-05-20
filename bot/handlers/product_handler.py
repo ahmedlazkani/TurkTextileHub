@@ -513,21 +513,46 @@ def _build_variants_preview(lang: str, variants: list, attr_map: dict) -> str:
         stock     = variant.get("stock_count", 0)
 
         # Build selector label (e.g. "Renk: Kırmızı | Beden: M")
+        # selector_attributes can be:
+        #   - dict: {attr_key: [option_uuid, ...]}  ← new API format
+        #   - list: [{attribute_id, option_id}, ...]  ← legacy format
         selector_labels = []
-        for sel in selectors:
-            attr_id   = sel.get("attribute_id", "")
-            option_id = sel.get("option_id", "")
-            attr      = attr_map.get(attr_id, {})
-            attr_name = attr.get("name", attr_id)
+        if isinstance(selectors, dict):
+            # New format: {attr_key: [option_uuid, ...]}
+            # Find attr by key in attr_map values, then resolve option value
+            for attr_key, option_ids in selectors.items():
+                # Try to find attr by key in attr_map
+                attr_name = attr_key  # fallback to key itself
+                option_value = option_ids[0] if option_ids else ""
+                for attr_id_candidate, attr_obj in attr_map.items():
+                    if attr_obj.get("key") == attr_key:
+                        attr_name = attr_obj.get("name", attr_key)
+                        # Resolve option UUID → display value
+                        for opt in attr_obj.get("options", []):
+                            if opt.get("id") == option_value:
+                                option_value = opt.get("value", option_value)
+                                break
+                        break
+                selector_labels.append(f"{attr_name}: {option_value}")
+        else:
+            # Legacy list format: [{attribute_id, option_id}, ...]
+            for sel in selectors:
+                if not isinstance(sel, dict):
+                    selector_labels.append(str(sel))
+                    continue
+                attr_id   = sel.get("attribute_id", "")
+                option_id = sel.get("option_id", "")
+                attr      = attr_map.get(attr_id, {})
+                attr_name = attr.get("name", attr_id)
 
-            # Find option value
-            option_value = option_id
-            for opt in attr.get("options", []):
-                if opt.get("id") == option_id:
-                    option_value = opt.get("value", option_id)
-                    break
+                # Find option value
+                option_value = option_id
+                for opt in attr.get("options", []):
+                    if opt.get("id") == option_id:
+                        option_value = opt.get("value", option_id)
+                        break
 
-            selector_labels.append(f"{attr_name}: {option_value}")
+                selector_labels.append(f"{attr_name}: {option_value}")
 
         selector_str = " | ".join(selector_labels) if selector_labels else "—"
         lines.append(f"<b>#{i}</b> {selector_str}")
