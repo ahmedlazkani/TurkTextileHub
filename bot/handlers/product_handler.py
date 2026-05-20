@@ -313,6 +313,8 @@ def _build_variants(
     ai_selector_attrs: list,
     raw_attributes: list,
     id_to_key: dict = None,
+    product_name_en: str = "",
+    description_en: str = "",
 ) -> list:
     """
     Builds the variants list for the KAYISOFT product payload.
@@ -361,6 +363,23 @@ def _build_variants(
                 result[attr_key].append(option_id)
         return result
 
+    # Build titles list — always include English entry (API requirement)
+    def _build_titles(name_local: str, name_en: str, lang_code: str) -> list:
+        titles = []
+        if lang_code != "en" and name_local:
+            titles.append({"language": lang_code, "text": name_local})
+        en_text = name_en or name_local  # fallback to local name if no English provided
+        titles.append({"language": "en", "text": en_text})
+        return titles
+
+    def _build_descriptions(desc_local: str, desc_en: str, lang_code: str) -> list:
+        descs = []
+        if lang_code != "en" and desc_local:
+            descs.append({"language": lang_code, "text": desc_local})
+        en_text = desc_en or desc_local  # fallback to local desc if no English provided
+        descs.append({"language": "en", "text": en_text})
+        return descs
+
     # If no selector attributes → single variant
     if not ai_selector_attrs:
         return [{
@@ -369,8 +388,8 @@ def _build_variants(
             "visibility_status":   "public",
             # tax_percentage & cost_price omitted entirely:
             # API requires positive number or absence; null causes HTTP 422
-            "titles":              [{"language": lang, "text": product_name}],
-            "descriptions":        [{"language": lang, "text": description}],
+            "titles":              _build_titles(product_name, product_name_en, lang),
+            "descriptions":        _build_descriptions(description, description_en, lang),
             "prices":              [{"min_quantity": min_quantity, "price": price_float}],
             "images":              uploaded_file_names,
             "videos":              [],
@@ -410,8 +429,8 @@ def _build_variants(
             "visibility_status":   "public",
             # tax_percentage & cost_price omitted entirely:
             # API requires positive number or absence; null causes HTTP 422
-            "titles":              [{"language": lang, "text": product_name}],
-            "descriptions":        [{"language": lang, "text": description}],
+            "titles":              _build_titles(product_name, product_name_en, lang),
+            "descriptions":        _build_descriptions(description, description_en, lang),
             "selector_attributes": _to_selector_dict(ai_selector_attrs),
             "prices":              [{"min_quantity": min_quantity, "price": price_float}],
             "images":              uploaded_file_names,
@@ -459,8 +478,8 @@ def _build_variants(
             "visibility_status":   "public",
             # tax_percentage & cost_price omitted entirely:
             # API requires positive number or absence; null causes HTTP 422
-            "titles":              [{"language": lang, "text": product_name}],
-            "descriptions":        [{"language": lang, "text": description}],
+            "titles":              _build_titles(product_name, product_name_en, lang),
+            "descriptions":        _build_descriptions(description, description_en, lang),
             "selector_attributes": variant_selectors_dict,
             "prices":              [{"min_quantity": min_quantity, "price": price_float}],
             "images":              variant_images,
