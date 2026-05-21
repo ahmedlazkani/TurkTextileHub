@@ -298,6 +298,66 @@ def _process_attributes(raw_attributes: list) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Price Parser Helper
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _parse_price(raw) -> float:
+    """
+    Robustly parse a price value from various formats:
+    - Arabic-Indic numerals: ٢٠٠ → 200
+    - Strings with units:    "200 ليرة" → 200.0
+    - Comma decimals:        "1.299,99" → 1299.99  (Turkish format)
+    - Period decimals:       "1,299.99" → 1299.99  (English format)
+    - Already a float/int:   200 → 200.0
+    Returns 0.0 if parsing fails (caller must validate > 0).
+    """
+    if raw is None:
+        return 0.0
+    if isinstance(raw, (int, float)):
+        return float(raw)
+
+    # Convert Arabic-Indic digits (٠١٢٣٤٥٦٧٨٩) to ASCII digits
+    arabic_to_ascii = str.maketrans('٠١٢٣٤٥٦٧٨٩', '0123456789')
+    s = str(raw).translate(arabic_to_ascii).strip()
+
+    # Extract the first numeric token (handles "200 ليرة", "200 lira", "TL 200")
+    import re
+    # Match: optional sign, digits, optional decimal separator, optional decimals
+    match = re.search(r'[\d]+(?:[.,][\d]+)?', s)
+    if not match:
+        logger.warning("_parse_price: no numeric token found in %r → returning 0.0", raw)
+        return 0.0
+
+    token = match.group(0)
+    # Normalize decimal separator:
+    # Turkish format: 1.299,99 → 1299.99
+    # English format: 1,299.99 → 1299.99
+    if ',' in token and '.' in token:
+        # Both present: remove thousands separator, keep decimal
+        if token.rfind(',') > token.rfind('.'):
+            # Comma is decimal: "1.299,99"
+            token = token.replace('.', '').replace(',', '.')
+        else:
+            # Period is decimal: "1,299.99"
+            token = token.replace(',', '')
+    elif ',' in token:
+        # Could be thousands ("1,299") or decimal ("1,5")
+        parts = token.split(',')
+        if len(parts) == 2 and len(parts[1]) <= 2:
+            token = token.replace(',', '.')  # treat as decimal
+        else:
+            token = token.replace(',', '')   # treat as thousands separator
+
+    try:
+        result = float(token)
+        logger.debug("_parse_price: %r → %s", raw, result)
+        return result
+    except ValueError:
+        logger.warning("_parse_price: float conversion failed for token %r (raw=%r)", token, raw)
+        return 0.0
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Variant Builder
 # Auto-builds variants from the primary variant selector attribute
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2021,12 +2081,15 @@ async def handle_variants_confirmation(
     raw_attributes  = context.user_data.get("raw_attributes", [])
     attr_map        = processed_attrs.get("all_by_id", {})
 
-    # Parse price safely
-    price_raw = product_details.get("price", "0")
-    try:
-        price_float = float(str(price_raw).replace(",", ".").split()[0])
-    except (ValueError, IndexError):
-        price_float = 0.0
+    # Parse price safely (handles Arabic numerals, units like "ليرة", Turkish decimals)
+    price_raw   = product_details.get("price", "0")
+    price_float = _parse_price(price_raw)
+    if price_float <= 0:
+        logger.warning(
+            "handle_variants_preview: price_float=%s (raw=%r) — "
+            "will show 0 in preview but user can still proceed",
+            price_float, price_raw
+        )
 
     min_quantity = int(product_details.get("min_quantity", product_details.get("min_order", 1)))
     stock_count  = int(product_details.get("stock_count", product_details.get("stock", 100)))
@@ -2205,12 +2268,33 @@ async def handle_final_publish(
     stock_count  = int(product_details.get("stock_count", product_details.get("stock", 100)))
     supplier_name = product_details.get("supplier_name", "TopKap Supplier")
 
-    # Parse price safely
-    try:
-        price_float = float(str(price_raw).replace(",", ".").split()[0])
-    except (ValueError, IndexError):
-        price_float = 0.0
-    price_str = str(price_raw)
+    # Parse price safely (handles Arabic numerals, units, Turkish decimal format)
+    price_float = _parse_price(price_raw)
+    price_str   = str(price_raw)
+
+    # CRITICAL: KAYISOFT API rejects variants with price <= 0
+    # If price is still 0 after parsing, abort with a clear user-facing error
+    if price_float <= 0:
+        logger.error(
+            "❌ handle_final_publish: price_float=%s (raw=%r) — "
+            "aborting product creation to avoid HTTP 422 from KAYISOFT API",
+            price_float, price_raw
+        )
+        price_error = {
+            "tr": "❌ <b>Geçersiz fiyat.</b>\nLütfen geçerli bir fiyat girin (0'dan büyük olmalıdır).",
+            "ar": "❌ <b>سعر غير صالح.</b>\nيرجى إدخال سعر صحيح (يجب أن يكون أكبر من صفر).",
+            "en": "❌ <b>Invalid price.</b>\nPlease enter a valid price (must be greater than zero).",
+        }
+        await query.edit_message_text(
+            price_error.get(lang, price_error["en"]),
+            parse_mode=ParseMode.HTML
+        )
+        return ConversationHandler.END
+
+    logger.info(
+        "💰 Price parsed successfully: raw=%r → float=%s",
+        price_raw, price_float
+    )
 
     # ── Build id→key map from raw_attributes ─────────────────────────────────
     # KAYISOFT API requires attribute KEY (e.g. "condition", "brand") as the dict key
