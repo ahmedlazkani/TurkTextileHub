@@ -116,6 +116,7 @@ KEY FIXES vs v5.0:
   ✅ Progress bar: shown at each step for better UX
 """
 
+import asyncio
 import hashlib
 import logging
 import os
@@ -1959,19 +1960,37 @@ async def handle_image_upload(
     # Initialize image list on first upload
     if "images" not in context.user_data:
         context.user_data["images"] = []
+    if "image_hashes" not in context.user_data:
+        context.user_data["image_hashes"] = set()
 
     # Accept photo from two sources:
     # 1. update.message.photo  → standard compressed photo (gallery or camera)
     # 2. update.message.document → high-res image sent as file (some camera apps)
     # Both are valid; we store the file_id for later download and S3 upload.
+    photo_file_id = None
     if update.message.photo:
         # Standard photo: use the highest-resolution variant (last in the list)
         photo_file_id = update.message.photo[-1].file_id
-        context.user_data["images"].append(photo_file_id)
     elif update.message.document and update.message.document.mime_type and \
             update.message.document.mime_type.startswith("image/"):
         # Document-as-image: high-res camera shot sent without compression
         photo_file_id = update.message.document.file_id
+
+    if photo_file_id:
+        # v6.2: Deduplicate images using SHA-256 of file_id (unique_id is stable per file)
+        # Telegram's file_id can differ per bot but unique_id is stable across bots.
+        # We use file_id as the dedup key since unique_id requires an extra API call.
+        img_hash = hashlib.sha256(photo_file_id.encode()).hexdigest()[:16]
+        if img_hash in context.user_data["image_hashes"]:
+            # Duplicate detected — notify user and ignore
+            dup_msg = {
+                "ar": "⚠️ هذه الصورة مضافة مسبقاً.",
+                "tr": "⚠️ Bu fotoğraf zaten eklendi.",
+                "en": "⚠️ This image was already added.",
+            }
+            await update.message.reply_text(dup_msg.get(lang, dup_msg["en"]))
+            return UPLOAD_IMAGES
+        context.user_data["image_hashes"].add(img_hash)
         context.user_data["images"].append(photo_file_id)
 
     image_count = len(context.user_data["images"])
@@ -1992,7 +2011,12 @@ async def handle_image_upload(
             else await update.message.document.get_file()
         image_url = tg_file.file_path  # Telegram CDN URL (valid for ~1 hour)
 
-        color_result = await deepseek_service.analyze_image_color(image_url)
+        # v6.2: Only analyze color for the FIRST image — avoid redundant API calls
+        # for multi-image uploads. Color is stored in detected_colors list.
+        if not context.user_data.get("detected_colors"):
+            color_result = await deepseek_service.analyze_image_color(image_url)
+        else:
+            color_result = None
         if color_result:
             color_name  = color_result.get("color_name", "")
             color_emoji = color_result.get("color_emoji", "🔵")
@@ -2074,6 +2098,22 @@ async def handle_variants_confirmation(
         )
         context.user_data.clear()
         return ConversationHandler.END
+
+    # ── Guard: require at least one image before publishing ─────────────────────
+    # v6.2: Prevent publishing products with no images (dead catalog listings)
+    if query.data == "confirm_yes":
+        image_count = len(context.user_data.get("images", []))
+        if image_count == 0:
+            no_photo_msg = {
+                "ar": "⚠️ يجب إضافة صورة واحدة على الأقل قبل النشر.",
+                "tr": "⚠️ Yayınlamadan önce en az bir fotoğraf ekleyin.",
+                "en": "⚠️ Please add at least one photo before publishing.",
+            }
+            await query.answer(
+                no_photo_msg.get(lang, no_photo_msg["en"]),
+                show_alert=True,
+            )
+            return UPLOAD_IMAGES
 
     # ── Confirm Yes → Build and show variant preview ───────────────────────────
     product_details = context.user_data.get("product_details", {})
@@ -2214,17 +2254,25 @@ async def handle_final_publish(
 
     api = KayisoftAPI(telegram_user_id=user_id, language=lang)
 
-    # ── Step 1: Download images from Telegram ─────────────────────────────────
-    logger.info("🖼️ Starting image upload: %d images to process", len(image_file_ids))
-    image_bytes_list = []
-    for file_id in image_file_ids:
+    # ── Step 1: Download images from Telegram (parallel) ───────────────────────
+    # v6.2: Use asyncio.gather for concurrent downloads instead of sequential loop.
+    # Result: 5 images download in ~1s (slowest) instead of 5× sequential waits.
+    logger.info("🖼️ Starting parallel image download: %d images", len(image_file_ids))
+
+    async def _download_one(bot, file_id: str) -> Optional[bytes]:
         try:
-            tg_file    = await query.get_bot().get_file(file_id)
-            file_bytes = await tg_file.download_as_bytearray()
-            image_bytes_list.append(bytes(file_bytes))
-            logger.info("✅ Downloaded image %s (%d bytes)", file_id[:8], len(file_bytes))
+            tg_file = await bot.get_file(file_id)
+            data    = bytes(await tg_file.download_as_bytearray())
+            logger.info("✅ Downloaded image %s (%d bytes)", file_id[:8], len(data))
+            return data
         except Exception as exc:
             logger.warning("❌ Could not download image %s: %s", file_id[:8], exc)
+            return None
+
+    results = await asyncio.gather(
+        *[_download_one(query.get_bot(), fid) for fid in image_file_ids]
+    )
+    image_bytes_list = [r for r in results if isinstance(r, bytes) and r]
 
     # ── Step 2: Generate filenames (ISO-8601 timestamp + SHA-256) ─────────────
     uploaded_file_names = []
@@ -2260,13 +2308,24 @@ async def handle_final_publish(
 
     logger.info("📊 Image upload summary: %d/%d uploaded successfully", len(uploaded_file_names), len(image_file_ids))
 
-    # ── Step 5: Build product payload ─────────────────────────────────────────────────────
+    # ── Step 5: Build product payload ─────────────────────────────────────────
     product_name = product_details.get("name", product_details.get("raw_text", "")[:80])
     description  = product_details.get("description", "")
     price_raw    = product_details.get("price", "0")
     min_quantity = int(product_details.get("min_quantity", product_details.get("min_order", 1)))
     stock_count  = int(product_details.get("stock_count", product_details.get("stock", 100)))
-    supplier_name = product_details.get("supplier_name", "TopKap Supplier")
+
+    # v6.2: supplier_name from Telegram user (first_name + last_name)
+    # More reliable than product_details since it comes directly from Telegram API.
+    # Falls back to username, then to a generic label.
+    tg_user = query.from_user
+    if tg_user:
+        _first = (tg_user.first_name or "").strip()
+        _last  = (tg_user.last_name  or "").strip()
+        supplier_name = f"{_first} {_last}".strip() or tg_user.username or "TopKap Supplier"
+    else:
+        supplier_name = product_details.get("supplier_name", "TopKap Supplier")
+    logger.info("🏭 supplier_name resolved: %s", supplier_name)
 
     # Parse price safely (handles Arabic numerals, units, Turkish decimal format)
     price_float = _parse_price(price_raw)
@@ -2347,10 +2406,15 @@ async def handle_final_publish(
         id_to_key           = id_to_key,
     )
 
+    # v6.2: product_no format: TK-YYYYMMDD-XXXX (date-based, globally unique)
+    _today = datetime.now(timezone.utc).strftime("%Y%m%d")
+    _rand  = uuid.uuid4().hex[:6].upper()
+    product_no = f"TK-{_today}-{_rand}"
+
     # Build the complete product payload matching KAYISOFT API spec exactly
     product_payload = {
         "name":               product_name,
-        "product_no":         f"TK-{user_id[-6:]}-{uuid.uuid4().hex[:4].upper()}",
+        "product_no":         product_no,
         "category_id":        category_id,
         "shared_attributes":  shared_attributes,
         "variants":           variants,
