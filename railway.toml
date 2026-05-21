@@ -6,11 +6,11 @@
 # ===================================================
 
 [build]
-# استخدام nixpacks لبناء البيئة تلقائياً من requirements.txt
-builder = "nixpacks"
+# استخدام Dockerfile لبناء البيئة (يتوافق مع railway.json)
+builder = "dockerfile"
 
 [deploy]
-# أمر تشغيل البوت كوحدة Python
+# أمر تشغيل البوت — FastAPI هو الـ main process، البوت يعمل كـ background task
 startCommand = "python -m bot.main"
 # إعادة التشغيل عند الفشل فقط (وليس عند الإيقاف المتعمد)
 restartPolicyType = "on_failure"
@@ -18,3 +18,5 @@ restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 10
 # منع تشغيل أكثر من نسخة واحدة من البوت في نفس الوقت
 numReplicas = 1
+# إخبار Railway بأن التطبيق يستمع على PORT (يُستخدم للـ health check)
+healthcheckPath = "/health"
