@@ -1587,7 +1587,18 @@ async def _load_attributes_and_ask_form(
     user_id = str(query.from_user.id)
 
     # ── Build WebApp URL ───────────────────────────────────────────────────────
-    RAILWAY_DOMAIN = os.getenv("RAILWAY_DOMAIN", "")
+    # Auto-detect Railway domain from multiple possible env vars:
+    #   RAILWAY_DOMAIN          — manually set by user in Railway Variables (highest priority)
+    #   RAILWAY_PUBLIC_DOMAIN   — set automatically by Railway for public services
+    #   RAILWAY_STATIC_URL      — legacy Railway env var (strip protocol prefix)
+    _raw_static = os.getenv("RAILWAY_STATIC_URL", "")
+    _static_domain = _raw_static.replace("https://", "").replace("http://", "").rstrip("/")
+    RAILWAY_DOMAIN = (
+        os.getenv("RAILWAY_DOMAIN")
+        or os.getenv("RAILWAY_PUBLIC_DOMAIN")
+        or _static_domain
+        or ""
+    )
     webapp_url = (
         f"https://{RAILWAY_DOMAIN}/webapp/product-form"
         f"?category_id={category_id}"
@@ -2945,6 +2956,14 @@ def get_product_conv_handler() -> ConversationHandler:
                 MessageHandler(
                     filters.StatusUpdate.WEB_APP_DATA,
                     handle_webapp_data,
+                ),
+                # SECONDARY: manual entry fallback button (✏️ الإدخال اليدوي)
+                # NOTE: This handler MUST be in FILL_FORM too (not just SELECT_SUBCATEGORY)
+                # because _load_attributes_and_ask_form returns FILL_FORM state BEFORE
+                # the supplier sees the WebApp button — so the callback arrives in FILL_FORM.
+                CallbackQueryHandler(
+                    handle_manual_entry_fallback,
+                    pattern=r"^form_manual_entry$",
                 ),
                 # FALLBACK: free-text description (legacy AI extraction path)
                 MessageHandler(
