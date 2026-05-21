@@ -1,0 +1,1021 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>إضافة منتج — TopKap</title>
+
+  <!-- Telegram WebApp SDK -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+  <style>
+    /* ═══════════════════════════════════════════════════════════
+       CSS CUSTOM PROPERTIES — Telegram theme variables with
+       sensible fallbacks for desktop preview / non-TG browsers
+    ═══════════════════════════════════════════════════════════ */
+    :root {
+      --tg-bg:         var(--tg-theme-bg-color, #ffffff);
+      --tg-text:       var(--tg-theme-text-color, #1a1a1a);
+      --tg-hint:       var(--tg-theme-hint-color, #8a8a8a);
+      --tg-link:       var(--tg-theme-link-color, #2678d8);
+      --tg-btn:        var(--tg-theme-button-color, #2678d8);
+      --tg-btn-text:   var(--tg-theme-button-text-color, #ffffff);
+      --tg-secondary:  var(--tg-theme-secondary-bg-color, #f4f4f4);
+
+      /* Design tokens */
+      --radius-sm:  8px;
+      --radius-md:  12px;
+      --radius-lg:  16px;
+      --shadow-sm:  0 1px 4px rgba(0,0,0,0.08);
+      --shadow-md:  0 4px 16px rgba(0,0,0,0.12);
+      --error:      #e53e3e;
+      --success:    #38a169;
+      --warn:       #d69e2e;
+      --variant-badge-bg:   rgba(38, 120, 216, 0.10);
+      --variant-badge-text: var(--tg-btn);
+
+      --transition: 0.2s ease;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       RESET + BASE
+    ═══════════════════════════════════════════════════════════ */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { font-size: 16px; -webkit-text-size-adjust: 100%; }
+
+    body {
+      background:   var(--tg-bg);
+      color:        var(--tg-text);
+      font-family:  'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans Arabic', sans-serif;
+      line-height:  1.55;
+      min-height:   100vh;
+      /* Extra bottom padding so MainButton never covers last field */
+      padding-bottom: 100px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       HEADER
+    ═══════════════════════════════════════════════════════════ */
+    .header {
+      position:   sticky;
+      top:        0;
+      z-index:    100;
+      background: var(--tg-bg);
+      padding:    16px 18px 12px;
+      border-bottom: 1px solid rgba(0,0,0,0.06);
+      backdrop-filter: blur(10px);
+    }
+
+    .header-title {
+      font-size:   1.15rem;
+      font-weight: 700;
+      letter-spacing: -.01em;
+    }
+
+    .header-sub {
+      font-size:  0.78rem;
+      color:      var(--tg-hint);
+      margin-top: 2px;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       FORM CONTAINER
+    ═══════════════════════════════════════════════════════════ */
+    .form-body {
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       FIELD CARD
+    ═══════════════════════════════════════════════════════════ */
+    .field-card {
+      background:    var(--tg-secondary);
+      border-radius: var(--radius-md);
+      padding:       12px 14px;
+      transition:    box-shadow var(--transition);
+    }
+
+    .field-card:focus-within {
+      box-shadow: 0 0 0 2px var(--tg-btn);
+    }
+
+    .field-label {
+      display:     flex;
+      align-items: center;
+      gap:         6px;
+      font-size:   0.78rem;
+      font-weight: 600;
+      color:       var(--tg-hint);
+      text-transform: uppercase;
+      letter-spacing: .03em;
+      margin-bottom: 8px;
+    }
+
+    .field-label .icon { font-size: 1em; }
+
+    .required-star {
+      color:       var(--error);
+      font-size:   0.9em;
+      font-weight: 700;
+    }
+
+    .variant-badge {
+      display:       inline-flex;
+      align-items:   center;
+      gap:           3px;
+      font-size:     0.65rem;
+      font-weight:   700;
+      color:         var(--variant-badge-text);
+      background:    var(--variant-badge-bg);
+      border-radius: 20px;
+      padding:       2px 7px;
+      letter-spacing: .02em;
+      text-transform: uppercase;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       INPUTS
+    ═══════════════════════════════════════════════════════════ */
+    input[type="text"],
+    input[type="number"],
+    textarea,
+    select {
+      width:         100%;
+      background:    transparent;
+      border:        none;
+      outline:       none;
+      font-size:     0.95rem;
+      color:         var(--tg-text);
+      font-family:   inherit;
+      padding:       0;
+      appearance:    none;
+      -webkit-appearance: none;
+    }
+
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; }
+
+    textarea {
+      resize:    vertical;
+      min-height: 80px;
+      line-height: 1.5;
+    }
+
+    ::placeholder { color: var(--tg-hint); opacity: .7; }
+
+    /* Select wrapper for custom arrow */
+    .select-wrapper {
+      position: relative;
+    }
+    .select-wrapper select {
+      padding-left: 24px; /* space for arrow on left in RTL */
+      cursor: pointer;
+    }
+    .select-wrapper::before {
+      content:  "▾";
+      position: absolute;
+      left:     0;
+      top:      50%;
+      transform: translateY(-50%);
+      color:    var(--tg-hint);
+      pointer-events: none;
+      font-size: 0.85rem;
+    }
+    .select-wrapper select option { background: var(--tg-bg); }
+
+    /* Char counter */
+    .char-counter {
+      font-size:  0.7rem;
+      color:      var(--tg-hint);
+      text-align: left;
+      margin-top: 4px;
+    }
+    .char-counter.warn { color: var(--warn); }
+
+    /* ═══════════════════════════════════════════════════════════
+       ERROR MESSAGE
+    ═══════════════════════════════════════════════════════════ */
+    .field-error {
+      font-size:   0.75rem;
+      color:       var(--error);
+      margin-top:  5px;
+      display:     none;
+      animation:   fadeIn .2s ease;
+    }
+    .field-error.visible { display: block; }
+    .field-card.has-error { box-shadow: 0 0 0 2px var(--error); }
+
+    /* ═══════════════════════════════════════════════════════════
+       COLOR SWATCHES
+    ═══════════════════════════════════════════════════════════ */
+    .swatches-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding-top: 2px;
+    }
+
+    .swatch-item {
+      display:       flex;
+      flex-direction: column;
+      align-items:   center;
+      gap:           4px;
+      cursor:        pointer;
+    }
+
+    .swatch-circle {
+      width:         34px;
+      height:        34px;
+      border-radius: 50%;
+      border:        2px solid transparent;
+      position:      relative;
+      transition:    transform var(--transition), border-color var(--transition), box-shadow var(--transition);
+    }
+
+    .swatch-circle:hover {
+      transform:  scale(1.12);
+      box-shadow: var(--shadow-md);
+    }
+
+    .swatch-item input[type="radio"],
+    .swatch-item input[type="checkbox"] {
+      display: none;
+    }
+
+    .swatch-item input:checked + .swatch-circle {
+      border-color: var(--tg-btn);
+      box-shadow:   0 0 0 3px rgba(38,120,216,0.35);
+      transform:    scale(1.08);
+    }
+
+    .swatch-label {
+      font-size:  0.65rem;
+      color:      var(--tg-hint);
+      max-width:  40px;
+      text-align: center;
+      overflow:   hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       CHECKBOX GROUP (multiselect)
+    ═══════════════════════════════════════════════════════════ */
+    .checkbox-group {
+      display:        flex;
+      flex-direction: column;
+      gap:            8px;
+    }
+
+    .checkbox-item {
+      display:     flex;
+      align-items: center;
+      gap:         10px;
+      cursor:      pointer;
+    }
+
+    .checkbox-item input[type="checkbox"] {
+      width:  18px;
+      height: 18px;
+      flex-shrink: 0;
+      accent-color: var(--tg-btn);
+      cursor: pointer;
+    }
+
+    .checkbox-item span {
+      font-size: 0.88rem;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       LOADING SKELETON
+    ═══════════════════════════════════════════════════════════ */
+    .skeleton {
+      background: linear-gradient(
+        90deg,
+        var(--tg-secondary) 25%,
+        rgba(128,128,128,0.15) 50%,
+        var(--tg-secondary) 75%
+      );
+      background-size: 200% 100%;
+      animation: shimmer 1.4s infinite;
+      border-radius: var(--radius-sm);
+    }
+
+    @keyframes shimmer {
+      0%   { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    .skeleton-line {
+      height: 14px;
+      margin-bottom: 8px;
+    }
+
+    .skeleton-line.short { width: 45%; }
+    .skeleton-line.medium { width: 70%; }
+    .skeleton-line.full   { width: 100%; }
+    .skeleton-input {
+      height: 42px;
+      border-radius: var(--radius-sm);
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       IMAGE NOTE CARD
+    ═══════════════════════════════════════════════════════════ */
+    .info-card {
+      display:      flex;
+      align-items:  flex-start;
+      gap:          10px;
+      background:   rgba(38,120,216,0.07);
+      border:       1px solid rgba(38,120,216,0.18);
+      border-radius: var(--radius-md);
+      padding:      12px 14px;
+    }
+
+    .info-card-icon { font-size: 1.3em; flex-shrink: 0; }
+
+    .info-card-text {
+      font-size:  0.82rem;
+      color:      var(--tg-hint);
+      line-height: 1.5;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       SECTION DIVIDER
+    ═══════════════════════════════════════════════════════════ */
+    .section-divider {
+      display:        flex;
+      align-items:    center;
+      gap:            10px;
+      font-size:      0.72rem;
+      font-weight:    700;
+      color:          var(--tg-hint);
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+    .section-divider::before,
+    .section-divider::after {
+      content:      "";
+      flex:         1;
+      height:       1px;
+      background:   rgba(0,0,0,0.08);
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       SUCCESS OVERLAY
+    ═══════════════════════════════════════════════════════════ */
+    #success-overlay {
+      display:         none;
+      position:        fixed;
+      inset:           0;
+      background:      var(--tg-bg);
+      z-index:         999;
+      flex-direction:  column;
+      align-items:     center;
+      justify-content: center;
+      gap:             16px;
+      animation:       fadeIn .3s ease;
+    }
+
+    #success-overlay.visible { display: flex; }
+
+    .success-checkmark {
+      width:  72px;
+      height: 72px;
+      border-radius: 50%;
+      background: var(--success);
+      display:    flex;
+      align-items: center;
+      justify-content: center;
+      font-size:  2.2rem;
+      animation:  scaleIn .4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    .success-text {
+      font-size:   1.1rem;
+      font-weight: 700;
+      text-align:  center;
+      color:       var(--tg-text);
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       ANIMATIONS
+    ═══════════════════════════════════════════════════════════ */
+    @keyframes fadeIn  { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes scaleIn { from { transform: scale(0.5); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    @keyframes slideUp {
+      from { transform: translateY(18px); opacity: 0; }
+      to   { transform: translateY(0);    opacity: 1; }
+    }
+
+    .field-card { animation: slideUp .25s ease both; }
+
+    /* Stagger cards */
+    .field-card:nth-child(1)  { animation-delay: .03s; }
+    .field-card:nth-child(2)  { animation-delay: .06s; }
+    .field-card:nth-child(3)  { animation-delay: .09s; }
+    .field-card:nth-child(4)  { animation-delay: .12s; }
+    .field-card:nth-child(5)  { animation-delay: .15s; }
+    .field-card:nth-child(6)  { animation-delay: .18s; }
+    .field-card:nth-child(7)  { animation-delay: .21s; }
+    .field-card:nth-child(n+8){ animation-delay: .24s; }
+
+    /* ═══════════════════════════════════════════════════════════
+       SCROLLBAR STYLE
+    ═══════════════════════════════════════════════════════════ */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 2px; }
+  </style>
+</head>
+
+<body>
+  <!-- ══════════════════════════════════════════════════════════
+       SUCCESS OVERLAY — shown briefly before window closes
+  ══════════════════════════════════════════════════════════ -->
+  <div id="success-overlay">
+    <div class="success-checkmark">✓</div>
+    <div class="success-text">تم الحفظ بنجاح! ✨</div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       HEADER
+  ══════════════════════════════════════════════════════════ -->
+  <header class="header">
+    <div class="header-title">📦 إضافة منتج جديد</div>
+    <div class="header-sub">يرجى تعبئة معلومات المنتج أدناه</div>
+  </header>
+
+  <!-- ══════════════════════════════════════════════════════════
+       FORM BODY
+  ══════════════════════════════════════════════════════════ -->
+  <div class="form-body" id="form-body">
+
+    <!-- ─── 1. اسم المنتج ─────────────────────────────────── -->
+    <div class="field-card" id="card-name">
+      <div class="field-label">
+        <span class="icon">🏷️</span>
+        اسم المنتج
+        <span class="required-star">*</span>
+      </div>
+      <input
+        type="text"
+        id="field-name"
+        placeholder="مثال: شال شيفون صيفي"
+        maxlength="100"
+        autocomplete="off"
+        inputmode="text"
+      />
+      <div class="char-counter" id="counter-name">0 / 100</div>
+      <div class="field-error" id="error-name">يجب أن يحتوي الاسم على 3 أحرف على الأقل</div>
+    </div>
+
+    <!-- ─── 2. الوصف ───────────────────────────────────────── -->
+    <div class="field-card" id="card-desc">
+      <div class="field-label">
+        <span class="icon">📝</span>
+        الوصف
+      </div>
+      <textarea
+        id="field-desc"
+        placeholder="اكتب وصف المنتج بالتفصيل..."
+        maxlength="1000"
+        rows="3"
+      ></textarea>
+      <div class="char-counter" id="counter-desc">0 / 1000</div>
+    </div>
+
+    <!-- ─── 3. السعر ───────────────────────────────────────── -->
+    <div class="field-card" id="card-price">
+      <div class="field-label">
+        <span class="icon">💰</span>
+        السعر (₺ ليرة تركية)
+        <span class="required-star">*</span>
+      </div>
+      <input
+        type="number"
+        id="field-price"
+        placeholder="مثال: 200"
+        min="0.01"
+        step="0.01"
+        inputmode="decimal"
+      />
+      <div class="field-error" id="error-price">يجب أن يكون السعر أكبر من 0</div>
+    </div>
+
+    <!-- ─── 4. الحد الأدنى للطلب ─────────────────────────── -->
+    <div class="field-card" id="card-minqty">
+      <div class="field-label">
+        <span class="icon">📦</span>
+        الحد الأدنى للطلب
+        <span class="required-star">*</span>
+      </div>
+      <input
+        type="number"
+        id="field-minqty"
+        placeholder="مثال: 300"
+        min="1"
+        step="1"
+        inputmode="numeric"
+      />
+      <div class="field-error" id="error-minqty">يجب أن يكون الحد الأدنى 1 على الأقل</div>
+    </div>
+
+    <!-- ─── 5. المخزون ─────────────────────────────────────── -->
+    <div class="field-card" id="card-stock">
+      <div class="field-label">
+        <span class="icon">🏭</span>
+        المخزون
+        <span class="required-star">*</span>
+      </div>
+      <input
+        type="number"
+        id="field-stock"
+        placeholder="مثال: 5000"
+        min="1"
+        step="1"
+        inputmode="numeric"
+      />
+      <div class="field-error" id="error-stock">يجب أن يكون المخزون 1 على الأقل</div>
+    </div>
+
+    <!-- ─── 6. الخصائص الديناميكية (placeholder during load) ── -->
+    <div class="section-divider" id="attrs-divider" style="display:none;">الخصائص</div>
+    <div id="attrs-container">
+      <!-- Skeleton shown while loading -->
+      <div id="attrs-skeleton">
+        <div class="field-card">
+          <div class="skeleton skeleton-line short" style="margin-bottom:10px;"></div>
+          <div class="skeleton skeleton-input"></div>
+        </div>
+        <div class="field-card">
+          <div class="skeleton skeleton-line medium" style="margin-bottom:10px;"></div>
+          <div class="skeleton skeleton-input"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── 7. ملاحظة الصور ─────────────────────────────── -->
+    <div class="info-card">
+      <span class="info-card-icon">📸</span>
+      <div class="info-card-text">
+        سيتم طلب <strong>صور المنتج</strong> في الخطوة التالية مباشرةً داخل المحادثة
+      </div>
+    </div>
+
+  </div><!-- /form-body -->
+
+  <!-- ═══════════════════════════════════════════════════════════
+       JAVASCRIPT
+  ═══════════════════════════════════════════════════════════ -->
+  <script>
+    /* ──────────────────────────────────────────────────────────
+       INIT — Telegram WebApp
+    ────────────────────────────────────────────────────────── */
+    const tg = window.Telegram?.WebApp;
+
+    if (tg) {
+      tg.ready();
+      tg.expand();
+      // Configure the MainButton
+      tg.MainButton.setText("✅ حفظ بيانات المنتج");
+      tg.MainButton.color       = tg.themeParams.button_color       || "#2678d8";
+      tg.MainButton.textColor   = tg.themeParams.button_text_color  || "#ffffff";
+      tg.MainButton.onClick(handleSubmit);
+    }
+
+    /* ──────────────────────────────────────────────────────────
+       URL PARAMS — category_id, lang, user_id
+    ────────────────────────────────────────────────────────── */
+    const urlParams   = new URLSearchParams(window.location.search);
+    const CATEGORY_ID = urlParams.get("category_id") || "";
+    const LANG        = urlParams.get("lang")         || "ar";
+    const USER_ID     = urlParams.get("user_id")      || "";
+
+    /* ──────────────────────────────────────────────────────────
+       ATTRIBUTE STATE
+       { [attr_id]: { attr, value } }
+    ────────────────────────────────────────────────────────── */
+    const attrState = {};  // tracks selected values for each dynamic attribute
+
+    /* ──────────────────────────────────────────────────────────
+       HELPERS
+    ────────────────────────────────────────────────────────── */
+
+    /**
+     * Safely extracts the first text content from an API response.
+     * Handles both plain arrays and {data: [...]} shapes.
+     */
+    function normalizeAttributes(raw) {
+      if (Array.isArray(raw))            return raw;
+      if (raw && Array.isArray(raw.data)) return raw.data;
+      if (raw && Array.isArray(raw.results)) return raw.results;
+      return [];
+    }
+
+    /** Mark a field card as having an error */
+    function showError(cardId, errorId) {
+      document.getElementById(cardId).classList.add("has-error");
+      document.getElementById(errorId).classList.add("visible");
+    }
+
+    /** Clear field card error */
+    function clearError(cardId, errorId) {
+      document.getElementById(cardId).classList.remove("has-error");
+      document.getElementById(errorId).classList.remove("visible");
+    }
+
+    /** Update char counter, warn if > 80% */
+    function updateCounter(counterId, current, max) {
+      const el = document.getElementById(counterId);
+      if (!el) return;
+      el.textContent = `${current} / ${max}`;
+      el.classList.toggle("warn", current > max * 0.8);
+    }
+
+    /* ──────────────────────────────────────────────────────────
+       CHAR COUNTERS
+    ────────────────────────────────────────────────────────── */
+    document.getElementById("field-name").addEventListener("input", function() {
+      updateCounter("counter-name", this.value.length, 100);
+      if (this.value.trim().length >= 3) clearError("card-name", "error-name");
+      validateAndToggleMainButton();
+    });
+
+    document.getElementById("field-desc").addEventListener("input", function() {
+      updateCounter("counter-desc", this.value.length, 1000);
+    });
+
+    /* ──────────────────────────────────────────────────────────
+       VALIDATION
+    ────────────────────────────────────────────────────────── */
+    function validateAll() {
+      let valid = true;
+
+      // Name
+      const name = document.getElementById("field-name").value.trim();
+      if (name.length < 3) {
+        showError("card-name", "error-name");
+        valid = false;
+      } else {
+        clearError("card-name", "error-name");
+      }
+
+      // Price
+      const price = parseFloat(document.getElementById("field-price").value);
+      if (!price || price < 0.01) {
+        showError("card-price", "error-price");
+        valid = false;
+      } else {
+        clearError("card-price", "error-price");
+      }
+
+      // Min Quantity
+      const minQty = parseInt(document.getElementById("field-minqty").value);
+      if (!minQty || minQty < 1) {
+        showError("card-minqty", "error-minqty");
+        valid = false;
+      } else {
+        clearError("card-minqty", "error-minqty");
+      }
+
+      // Stock
+      const stock = parseInt(document.getElementById("field-stock").value);
+      if (!stock || stock < 1) {
+        showError("card-stock", "error-stock");
+        valid = false;
+      } else {
+        clearError("card-stock", "error-stock");
+      }
+
+      // Dynamic required attributes
+      for (const [attrId, state] of Object.entries(attrState)) {
+        const attr = state.attr;
+        if (!attr.required) continue;
+
+        const val = state.value;
+        const cardEl = document.getElementById(`card-attr-${attrId}`);
+        const errEl  = document.getElementById(`error-attr-${attrId}`);
+
+        const isEmpty = !val || (Array.isArray(val) && val.length === 0);
+        if (isEmpty) {
+          if (cardEl) cardEl.classList.add("has-error");
+          if (errEl)  errEl.classList.add("visible");
+          valid = false;
+        } else {
+          if (cardEl) cardEl.classList.remove("has-error");
+          if (errEl)  errEl.classList.remove("visible");
+        }
+      }
+
+      return valid;
+    }
+
+    function validateAndToggleMainButton() {
+      if (!tg) return;
+      // Quick lightweight check (no error display)
+      const name  = document.getElementById("field-name").value.trim();
+      const price = parseFloat(document.getElementById("field-price").value);
+      const minQ  = parseInt(document.getElementById("field-minqty").value);
+      const stock = parseInt(document.getElementById("field-stock").value);
+
+      const basicOk = name.length >= 3 && price >= 0.01 && minQ >= 1 && stock >= 1;
+
+      if (basicOk) {
+        tg.MainButton.show();
+      } else {
+        tg.MainButton.hide();
+      }
+    }
+
+    // Attach live validation to numeric fields
+    ["field-price","field-minqty","field-stock"].forEach(id => {
+      document.getElementById(id).addEventListener("input", validateAndToggleMainButton);
+    });
+
+    // Stock default: auto-fill with min_quantity value if user leaves it empty
+    document.getElementById("field-minqty").addEventListener("blur", function() {
+      const stockEl = document.getElementById("field-stock");
+      if (!stockEl.value && this.value) {
+        stockEl.value = this.value;
+        validateAndToggleMainButton();
+      }
+    });
+
+    /* ──────────────────────────────────────────────────────────
+       DYNAMIC ATTRIBUTES — FETCH & RENDER
+    ────────────────────────────────────────────────────────── */
+    async function loadAttributes() {
+      if (!CATEGORY_ID) {
+        hideSkeleton();
+        return;
+      }
+
+      try {
+        // Proxy endpoint served by our FastAPI server
+        const res  = await fetch(`/api/attributes/${CATEGORY_ID}?user_id=${USER_ID}`);
+        const json = await res.json();
+        const attrs = normalizeAttributes(json);
+        renderAttributes(attrs);
+      } catch (err) {
+        console.error("Failed to load attributes:", err);
+        hideSkeleton();
+        // Non-fatal: form still works without dynamic attributes
+      }
+    }
+
+    function hideSkeleton() {
+      const sk = document.getElementById("attrs-skeleton");
+      if (sk) sk.remove();
+    }
+
+    function renderAttributes(attrs) {
+      hideSkeleton();
+
+      if (!attrs || attrs.length === 0) return;
+
+      // Show the section divider
+      document.getElementById("attrs-divider").style.display = "";
+
+      const container = document.getElementById("attrs-container");
+
+      attrs.forEach(attr => {
+        const attrId  = attr.id;
+        const uiType  = attr.ui_type || "text";
+        const isReq   = !!attr.required;
+        const isVar   = !!attr.is_variant_selector;
+        const options = attr.options || [];
+
+        // Initialize state
+        attrState[attrId] = {
+          attr,
+          value: uiType === "multiselect" ? [] : null,
+        };
+
+        // Build card
+        const card = document.createElement("div");
+        card.className = "field-card";
+        card.id        = `card-attr-${attrId}`;
+
+        // Label row
+        const labelHtml = `
+          <div class="field-label">
+            <span class="icon">${isVar ? "🎨" : "📌"}</span>
+            ${escHtml(attr.name)}
+            ${isReq  ? '<span class="required-star">*</span>' : ""}
+            ${isVar  ? '<span class="variant-badge">🎨 Variant</span>' : ""}
+          </div>
+        `;
+
+        let controlHtml = "";
+
+        if (uiType === "color") {
+          // ── Color swatches ───────────────────────────────────
+          const swatchItems = options.map(opt => {
+            const hex   = opt.hex_code || opt.value || "#cccccc";
+            const label = opt.label || opt.value || "";
+            const safeHex = /^#?[0-9A-Fa-f]{3,8}/.test(hex)
+                          ? (hex.startsWith("#") ? hex.slice(0,7) : `#${hex.slice(0,6)}`)
+                          : "#cccccc";
+            return `
+              <label class="swatch-item" title="${escHtml(label)}">
+                <input type="radio"
+                       name="attr_${attrId}"
+                       value="${escHtml(opt.id)}"
+                       data-attr="${attrId}" />
+                <div class="swatch-circle" style="background:${safeHex};"></div>
+                <span class="swatch-label">${escHtml(label)}</span>
+              </label>
+            `;
+          }).join("");
+          controlHtml = `<div class="swatches-grid">${swatchItems}</div>`;
+
+        } else if (uiType === "select") {
+          // ── Dropdown ─────────────────────────────────────────
+          const opts = options.map(opt =>
+            `<option value="${escHtml(opt.id)}">${escHtml(opt.label || opt.value)}</option>`
+          ).join("");
+          controlHtml = `
+            <div class="select-wrapper">
+              <select id="ctrl-attr-${attrId}" data-attr="${attrId}">
+                <option value="">— اختر —</option>
+                ${opts}
+              </select>
+            </div>
+          `;
+
+        } else if (uiType === "multiselect") {
+          // ── Checkbox group ───────────────────────────────────
+          const checks = options.map(opt => `
+            <label class="checkbox-item">
+              <input type="checkbox"
+                     name="attr_${attrId}"
+                     value="${escHtml(opt.id)}"
+                     data-attr="${attrId}" />
+              <span>${escHtml(opt.label || opt.value)}</span>
+            </label>
+          `).join("");
+          controlHtml = `<div class="checkbox-group">${checks}</div>`;
+
+        } else {
+          // ── Text input ───────────────────────────────────────
+          controlHtml = `
+            <input type="text"
+                   id="ctrl-attr-${attrId}"
+                   data-attr="${attrId}"
+                   placeholder="أدخل ${escHtml(attr.name)}..." />
+          `;
+        }
+
+        const errorHtml = `
+          <div class="field-error" id="error-attr-${attrId}">
+            هذا الحقل مطلوب
+          </div>
+        `;
+
+        card.innerHTML = labelHtml + controlHtml + errorHtml;
+        container.appendChild(card);
+
+        // ── Attach event listeners ───────────────────────────
+        if (uiType === "color") {
+          card.querySelectorAll(`input[name="attr_${attrId}"]`).forEach(radio => {
+            radio.addEventListener("change", function() {
+              attrState[attrId].value = this.value;
+              clearAttrError(attrId);
+              validateAndToggleMainButton();
+            });
+          });
+
+        } else if (uiType === "select") {
+          const sel = card.querySelector(`select[data-attr="${attrId}"]`);
+          sel.addEventListener("change", function() {
+            attrState[attrId].value = this.value || null;
+            clearAttrError(attrId);
+            validateAndToggleMainButton();
+          });
+
+        } else if (uiType === "multiselect") {
+          card.querySelectorAll(`input[name="attr_${attrId}"]`).forEach(cb => {
+            cb.addEventListener("change", function() {
+              const checked = [...card.querySelectorAll(`input[name="attr_${attrId}"]`)]
+                .filter(c => c.checked)
+                .map(c => c.value);
+              attrState[attrId].value = checked;
+              clearAttrError(attrId);
+              validateAndToggleMainButton();
+            });
+          });
+
+        } else {
+          const inp = card.querySelector(`input[data-attr="${attrId}"]`);
+          inp.addEventListener("input", function() {
+            attrState[attrId].value = this.value.trim() || null;
+            clearAttrError(attrId);
+            validateAndToggleMainButton();
+          });
+        }
+      });
+    }
+
+    function clearAttrError(attrId) {
+      const card = document.getElementById(`card-attr-${attrId}`);
+      const err  = document.getElementById(`error-attr-${attrId}`);
+      if (card) card.classList.remove("has-error");
+      if (err)  err.classList.remove("visible");
+    }
+
+    /* ──────────────────────────────────────────────────────────
+       SUBMIT HANDLER
+    ────────────────────────────────────────────────────────── */
+    function handleSubmit() {
+      if (!validateAll()) return;
+
+      const name     = document.getElementById("field-name").value.trim();
+      const desc     = document.getElementById("field-desc").value.trim();
+      const price    = document.getElementById("field-price").value;
+      const minQty   = parseInt(document.getElementById("field-minqty").value);
+      const stockRaw = document.getElementById("field-stock").value;
+      const stock    = stockRaw ? parseInt(stockRaw) : minQty;
+
+      // Build shared_attributes and selector_attributes from attrState
+      const sharedAttrs   = {};
+      const selectorAttrs = [];
+
+      for (const [attrId, state] of Object.entries(attrState)) {
+        const attr  = state.attr;
+        const val   = state.value;
+        if (!val || (Array.isArray(val) && val.length === 0)) continue;
+
+        const optionIds = Array.isArray(val) ? val : [val];
+
+        if (attr.is_variant_selector) {
+          // Each selected option → one entry in selector_attributes
+          optionIds.forEach(optId => {
+            selectorAttrs.push({
+              attribute_id: attrId,
+              option_id:    optId,
+            });
+          });
+        } else {
+          sharedAttrs[attrId] = optionIds;
+        }
+      }
+
+      const payload = {
+        name,
+        description:       desc,
+        price:             price,
+        min_quantity:      minQty,
+        stock_count:       stock,
+        shared_attributes: sharedAttrs,
+        selector_attributes: selectorAttrs,
+      };
+
+      // ── Show success overlay ───────────────────────────────
+      const overlay = document.getElementById("success-overlay");
+      overlay.classList.add("visible");
+
+      // Disable MainButton to prevent double submission
+      if (tg) {
+        tg.MainButton.showProgress(false);
+        tg.MainButton.disable();
+      }
+
+      // Short delay so user sees checkmark, then close
+      setTimeout(() => {
+        if (tg) {
+          tg.sendData(JSON.stringify(payload));
+        } else {
+          // Dev fallback: log to console
+          console.log("FORM DATA:", JSON.stringify(payload, null, 2));
+        }
+      }, 700);
+    }
+
+    /* ──────────────────────────────────────────────────────────
+       UTILITY — HTML escape
+    ────────────────────────────────────────────────────────── */
+    function escHtml(str) {
+      if (!str) return "";
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    /* ──────────────────────────────────────────────────────────
+       BOOT
+    ────────────────────────────────────────────────────────── */
+    // Initially hide MainButton — shown only when basic fields are valid
+    if (tg) tg.MainButton.hide();
+
+    loadAttributes();
+  </script>
+</body>
+</html>

@@ -1568,6 +1568,8 @@ async def _load_attributes_and_ask_form(
         lang:        Supplier's language code
         progress:    Progress bar string for display
     """
+    from telegram import WebAppInfo
+
     # Store leaf category
     context.user_data["selected_subcategory"] = category_id
 
@@ -1580,19 +1582,24 @@ async def _load_attributes_and_ask_form(
 
     context.user_data["raw_attributes"]       = raw_attributes
     context.user_data["processed_attributes"] = processed
-
-    # Also store max_images from category metadata (fetched earlier)
-    # Default to 10 if not available
     context.user_data.setdefault("max_images", 10)
 
-    # ── Build breadcrumb: shows selected category path above the form ────────────────
-    # Example (AR): "✅ الفئة: Giyim ← الفئة الفرعية: Şallar"
+    user_id = str(query.from_user.id)
+
+    # ── Build WebApp URL ───────────────────────────────────────────────────────
+    RAILWAY_DOMAIN = os.getenv("RAILWAY_DOMAIN", "")
+    webapp_url = (
+        f"https://{RAILWAY_DOMAIN}/webapp/product-form"
+        f"?category_id={category_id}"
+        f"&lang={lang}"
+        f"&user_id={user_id}"
+    ) if RAILWAY_DOMAIN else None
+
+    # ── Build breadcrumb ───────────────────────────────────────────────────────
     cat_name = context.user_data.get("selected_category_name", "")
     sub_name = context.user_data.get("selected_subcategory_name", "")
-
     cat_label = {"tr": "Kategori", "ar": "الفئة", "en": "Category"}.get(lang, "Category")
     sub_label = {"tr": "Alt Kategori", "ar": "الفئة الفرعية", "en": "Subcategory"}.get(lang, "Subcategory")
-
     breadcrumb_parts = []
     if cat_name:
         breadcrumb_parts.append(f"✅ <b>{cat_label}:</b> {cat_name}")
@@ -1600,34 +1607,81 @@ async def _load_attributes_and_ask_form(
         breadcrumb_parts.append(f"📌 <b>{sub_label}:</b> {sub_name}")
     breadcrumb = "\n".join(breadcrumb_parts)
 
-    # ── Build the form prompt showing required attributes ────────────────────────
+    # ── Build required fields list ─────────────────────────────────────────────
     required_names = (
         [a.get("name") for a in processed["shared_required"]]
         + [a.get("name") for a in processed["selector_required"]]
     )
 
-    form_prompt = get_string(lang, "add_product_fill_form")
-    if required_names:
-        required_label = {
-            "tr": "Zorunlu alanlar",
-            "ar": "الحقول المطلوبة",
-            "en": "Required fields",
-        }.get(lang, "Required fields")
-        form_prompt += f"\n\n📋 <b>{required_label}:</b>\n" + "\n".join(
-            f"  • {name}" for name in required_names if name
-        )
+    # ── Build message text ─────────────────────────────────────────────────────
+    if webapp_url:
+        prompts = {
+            "ar": (
+                "📝 <b>الخطوة 3 — بيانات المنتج</b>\n\n"
+                "اضغط الزر أدناه لفتح نموذج المنتج المنظّم.\n"
+                "يمكنك تعبئة الاسم، السعر، الكميات، والخصائص بشكل مريح."
+            ),
+            "tr": (
+                "📝 <b>Adım 3 — Ürün Bilgileri</b>\n\n"
+                "Aşağıdaki butona tıklayarak yapılandırılmış ürün formunu açın.\n"
+                "Ad, fiyat, miktar ve özellikler rahatça girilebilir."
+            ),
+            "en": (
+                "📝 <b>Step 3 — Product Details</b>\n\n"
+                "Tap the button below to open the structured product form.\n"
+                "Fill in the name, price, quantities, and attributes with ease."
+            ),
+        }
+        form_prompt = prompts.get(lang, prompts["en"])
+        if required_names:
+            req_label = {
+                "ar": "📋 <b>الحقول المطلوبة في النموذج:</b>",
+                "tr": "📋 <b>Formda zorunlu alanlar:</b>",
+                "en": "📋 <b>Required fields in the form:</b>",
+            }.get(lang, "📋 <b>Required fields:</b>")
+            fields_list = "\n".join(f"  • {n}" for n in required_names if n)
+            form_prompt += f"\n\n{req_label}\n{fields_list}"
+    else:
+        # Fallback: no RAILWAY_DOMAIN set → use old text-based flow
+        form_prompt = get_string(lang, "add_product_fill_form")
+        if required_names:
+            required_label = {
+                "tr": "Zorunlu alanlar",
+                "ar": "الحقول المطلوبة",
+                "en": "Required fields",
+            }.get(lang, "Required fields")
+            form_prompt += f"\n\n📋 <b>{required_label}:</b>\n" + "\n".join(
+                f"  • {name}" for name in required_names if name
+            )
 
-    # Compose final message: progress bar + breadcrumb + form prompt
     body_parts = [progress]
     if breadcrumb:
         body_parts.append(breadcrumb)
     body_parts.append(form_prompt)
     full_body = "\n\n".join(body_parts)
 
-    await query.edit_message_text(
-        full_body,
-        parse_mode=ParseMode.HTML,
-    )
+    # ── Build keyboard ─────────────────────────────────────────────────────────
+    if webapp_url:
+        btn_labels = {
+            "ar": ("📝 فتح فورم المنتج",   "✏️ الإدخال اليدوي"),
+            "tr": ("📝 Ürün Formunu Aç",   "✏️ Manuel Giriş"),
+            "en": ("📝 Open Product Form", "✏️ Manual Entry"),
+        }
+        webapp_label, manual_label = btn_labels.get(lang, btn_labels["en"])
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton(webapp_label, web_app=WebAppInfo(url=webapp_url))],
+            [InlineKeyboardButton(manual_label, callback_data="form_manual_entry")],
+        ])
+        await query.edit_message_text(full_body, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+        logger.info(
+            "WebApp form button sent: user_id=%s category_id=%s",
+            user_id, category_id,
+        )
+    else:
+        await query.edit_message_text(full_body, parse_mode=ParseMode.HTML)
+        logger.warning(
+            "RAILWAY_DOMAIN not set — falling back to text input. user_id=%s", user_id
+        )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2547,11 +2601,291 @@ async def cancel_product(
     return ConversationHandler.END
 
 
+## ══════════════════════════════════════════════════════════════════════════════
+# WEBAPP — handle_webapp_data
+# Receives JSON submitted by the Mini App via Telegram.WebApp.sendData()
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def handle_webapp_data(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> int:
+    """
+    STATE: FILL_FORM → CONFIRM_DETAILS
+
+    Receives the JSON payload sent by the Mini App after the supplier fills
+    the product form and taps "✅ حفظ بيانات المنتج".
+
+    Expected JSON structure:
+    {
+        "name":        str,
+        "description": str,
+        "price":       str | float,
+        "min_quantity": int,
+        "stock_count":  int,
+        "shared_attributes":   { attr_uuid: [opt_uuid, ...] },
+        "selector_attributes": [ { "attribute_id": uuid, "option_id": uuid }, ... ]
+    }
+    """
+    user    = update.effective_user
+    user_id = str(user.id)
+    lang    = get_user_lang(user_id, telegram_language_code=user.language_code or "")
+
+    web_app_data = update.effective_message.web_app_data
+    if not web_app_data or not web_app_data.data:
+        logger.warning("handle_webapp_data: empty web_app_data for user_id=%s", user_id)
+        await update.effective_message.reply_text(
+            "❌ لم يتم استقبال بيانات من النموذج. يرجى المحاولة مجدداً.",
+            parse_mode=ParseMode.HTML,
+        )
+        return FILL_FORM
+
+    try:
+        payload = json.loads(web_app_data.data)
+    except (json.JSONDecodeError, ValueError) as exc:
+        logger.error(
+            "handle_webapp_data: JSON parse error for user_id=%s: %s — raw=%s",
+            user_id, exc, web_app_data.data[:200],
+        )
+        await update.effective_message.reply_text(
+            "❌ بيانات النموذج غير صالحة. يرجى إعادة المحاولة.",
+            parse_mode=ParseMode.HTML,
+        )
+        return FILL_FORM
+
+    validation_errors = _validate_webapp_payload(payload, lang)
+    if validation_errors:
+        error_lines = "\n".join(f"  • {e}" for e in validation_errors)
+        msg = {
+            "ar": f"❌ <b>خطأ في بيانات النموذج:</b>\n{error_lines}\n\nيرجى العودة وتصحيح البيانات.",
+            "tr": f"❌ <b>Form verilerinde hata:</b>\n{error_lines}\n\nLütfen geri dönüp düzeltin.",
+            "en": f"❌ <b>Form validation error:</b>\n{error_lines}\n\nPlease go back and fix the issues.",
+        }.get(lang, f"❌ Validation error:\n{error_lines}")
+        await update.effective_message.reply_text(msg, parse_mode=ParseMode.HTML)
+        return FILL_FORM
+
+    name         = str(payload.get("name", "")).strip()
+    description  = str(payload.get("description", "")).strip()
+    price_str    = str(payload.get("price", "0"))
+    min_quantity = int(payload.get("min_quantity", 1))
+    stock_count  = int(payload.get("stock_count", min_quantity))
+    if stock_count < min_quantity:
+        stock_count = min_quantity
+
+    shared_attributes   = payload.get("shared_attributes",   {}) or {}
+    selector_attributes = payload.get("selector_attributes", []) or []
+
+    product_details = {
+        "name":                name,
+        "description":         description,
+        "price":               price_str,
+        "min_quantity":        min_quantity,
+        "stock_count":         stock_count,
+        "shared_attributes":   shared_attributes,
+        "selector_attributes": selector_attributes,
+        "_source":             "webapp",
+    }
+    context.user_data["product_details"] = product_details
+
+    logger.info(
+        "handle_webapp_data: valid form data received. "
+        "user_id=%s name=%r price=%s min_qty=%d stock=%d shared=%d selector=%d",
+        user_id, name, price_str, min_quantity, stock_count,
+        len(shared_attributes), len(selector_attributes),
+    )
+
+    summary = _build_webapp_summary(product_details, lang, context)
+
+    confirm_buttons = {
+        "ar": ("✅ تأكيد وإرسال الصور", "✏️ تعديل"),
+        "tr": ("✅ Onayla ve Fotoğraf Ekle", "✏️ Düzenle"),
+        "en": ("✅ Confirm & Upload Images", "✏️ Edit"),
+    }
+    confirm_label, edit_label = confirm_buttons.get(lang, confirm_buttons["en"])
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton(confirm_label, callback_data="details_confirm"),
+        InlineKeyboardButton(edit_label,    callback_data="details_edit"),
+    ]])
+
+    await update.effective_message.reply_text(
+        summary, reply_markup=keyboard, parse_mode=ParseMode.HTML,
+    )
+    return CONFIRM_DETAILS
+
+
+def _validate_webapp_payload(payload: dict, lang: str) -> list:
+    """
+    Validates the JSON payload from the Mini App.
+    Returns a list of human-readable error strings (empty = valid).
+    """
+    errors = []
+    field_labels = {
+        "ar": {"name": "اسم المنتج", "price": "السعر", "min": "الحد الأدنى", "stock": "المخزون"},
+        "tr": {"name": "Ürün adı",   "price": "Fiyat", "min": "Min. miktar", "stock": "Stok"},
+        "en": {"name": "Product name","price": "Price", "min": "Min. qty",   "stock": "Stock"},
+    }
+    L = field_labels.get(lang, field_labels["en"])
+
+    name = str(payload.get("name", "")).strip()
+    if len(name) < 3:
+        errors.append(f"{L['name']}: يجب أن يكون 3 أحرف على الأقل")
+
+    try:
+        price = float(payload.get("price", 0))
+        if price < 0.01:
+            errors.append(f"{L['price']}: يجب أن يكون أكبر من 0")
+    except (ValueError, TypeError):
+        errors.append(f"{L['price']}: قيمة غير صالحة")
+
+    try:
+        min_qty = int(payload.get("min_quantity", 0))
+        if min_qty < 1:
+            errors.append(f"{L['min']}: يجب أن يكون 1 على الأقل")
+    except (ValueError, TypeError):
+        errors.append(f"{L['min']}: قيمة غير صالحة")
+
+    stock_raw = payload.get("stock_count")
+    if stock_raw is not None:
+        try:
+            stock = int(stock_raw)
+            if stock < 1:
+                errors.append(f"{L['stock']}: يجب أن يكون 1 على الأقل")
+        except (ValueError, TypeError):
+            errors.append(f"{L['stock']}: قيمة غير صالحة")
+
+    return errors
+
+
+def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
+    """
+    Builds an HTML summary of the WebApp form submission.
+    Mirrors the style of _build_ai_summary() for a consistent UI.
+    """
+    name        = product_details.get("name", "—")
+    description = product_details.get("description", "—") or "—"
+    price       = product_details.get("price", "0")
+    min_qty     = product_details.get("min_quantity", 1)
+    stock       = product_details.get("stock_count", min_qty)
+    shared_attrs   = product_details.get("shared_attributes",   {}) or {}
+    selector_attrs = product_details.get("selector_attributes", []) or []
+
+    raw_attributes = context.user_data.get("raw_attributes", [])
+    attr_map       = {a.get("id"): a for a in raw_attributes if a.get("id")}
+
+    cat_name = context.user_data.get("selected_category_name", "")
+    sub_name = context.user_data.get("selected_subcategory_name", "")
+    cat_label = {"tr": "Kategori", "ar": "الفئة",          "en": "Category"}.get(lang, "Category")
+    sub_label = {"tr": "Alt Kategori", "ar": "الفئة الفرعية", "en": "Subcategory"}.get(lang, "Subcategory")
+
+    breadcrumb_parts = []
+    if cat_name:
+        breadcrumb_parts.append(f"✅ <b>{cat_label}:</b> {cat_name}")
+    if sub_name and sub_name != cat_name:
+        breadcrumb_parts.append(f"📌 <b>{sub_label}:</b> {sub_name}")
+    breadcrumb = "\n".join(breadcrumb_parts)
+
+    headers = {
+        "tr": "📋 <b>Ürün Özeti</b> (Formdan)",
+        "ar": "📋 <b>ملخص المنتج</b> (من النموذج)",
+        "en": "📋 <b>Product Summary</b> (from form)",
+    }
+    field_labels = {
+        "tr": {"name": "🏷️ Ürün Adı",  "desc": "📝 Açıklama", "price": "💰 Fiyat", "min": "📦 Min. Sipariş", "stock": "🏭 Stok"},
+        "ar": {"name": "🏷️ اسم المنتج","desc": "📝 الوصف",   "price": "💰 السعر", "min": "📦 الحد الأدنى",   "stock": "🏭 المخزون"},
+        "en": {"name": "🏷️ Name",       "desc": "📝 Desc.",   "price": "💰 Price", "min": "📦 Min. Order",    "stock": "🏭 Stock"},
+    }
+    header = headers.get(lang, headers["en"])
+    L      = field_labels.get(lang, field_labels["en"])
+
+    lines = []
+    if breadcrumb:
+        lines.append(breadcrumb)
+        lines.append("")
+    lines += [
+        header, "",
+        f"{L['name']}: <b>{name}</b>",
+        f"{L['desc']}: {description}",
+        f"{L['price']}: <b>{price} ₺</b>",
+        f"{L['min']}: {min_qty}",
+        f"{L['stock']}: {stock}",
+    ]
+
+    if shared_attrs or selector_attrs:
+        attr_header = {
+            "tr": "\n📌 <b>Özellikler:</b>",
+            "ar": "\n📌 <b>الخصائص:</b>",
+            "en": "\n📌 <b>Attributes:</b>",
+        }
+        lines.append(attr_header.get(lang, attr_header["en"]))
+        for attr_id, option_ids in shared_attrs.items():
+            attr      = attr_map.get(attr_id, {})
+            attr_name = attr.get("name", attr_id)
+            values    = []
+            for opt_id in (option_ids if isinstance(option_ids, list) else [option_ids]):
+                for opt in attr.get("options", []):
+                    if opt.get("id") == opt_id:
+                        values.append(opt.get("label") or opt.get("value", opt_id))
+                        break
+                else:
+                    values.append(str(opt_id)[:8])
+            lines.append(f"  • {attr_name}: {', '.join(values)}")
+        for sel in selector_attrs:
+            attr_id   = sel.get("attribute_id", "")
+            option_id = sel.get("option_id", "")
+            attr      = attr_map.get(attr_id, {})
+            attr_name = attr.get("name") or attr_id
+            opt_val   = option_id[:8]
+            for opt in attr.get("options", []):
+                if opt.get("id") == option_id:
+                    opt_val = opt.get("label") or opt.get("value", option_id)
+                    break
+            lines.append(f"  🎨 {attr_name}: {opt_val}")
+
+    return "\n".join(lines)
+
+
+async def handle_manual_entry_fallback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> int:
+    """
+    STATE: SELECT_SUBCATEGORY → FILL_FORM
+
+    Triggered when the supplier taps "✏️ الإدخال اليدوي" (Manual Entry).
+    Sends the old free-text prompt so they can type the product description.
+    """
+    query   = update.callback_query
+    await query.answer()
+    user    = update.effective_user
+    user_id = str(user.id)
+    lang    = get_user_lang(user_id, telegram_language_code=user.language_code or "")
+
+    processed_attrs = context.user_data.get("processed_attributes", {})
+    required_names = (
+        [a.get("name") for a in processed_attrs.get("shared_required", [])]
+        + [a.get("name") for a in processed_attrs.get("selector_required", [])]
+    )
+
+    form_prompt = get_string(lang, "add_product_fill_form")
+    if required_names:
+        required_label = {
+            "tr": "Zorunlu alanlar",
+            "ar": "الحقول المطلوبة",
+            "en": "Required fields",
+        }.get(lang, "Required fields")
+        form_prompt += f"\n\n📋 <b>{required_label}:</b>\n" + "\n".join(
+            f"  • {n}" for n in required_names if n
+        )
+
+    await query.edit_message_text(form_prompt, parse_mode=ParseMode.HTML)
+    logger.info("handle_manual_entry_fallback: user_id=%s switched to manual text entry", user_id)
+    return FILL_FORM
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # ConversationHandler Factory
 # Registers all states and entry points for the product addition flow
 # ══════════════════════════════════════════════════════════════════════════════
-
 def get_product_conv_handler() -> ConversationHandler:
     """
     Factory function — returns the fully configured ConversationHandler.
@@ -2599,8 +2933,20 @@ def get_product_conv_handler() -> ConversationHandler:
                     handle_subcategory_selection,
                     pattern=r"^sub_",
                 ),
+                # NEW: Manual entry fallback when supplier taps "✏️ الإدخال اليدوي"
+                CallbackQueryHandler(
+                    handle_manual_entry_fallback,
+                    pattern=r"^form_manual_entry$",
+                ),
             ],
             FILL_FORM: [
+                # PRIMARY: structured WebApp form submission (Mini App)
+                # Must be listed BEFORE the text handler so it has priority
+                MessageHandler(
+                    filters.StatusUpdate.WEB_APP_DATA,
+                    handle_webapp_data,
+                ),
+                # FALLBACK: free-text description (legacy AI extraction path)
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
                     handle_form_input,
