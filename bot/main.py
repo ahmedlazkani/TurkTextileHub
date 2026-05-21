@@ -103,7 +103,15 @@ def main():
     )
     kayisoft_url   = os.getenv("KAYISOFT_API_URL", "NOT SET")
     deepseek_key   = os.getenv("DEEPSEEK_API_KEY", "")
-    railway_domain = os.getenv("RAILWAY_DOMAIN", "NOT SET")
+    # ── Auto-detect Railway domain from multiple env vars ────────────────────
+    _raw_static = os.getenv("RAILWAY_STATIC_URL", "")
+    _static_domain = _raw_static.replace("https://", "").replace("http://", "").rstrip("/")
+    railway_domain = (
+        os.getenv("RAILWAY_DOMAIN")
+        or os.getenv("RAILWAY_PUBLIC_DOMAIN")
+        or _static_domain
+        or "NOT SET"
+    )
     webapp_port    = os.getenv("PORT", "8080")
 
     logger.info("=" * 60)
@@ -113,15 +121,28 @@ def main():
     logger.info("  TELEGRAM_BOT_API_ENDPOINT_KEY = %s", (os.getenv("TELEGRAM_BOT_API_ENDPOINT_KEY") or "NOT SET")[:8] + "...")
     logger.info("  DEEPSEEK_API_KEY              = %s", "SET" if deepseek_key else "NOT SET")
     logger.info("  BOT_TOKEN (first 8 chars)     = %s...", token[:8])
-    logger.info("  RAILWAY_DOMAIN                = %s", railway_domain)
+    logger.info("  RAILWAY_DOMAIN (manual)       = %s", os.getenv("RAILWAY_DOMAIN", "NOT SET"))
+    logger.info("  RAILWAY_PUBLIC_DOMAIN (auto)  = %s", os.getenv("RAILWAY_PUBLIC_DOMAIN", "NOT SET"))
+    logger.info("  RAILWAY_STATIC_URL (legacy)   = %s", os.getenv("RAILWAY_STATIC_URL", "NOT SET"))
+    logger.info("  RAILWAY_DOMAIN (resolved)     = %s", railway_domain)
     logger.info("  PORT (FastAPI)                = %s", webapp_port)
+    # Log ALL Railway-prefixed env vars for debugging
+    railway_vars = {k: v for k, v in os.environ.items() if k.startswith("RAILWAY_")}
+    if railway_vars:
+        logger.info("  All RAILWAY_* env vars: %s", railway_vars)
+    else:
+        logger.warning("  No RAILWAY_* env vars found (not running on Railway or none injected)")
     if not kayisoft_token:
         logger.error("  *** KAYISOFT_API_TOKEN IS EMPTY -- all API calls will fail with 401 ***")
     if railway_domain == "NOT SET":
         logger.warning(
-            "  *** RAILWAY_DOMAIN not set -- WebApp Mini App button will be disabled ***\n"
-            "  Set RAILWAY_DOMAIN=<your-service>.up.railway.app in Railway environment variables."
+            "  *** RAILWAY_DOMAIN could not be auto-detected -- WebApp Mini App button will be disabled ***\n"
+            "  Fix: In Railway Dashboard → your service → Variables, add:\n"
+            "  RAILWAY_DOMAIN = <your-service>.up.railway.app\n"
+            "  (Find your domain in Railway Dashboard → your service → Settings → Domains)"
         )
+    else:
+        logger.info("  ✅ WebApp Mini App URL will be: https://%s/webapp/product-form", railway_domain)
     logger.info("=" * 60)
     # ── END DIAGNOSTIC ───────────────────────────────────────────────────────
 

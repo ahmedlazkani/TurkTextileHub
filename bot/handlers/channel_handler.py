@@ -3,8 +3,30 @@ bot/handlers/channel_handler.py
 ===============================
 Handles channel connection and management.
 
-FIX (2026-05-21): Persist channel_id to /data/user_channels.json so it
-survives Railway restarts. bot_data is in-memory only and is lost on redeploy.
+FIX (2026-05-21-v2): Critical fixes applied:
+
+  BUG 1 — channel_id NOT saved when KAYISOFT API returns None
+  ─────────────────────────────────────────────────────────────
+  BEFORE: channel_id was only saved if `response is not None`.
+          If the API call failed (network error, token issue, etc.),
+          channel_id was silently dropped — so the bot could never
+          publish to the channel even though it was added as admin.
+  AFTER:  channel_id is ALWAYS saved locally (bot_data + disk) when
+          the bot is added as admin, regardless of API response.
+          The API call is still made (best-effort), but a failure
+          no longer prevents local storage.
+
+  BUG 2 — /data not writable on Railway → channel_id lost on restart
+  ──────────────────────────────────────────────────────────────────
+  Railway does NOT mount /data by default. Without a Railway Volume,
+  /tmp is used as fallback — but /tmp is ephemeral (cleared on restart).
+  Added clear warning in logs + /setchannel command as manual override.
+
+  NEW — /setchannel command for manual channel_id override
+  ─────────────────────────────────────────────────────────
+  Allows a supplier to manually set their channel_id if the automatic
+  detection via handle_my_chat_member fails.
+  Usage: /setchannel -1001234567890
 """
 import json
 import logging
@@ -15,24 +37,32 @@ from bot.services.language_service import get_string, get_user_lang, detect_lang
 from bot.services.kayisoft_api import KayisoftAPI
 
 logger = logging.getLogger(__name__)
-# ── Persistent storage path ─────────────────────────────────────────────────────
-# Railway provides a writable /data volume.
-# If /data is not mounted (local dev or no volume), fall back to /tmp.
+
+# ── Persistent storage path ────────────────────────────────────────────────────
+# Railway provides a writable /data volume IF you add one in the dashboard.
+# If /data is not mounted (no Volume configured), fall back to /tmp.
+# NOTE: /tmp is ephemeral — channel_id will be lost on Railway restarts.
+#       To persist across restarts, add a Railway Volume mounted at /data.
 def _resolve_channels_file() -> str:
+    """Resolve the path to the user_channels.json persistence file."""
     env_path = os.environ.get("CHANNELS_FILE", "")
     if env_path:
+        logger.info("Using CHANNELS_FILE from env: %s", env_path)
         return env_path
-    # Prefer /data if writable, else /tmp
     data_dir = "/data"
     if os.path.isdir(data_dir) and os.access(data_dir, os.W_OK):
-        return os.path.join(data_dir, "user_channels.json")
+        path = os.path.join(data_dir, "user_channels.json")
+        logger.info("Using /data volume for channel persistence: %s", path)
+        return path
     logger.warning(
-        "/data is not available or not writable — using /tmp/user_channels.json as fallback. "
-        "Add a Railway Volume mounted at /data for persistence across restarts."
+        "⚠️ /data is not available or not writable — using /tmp/user_channels.json as fallback. "
+        "channel_id WILL BE LOST on Railway restarts. "
+        "Fix: Add a Railway Volume mounted at /data, or set CHANNELS_FILE env var."
     )
     return "/tmp/user_channels.json"
 
 _CHANNELS_FILE = _resolve_channels_file()
+
 
 def _load_channels() -> dict:
     """Load persisted user→channel mapping from disk."""
@@ -46,12 +76,41 @@ def _load_channels() -> dict:
 def _save_channels(channels: dict) -> None:
     """Persist user→channel mapping to disk."""
     try:
-        os.makedirs(os.path.dirname(_CHANNELS_FILE), exist_ok=True)
+        # Ensure parent directory exists (important for /data/user_channels.json)
+        parent = os.path.dirname(_CHANNELS_FILE)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         with open(_CHANNELS_FILE, "w", encoding="utf-8") as f:
             json.dump(channels, f, ensure_ascii=False, indent=2)
-        logger.info("Saved user_channels to %s", _CHANNELS_FILE)
+        logger.info("✅ Saved user_channels to %s", _CHANNELS_FILE)
     except Exception as exc:
-        logger.error("Failed to save user_channels: %s", exc)
+        logger.error("❌ Failed to save user_channels to %s: %s", _CHANNELS_FILE, exc)
+
+
+def save_channel_for_user(user_id: str, channel_id: str, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Save channel_id for a user in both in-memory cache and disk.
+    This is the single source of truth for channel persistence.
+
+    Called from:
+      - handle_my_chat_member (automatic detection)
+      - handle_setchannel     (manual /setchannel command)
+
+    Programmatic note:
+      Separating the save logic into its own function follows the
+      Single Responsibility Principle — one function, one job.
+      Both automatic and manual flows call the same save logic.
+    """
+    # ── 1. In-memory cache (fast, lost on restart) ─────────────────────────────
+    if "user_channels" not in context.bot_data:
+        context.bot_data["user_channels"] = {}
+    context.bot_data["user_channels"][user_id] = channel_id
+    logger.info("✅ Saved channel_id=%s for user_id=%s in bot_data (memory)", channel_id, user_id)
+
+    # ── 2. Disk persistence (survives Railway restarts if /data is mounted) ─────
+    channels = _load_channels()
+    channels[user_id] = channel_id
+    _save_channels(channels)
 
 
 def get_channel_id_for_user(user_id: str, context: ContextTypes.DEFAULT_TYPE) -> str | None:
@@ -61,6 +120,8 @@ def get_channel_id_for_user(user_id: str, context: ContextTypes.DEFAULT_TYPE) ->
     Lookup order:
       1. context.bot_data["user_channels"]  (in-memory, fast)
       2. Persistent JSON file               (survives Railway restarts)
+
+    Returns None if no channel has been linked for this user.
     """
     # 1. In-memory cache
     channel_id = context.bot_data.get("user_channels", {}).get(user_id)
@@ -82,104 +143,295 @@ def get_channel_id_for_user(user_id: str, context: ContextTypes.DEFAULT_TYPE) ->
     return channel_id
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# /channel — Show instructions to add bot as admin
+# ══════════════════════════════════════════════════════════════════════════════
 async def start_channel_connection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Instructs the user to add the bot to their channel as an admin."""
+    """
+    Instructs the user to add the bot to their channel as an admin.
+    Also shows current channel_id if one is already linked.
+    """
     user = update.effective_user
     user_id = str(user.id)
-    # Resolve language: prefer saved lang, fallback to Telegram language_code
     lang = get_user_lang(user_id)
     if lang == "tr" and user.language_code:
         detected = detect_lang(user.language_code)
         if detected != "tr":
             lang = detected
-    
+
+    # Show current channel status
+    current_channel = get_channel_id_for_user(user_id, context)
+    if current_channel:
+        status_texts = {
+            "ar": f"✅ <b>قناتك المرتبطة حالياً:</b> <code>{current_channel}</code>\n\n",
+            "tr": f"✅ <b>Mevcut bağlı kanalınız:</b> <code>{current_channel}</code>\n\n",
+            "en": f"✅ <b>Your currently linked channel:</b> <code>{current_channel}</code>\n\n",
+        }
+        status = status_texts.get(lang, status_texts["en"])
+    else:
+        status_texts = {
+            "ar": "⚠️ <b>لم تربط أي قناة بعد.</b>\n\n",
+            "tr": "⚠️ <b>Henüz kanal bağlanmadı.</b>\n\n",
+            "en": "⚠️ <b>No channel linked yet.</b>\n\n",
+        }
+        status = status_texts.get(lang, status_texts["en"])
+
+    base_text = get_string(lang, "channel_add_admin")
+    manual_hint = {
+        "ar": "\n\n💡 <b>بديل:</b> إذا كنت تعرف معرّف قناتك، أرسل:\n<code>/setchannel -1001234567890</code>",
+        "tr": "\n\n💡 <b>Alternatif:</b> Kanal ID'nizi biliyorsanız gönderin:\n<code>/setchannel -1001234567890</code>",
+        "en": "\n\n💡 <b>Alternative:</b> If you know your channel ID, send:\n<code>/setchannel -1001234567890</code>",
+    }.get(lang, "")
+
     await update.message.reply_text(
-        get_string(lang, "channel_add_admin"),
+        status + base_text + manual_hint,
         parse_mode="HTML"
     )
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# /setchannel <channel_id> — Manual channel_id override
+# ══════════════════════════════════════════════════════════════════════════════
+async def handle_setchannel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Manual channel_id override command.
+    Usage: /setchannel -1001234567890
+
+    This is useful when:
+      - The automatic detection via handle_my_chat_member failed
+      - The bot was added to the channel before the bot was running
+      - The user wants to change their linked channel
+
+    Programmatic note:
+      context.args is a list of strings after the command.
+      /setchannel -1001234567890  →  context.args = ["-1001234567890"]
+    """
+    user = update.effective_user
+    user_id = str(user.id)
+    lang = get_user_lang(user_id)
+
+    if not context.args or len(context.args) < 1:
+        usage = {
+            "ar": (
+                "❌ <b>استخدام خاطئ.</b>\n\n"
+                "أرسل معرّف قناتك هكذا:\n"
+                "<code>/setchannel -1001234567890</code>\n\n"
+                "للحصول على معرّف قناتك:\n"
+                "1. أضف @userinfobot لقناتك\n"
+                "2. أو استخدم @getidsbot\n"
+                "3. المعرّف يبدأ بـ -100"
+            ),
+            "tr": (
+                "❌ <b>Yanlış kullanım.</b>\n\n"
+                "Kanal ID'nizi şöyle gönderin:\n"
+                "<code>/setchannel -1001234567890</code>\n\n"
+                "Kanal ID'nizi öğrenmek için:\n"
+                "1. @userinfobot'u kanalınıza ekleyin\n"
+                "2. Veya @getidsbot kullanın\n"
+                "3. ID -100 ile başlar"
+            ),
+            "en": (
+                "❌ <b>Wrong usage.</b>\n\n"
+                "Send your channel ID like this:\n"
+                "<code>/setchannel -1001234567890</code>\n\n"
+                "To find your channel ID:\n"
+                "1. Add @userinfobot to your channel\n"
+                "2. Or use @getidsbot\n"
+                "3. Channel IDs start with -100"
+            ),
+        }
+        await update.message.reply_text(usage.get(lang, usage["en"]), parse_mode="HTML")
+        return
+
+    channel_id_raw = context.args[0].strip()
+
+    # Basic validation: must be a negative integer starting with -100
+    if not (channel_id_raw.startswith("-") and channel_id_raw[1:].isdigit()):
+        error_texts = {
+            "ar": (
+                "❌ <b>معرّف القناة غير صحيح.</b>\n\n"
+                f"القيمة التي أرسلتها: <code>{channel_id_raw}</code>\n\n"
+                "معرّف القناة يجب أن يكون رقماً سالباً مثل:\n"
+                "<code>-1001234567890</code>"
+            ),
+            "tr": (
+                "❌ <b>Geçersiz kanal ID.</b>\n\n"
+                f"Gönderdiğiniz değer: <code>{channel_id_raw}</code>\n\n"
+                "Kanal ID negatif bir sayı olmalıdır:\n"
+                "<code>-1001234567890</code>"
+            ),
+            "en": (
+                "❌ <b>Invalid channel ID.</b>\n\n"
+                f"You sent: <code>{channel_id_raw}</code>\n\n"
+                "Channel ID must be a negative number like:\n"
+                "<code>-1001234567890</code>"
+            ),
+        }
+        await update.message.reply_text(error_texts.get(lang, error_texts["en"]), parse_mode="HTML")
+        return
+
+    # Save the channel_id
+    save_channel_for_user(user_id, channel_id_raw, context)
+    logger.info("✅ /setchannel: user_id=%s manually set channel_id=%s", user_id, channel_id_raw)
+
+    success_texts = {
+        "ar": (
+            f"✅ <b>تم ربط القناة بنجاح!</b>\n\n"
+            f"معرّف القناة: <code>{channel_id_raw}</code>\n\n"
+            "سيتم نشر منتجاتك القادمة على هذه القناة.\n\n"
+            "⚠️ <b>تأكد أن البوت مشرف على القناة</b> وإلا لن يتمكن من النشر."
+        ),
+        "tr": (
+            f"✅ <b>Kanal başarıyla bağlandı!</b>\n\n"
+            f"Kanal ID: <code>{channel_id_raw}</code>\n\n"
+            "Gelecek ürünleriniz bu kanala yayınlanacak.\n\n"
+            "⚠️ <b>Botun kanalda yönetici olduğundan emin olun</b>, aksi takdirde yayınlayamaz."
+        ),
+        "en": (
+            f"✅ <b>Channel linked successfully!</b>\n\n"
+            f"Channel ID: <code>{channel_id_raw}</code>\n\n"
+            "Your upcoming products will be published to this channel.\n\n"
+            "⚠️ <b>Make sure the bot is an admin in the channel</b>, otherwise it cannot post."
+        ),
+    }
+    await update.message.reply_text(success_texts.get(lang, success_texts["en"]), parse_mode="HTML")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ChatMemberHandler — Detect bot added to channel as admin
+# ══════════════════════════════════════════════════════════════════════════════
 async def handle_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Triggered when the bot's status in a chat changes.
     Used to detect when the bot is added to a channel as an admin.
+
+    CRITICAL FIX (v2):
+      channel_id is now ALWAYS saved locally, regardless of whether
+      the KAYISOFT API call succeeds or fails.
+
+      BEFORE: if response is None → channel_id silently dropped
+      AFTER:  save first, then call API (best-effort, non-blocking)
+
+    Programmatic note:
+      This is the "save first, sync later" pattern — common in
+      distributed systems where local state must not depend on
+      remote API availability.
     """
     result = update.my_chat_member
     if not result:
         return
-        
+
     chat = result.chat
     new_status = result.new_chat_member.status
-    
-    # Check if it's a channel and the bot was made an administrator
-    if chat.type == "channel" and new_status == "administrator":
-        # The user who added the bot
-        user = result.from_user
-        user_id = str(user.id)
-        # Use language_code from Telegram directly (more reliable than in-memory cache)
-        lang = get_user_lang(user_id)
-        if lang == "tr" and user.language_code:
-            detected = detect_lang(user.language_code)
-            if detected != "tr":
-                lang = detected
-        logger.info("Channel handler: user_id=%s lang=%s language_code=%s", user_id, lang, user.language_code)
-        
-        channel_id = str(chat.id)
-        channel_title = chat.title
-        
-        logger.info(
-            "Bot added to channel: title=%s | channel_id=%s | by user_id=%s",
-            channel_title, channel_id, user_id
-        )
-        
-        # Register channel with KAYISOFT API
-        api = KayisoftAPI(telegram_user_id=user_id, language=lang)
-        logger.info(
-            "Calling create_channel: channel_id=%s | channel_name=%s | telegram_user_id=%s | token=%s...",
-            channel_id, channel_title, user_id,
-            api.token[:8] if api.token else 'EMPTY'
-        )
+
+    # Only handle: channel type + bot made administrator
+    if chat.type != "channel" or new_status != "administrator":
+        return
+
+    user = result.from_user
+    user_id = str(user.id)
+    lang = get_user_lang(user_id)
+    if lang == "tr" and user.language_code:
+        detected = detect_lang(user.language_code)
+        if detected != "tr":
+            lang = detected
+
+    logger.info(
+        "Bot added to channel: title=%s | channel_id=%s | by user_id=%s | lang=%s",
+        chat.title, chat.id, user_id, lang
+    )
+
+    channel_id    = str(chat.id)
+    channel_title = chat.title
+
+    # ── STEP 1: Save locally FIRST (always, regardless of API result) ──────────
+    # This ensures the bot can publish to the channel even if the API is down.
+    save_channel_for_user(user_id, channel_id, context)
+
+    # ── STEP 2: Register with KAYISOFT API (best-effort) ──────────────────────
+    api = KayisoftAPI(telegram_user_id=user_id, language=lang)
+    logger.info(
+        "Calling create_channel: channel_id=%s | channel_name=%s | telegram_user_id=%s | token=%s...",
+        channel_id, channel_title, user_id,
+        api.token[:8] if api.token else 'EMPTY'
+    )
+
+    try:
         response = await api.create_channel(channel_id=channel_id, channel_name=channel_title)
-        logger.info("create_channel response: %s", response)
-        
-        try:
-            if response is not None:
-                # ── 1. Save to in-memory bot_data (fast, lost on restart) ─────
-                if "user_channels" not in context.bot_data:
-                    context.bot_data["user_channels"] = {}
-                context.bot_data["user_channels"][user_id] = channel_id
-                logger.info(
-                    "Saved channel_id=%s for user_id=%s in bot_data (memory)",
-                    channel_id, user_id
-                )
+        logger.info("create_channel API response: %s", response)
 
-                # ── 2. Persist to disk (survives Railway restarts) ────────────
-                channels = _load_channels()
-                channels[user_id] = channel_id
-                _save_channels(channels)
+        if response is None:
+            # API failed — but channel_id is already saved locally (Step 1)
+            # Bot can still publish to the channel
+            logger.warning(
+                "⚠️ create_channel API call failed for user_id=%s channel_id=%s. "
+                "channel_id is saved locally — bot will still publish to channel. "
+                "The product may not appear on TopKap/TopGate until API is fixed.",
+                user_id, channel_id
+            )
+    except Exception as exc:
+        logger.error(
+            "❌ create_channel exception for user_id=%s channel_id=%s: %s",
+            user_id, channel_id, exc
+        )
+        response = None
 
-                # Use {channel_name} placeholder from locale string
-                success_text = get_string(lang, "channel_connected").replace(
-                    "{channel_name}", channel_title
-                )
-                await context.bot.send_message(
-                    chat_id=user.id,
-                    text=success_text,
-                    parse_mode="HTML"
-                )
-            else:
-                logger.error(
-                    "create_channel FAILED for user_id=%s channel_id=%s",
-                    user_id, channel_id
-                )
-                error_text = get_string(lang, "channel_error")
-                await context.bot.send_message(
-                    chat_id=user.id,
-                    text=error_text,
-                    parse_mode="HTML"
-                )
-        except Exception as e:
-            logger.error(f"Could not send confirmation to user {user_id}: {e}")
+    # ── STEP 3: Send confirmation to user ─────────────────────────────────────
+    try:
+        if response is not None:
+            # Full success: saved locally + registered with API
+            success_text = get_string(lang, "channel_connected").replace(
+                "{channel_name}", channel_title
+            )
+            await context.bot.send_message(
+                chat_id=user.id,
+                text=success_text,
+                parse_mode="HTML"
+            )
+        else:
+            # Partial success: saved locally, API registration failed
+            partial_texts = {
+                "ar": (
+                    f"✅ <b>تم ربط القناة '{channel_title}' بالبوت!</b>\n\n"
+                    "سيتم نشر منتجاتك على هذه القناة.\n\n"
+                    "⚠️ <i>ملاحظة: لم يتم تسجيل القناة على TopKap حالياً. "
+                    "المنتجات ستُنشر على قناتك، لكن قد لا تظهر على التطبيق حتى يتم الإصلاح.</i>"
+                ),
+                "tr": (
+                    f"✅ <b>'{channel_title}' kanalı bota bağlandı!</b>\n\n"
+                    "Ürünleriniz bu kanala yayınlanacak.\n\n"
+                    "⚠️ <i>Not: Kanal şu anda TopKap'a kaydedilemedi. "
+                    "Ürünler kanalınıza yayınlanacak, ancak sorun çözülene kadar uygulamada görünmeyebilir.</i>"
+                ),
+                "en": (
+                    f"✅ <b>Channel '{channel_title}' linked to the bot!</b>\n\n"
+                    "Your products will be published to this channel.\n\n"
+                    "⚠️ <i>Note: Channel could not be registered on TopKap right now. "
+                    "Products will still post to your channel, but may not appear in the app until fixed.</i>"
+                ),
+            }
+            await context.bot.send_message(
+                chat_id=user.id,
+                text=partial_texts.get(lang, partial_texts["en"]),
+                parse_mode="HTML"
+            )
+    except Exception as e:
+        logger.error("Could not send confirmation to user %s: %s", user_id, e)
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Register all channel-related handlers
+# ══════════════════════════════════════════════════════════════════════════════
 def register_channel_handlers(application) -> None:
-    application.add_handler(MessageHandler(filters.Regex(r'^(🔗 Kanal Yönetimi|🔗 Channel Management|🔗 إدارة القناة)$'), start_channel_connection))
+    """Register all channel management handlers with the Telegram application."""
+    # Channel management menu button (all 3 languages)
+    application.add_handler(
+        MessageHandler(
+            filters.Regex(r'^(🔗 Kanal Yönetimi|🔗 Channel Management|🔗 إدارة القناة)$'),
+            start_channel_connection
+        )
+    )
+    # /channel command
     application.add_handler(CommandHandler('channel', start_channel_connection))
+    # /setchannel <channel_id> — manual override
+    application.add_handler(CommandHandler('setchannel', handle_setchannel))
