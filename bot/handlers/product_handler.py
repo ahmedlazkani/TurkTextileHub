@@ -364,20 +364,32 @@ def _build_variants(
         return result
 
     # Build titles list — always include English entry (API requirement)
+    # API requires titles/descriptions in ALL supported languages: ar, en, tr
+    # We use the local text as fallback for missing languages
+    SUPPORTED_LANGS = ["ar", "en", "tr"]
+
     def _build_titles(name_local: str, name_en: str, lang_code: str) -> list:
         titles = []
-        if lang_code != "en" and name_local:
-            titles.append({"language": lang_code, "text": name_local})
-        en_text = name_en or name_local  # fallback to local name if no English provided
-        titles.append({"language": "en", "text": en_text})
+        for lng in SUPPORTED_LANGS:
+            if lng == lang_code:
+                text = name_local
+            elif lng == "en":
+                text = name_en or name_local
+            else:
+                text = name_local  # fallback: use local text for missing languages
+            titles.append({"language": lng, "text": text})
         return titles
 
     def _build_descriptions(desc_local: str, desc_en: str, lang_code: str) -> list:
         descs = []
-        if lang_code != "en" and desc_local:
-            descs.append({"language": lang_code, "text": desc_local})
-        en_text = desc_en or desc_local  # fallback to local desc if no English provided
-        descs.append({"language": "en", "text": en_text})
+        for lng in SUPPORTED_LANGS:
+            if lng == lang_code:
+                text = desc_local
+            elif lng == "en":
+                text = desc_en or desc_local
+            else:
+                text = desc_local  # fallback: use local text for missing languages
+            descs.append({"language": lng, "text": text})
         return descs
 
     # If no selector attributes → single variant
@@ -1002,12 +1014,21 @@ def _build_extraction_summary(
                 else:
                     option_values.append((str(opt_id), ""))
             # ── Color rendering: show emoji + human label (never raw hex) ──────────────
-            # If the display value is still a hex code (no label field in API),
-            # show only the emoji. If a human label exists, show: "⚫ Bej"
+            # Handle "#RRGGBBAA|label" format from API (pipe-separated hex|name)
             rendered_values = []
+            import re as _re
             for display, raw_val in option_values:
+                # Parse pipe-separated format: "#FFFFFFFF|أبيض" → hex="#FFFFFFFF", label="أبيض"
+                if "|" in display:
+                    hex_part, label_part = display.split("|", 1)
+                    raw_val = hex_part.strip()
+                    display = label_part.strip()
+                elif "|" in raw_val:
+                    hex_part, label_part = raw_val.split("|", 1)
+                    raw_val = hex_part.strip()
+                    if not display or _re.match(r'^#?[0-9A-Fa-f]{6,8}$', display.strip()):
+                        display = label_part.strip()
                 emoji = _render_color_value(raw_val if raw_val else display)
-                import re as _re
                 is_hex = bool(_re.match(r'^#?[0-9A-Fa-f]{6,8}$', display.strip()))
                 if is_hex:
                     # Only hex available — show emoji only
@@ -1036,7 +1057,17 @@ def _build_extraction_summary(
                     raw_val = opt.get("value", "")
                     break
             # Apply color rendering: emoji + human label (never raw hex)
+            # Handle "#RRGGBBAA|label" format from API (pipe-separated hex|name)
             import re as _re
+            if "|" in display_val:
+                hex_part, label_part = display_val.split("|", 1)
+                raw_val  = hex_part.strip()
+                display_val = label_part.strip()
+            elif "|" in raw_val:
+                hex_part, label_part = raw_val.split("|", 1)
+                raw_val = hex_part.strip()
+                if not display_val or _re.match(r'^#?[0-9A-Fa-f]{6,8}$', display_val.strip()):
+                    display_val = label_part.strip()
             emoji = _render_color_value(raw_val if raw_val else display_val)
             is_hex = bool(_re.match(r'^#?[0-9A-Fa-f]{6,8}$', display_val.strip()))
             if is_hex:
