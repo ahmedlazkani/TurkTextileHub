@@ -146,102 +146,120 @@ def _build_extraction_prompt(user_text: str, attributes: List[dict]) -> str:
     }
 
     # ── Assemble the full prompt ───────────────────────────────────────────────
-    prompt = f"""You are a precise data extraction engine for TopKap, a wholesale textile marketplace.
-Your ONLY job: read the supplier's product description and output a single valid JSON object.
+    prompt = f"""You are an elite AI data extraction engine specialized in wholesale textile e-commerce.
+You work for TopKap — a B2B marketplace connecting Turkish textile manufacturers with global buyers.
+Your mission: parse the supplier's raw product description and produce a perfectly structured JSON object.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SUPPLIER TEXT (may be Arabic, Turkish, or English):
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  SUPPLIER INPUT  (Arabic / Turkish / English — any mix)                    ║
+╚══════════════════════════════════════════════════════════════════════════════╝
 {user_text}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-GROUP A — VARIANT SELECTOR ATTRIBUTES
-→ These define product variants (size, color, etc.)
-→ In your output: put them inside "selector_attributes" as an ARRAY
-→ Format per item: {{"attribute_id": "<uuid>", "option_id": "<uuid>"}}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  GROUP A — VARIANT SELECTOR ATTRIBUTES                                     ║
+║  → Define product variants (e.g. color, size, gender)                      ║
+║  → Output location: "selector_attributes" array                            ║
+║  → Item format: {{"attribute_id": "<uuid>", "option_id": "<uuid>"}}         ║
+╚══════════════════════════════════════════════════════════════════════════════╝
 {group_a_lines}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-GROUP B — SHARED ATTRIBUTES
-→ These apply to the whole product (material, usage pattern, etc.)
-→ In your output: put them inside "shared_attributes" as an OBJECT
-→ Format per item: {{"<attr_uuid>": ["<option_uuid>"]}}  ← value is an ARRAY!
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  GROUP B — SHARED ATTRIBUTES                                               ║
+║  → Apply to the entire product (material, season, usage pattern, etc.)     ║
+║  → Output location: "shared_attributes" object                             ║
+║  → Item format: {{"<attr_uuid>": ["<option_uuid>"]}}  ← ARRAY required!    ║
+╚══════════════════════════════════════════════════════════════════════════════╝
 {group_b_lines}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-EXTRACTION RULES — READ CAREFULLY:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  EXTRACTION RULES                                                          ║
+╚══════════════════════════════════════════════════════════════════════════════╝
 
-RULE 1 — PLACEMENT IS CRITICAL:
+RULE 1 — STRICT PLACEMENT:
   • GROUP A attributes → ONLY in "selector_attributes" array
   • GROUP B attributes → ONLY in "shared_attributes" object
-  • NEVER mix them. A GROUP A attribute must NEVER appear in shared_attributes.
-  • A GROUP B attribute must NEVER appear in selector_attributes.
+  • Mixing is a critical error. Never cross-place attributes.
 
-RULE 2 — OPTION MATCHING (for attributes WITH options):
-  Use SEMANTIC matching — the supplier writes in Arabic but options may be Turkish:
-  • "شيفون" or "chiffon"         → find option with value containing "Şifon" or "Chiffon"
-  • "صيفي" or "صيف" or "summer"  → find option with value containing "Yaz" or "Summer"
-  • "يومي" or "daily"            → find option with value containing "Günlük" or "Daily"
-  • "سكري" (sugar = light beige) → find closest color option (cream/beige/şeker)
-  • "180 سم ب 70 سم" or "180x70" → find size option closest to "180*70" or "180x70" or "180 cm"
-  • "أبيض" or "white"            → find option with value containing "Beyaz" or "White"
-  • "أسود" or "black"            → find option with value containing "Siyah" or "Black"
-  Always use the option's UUID (id field), NOT the display value string.
+RULE 2 — MULTILINGUAL SEMANTIC MATCHING:
+  Suppliers write in Arabic; options may be in Turkish or English. Match by meaning:
+  Arabic → Turkish/English examples:
+  • "شيفون" / "chiffon"          → "Şifon" / "Chiffon"
+  • "فيسكوز" / "viscose"         → "Viskon" / "Viscose"
+  • "قطن" / "cotton"             → "Pamuk" / "Cotton"
+  • "صيفي" / "summer"            → "Yaz" / "Summer"
+  • "شتوي" / "winter"            → "Kış" / "Winter"
+  • "يومي" / "daily"             → "Günlük" / "Daily"
+  • "رسمي" / "formal"            → "Resmi" / "Formal"
+  • "أبيض" / "white"             → "Beyaz" / "White"
+  • "أسود" / "black"             → "Siyah" / "Black"
+  • "سكري" (light beige/cream)   → closest cream/beige option
+  • "180 سم ب 70 سم" / "180x70"  → "180*70" / "180x70" / "180 cm"
+  Always use the option UUID (id field), NEVER the display string.
 
-RULE 3 — FREE TEXT ATTRIBUTES (no options list):
-  Use the raw extracted value as a plain string.
-  Example: size "180 سم ب 70 سم" → "180x70"
+RULE 3 — FREE TEXT ATTRIBUTES:
+  For attributes with no predefined options, use the extracted value as plain string.
+  Normalize measurements: "180 سم ب 70 سم" → "180x70"
 
-RULE 4 — TOP-LEVEL FIELDS:
-  • "name":         Product title (e.g. "شال شيفون")
-  • "description":  Write a PROFESSIONAL 2-sentence marketing description in Arabic.
-                    Do NOT copy the supplier's raw text. Write like a copywriter:
-                    Sentence 1: Highlight the product's key benefit or material quality.
-                    Sentence 2: Mention the use case, target customer, or occasion.
-                    Example input: "شال شيفون صيفي جودة عالية"
-                    Example output: "شال شيفون فاخر بجودة عالية يمنحك إطلالة أنيقة وراحة تامة طوال اليوم. مثالي للاستخدام اليومي والمناسبات الصيفية، يتميز بخامته الخفيفة التي تلائم جميع الأذواق."
-  • "price":        Numeric string only — "120 ليرة" → "120", "120 lira" → "120"
-  • "min_quantity": Integer — "200 قطعة" → 200
-  • "stock_count":  Integer — "4000 قطعة" → 4000
-  If only ONE quantity is mentioned, use it for BOTH min_quantity AND stock_count.
+RULE 4 — TOP-LEVEL FIELDS (all required unless missing from input):
+  "name":
+    • Short, clean product title in Arabic (3-6 words max)
+    • Include key product type + material if mentioned
+    • Example: "شال شيفون فاخر" or "طاقية نينجا فيسكوز"
+
+  "description":
+    • Write a PROFESSIONAL 3-sentence marketing description in Arabic
+    • Sentence 1: Lead with the product's premium quality or unique material
+    • Sentence 2: Highlight the main benefit, comfort, or design feature
+    • Sentence 3: Describe the ideal use case, occasion, or target customer
+    • Style: confident, elegant, commercial — like a luxury brand copywriter
+    • Do NOT copy the supplier's raw text verbatim
+    • Example input:  "شال شيفون صيفي جودة عالية"
+    • Example output: "شال شيفون فاخر مصنوع من أجود أنواع القماش الخفيف والناعم. \
+ يمنحك إطلالة أنيقة ومريحة تناسب كل يوم وكل مناسبة. \
+ مثالي للمرأة العصرية التي تبحث عن الأناقة والراحة في آنٍ واحد."
+
+  "price":         Numeric string only — "200 ليرة" → "200", "200 lira" → "200"
+  "min_quantity":  Integer — "300 قطعة" → 300
+  "stock_count":   Integer — "4000 قطعة" → 4000
+  If only ONE quantity mentioned → use it for BOTH min_quantity AND stock_count.
 
 RULE 5 — MISSING VALUES:
-  If a value is NOT found in the supplier text → OMIT that key entirely.
-  Do NOT set null, 0, "", or [] for missing values.
+  If a field is not found in the supplier text → OMIT it entirely.
+  Never use null, 0, "", or [] as placeholders.
 
-RULE 6 — CLOSEST MATCH (CRITICAL FOR REQUIRED ATTRIBUTES):
-  If no exact option matches, pick the CLOSEST semantic match from the valid options list.
-  For [REQUIRED] attributes: you MUST always pick an option — NEVER leave it empty.
-  Fallback priority for [REQUIRED] attributes with no match:
-    1. Pick the option whose value is closest semantically
-    2. If still unsure, pick the FIRST option in the list
-    3. NEVER omit a [REQUIRED] attribute from selector_attributes
-
-RULE 8 — SIZE ATTRIBUTE SPECIAL HANDLING:
-  When the supplier mentions a specific measurement like "180 سم ب 70 سم" or "180x70" or "70×180":
-  • If the size options list contains ONLY "مقاس موحد" or "Tek Beden" or "One Size" → choose that option
-  • If the size options list contains numeric sizes (S, M, L, XL, 38, 40, etc.) → pick the closest
-  • If the size options list contains dimension-based options (180x70, 170x80) → pick the closest match
-  • NEVER leave the size attribute empty — always pick the best available option
-  • CRITICAL: When the supplier provides a specific measurement (e.g. "180x70") but the only option
-    is "Tek Beden" / "One Size" / "موحد", you MUST include the actual measurement in the product
-    "name" field. Format: append the measurement to the name.
-    Example: supplier says "شال شيفون 180x70" → name should be "شال شيفون 180×70 سم"
-    Example: supplier says "شال صيفي 180 سم ب 70 سم" → name should be "شال صيفي 180×70 سم"
-  • Also mention the measurement in the "description" field naturally.
+RULE 6 — REQUIRED ATTRIBUTES (never skip):
+  For [REQUIRED] attributes: ALWAYS pick an option, even if no perfect match.
+  Fallback priority:
+    1. Closest semantic match from the options list
+    2. If still unclear → pick the FIRST option in the list
+    3. NEVER omit a [REQUIRED] attribute from the output
 
 RULE 7 — shared_attributes VALUE FORMAT:
-  The value for each shared_attribute MUST be an array: ["<option_uuid>"]
-  NOT a plain string. This matches the KAYISOFT API specification exactly.
+  Each value MUST be an array: ["<option_uuid>"]
+  Never a plain string. This is mandatory for the KAYISOFT API.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-REQUIRED OUTPUT FORMAT:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RULE 8 — SIZE + MEASUREMENT HANDLING:
+  When supplier mentions a specific measurement ("180x70", "180 سم ب 70 سم", "70×180"):
+  • If size options list has numeric/dimension options → pick the closest match
+  • If size options list has ONLY "Tek Beden" / "One Size" / "مقاس موحد" → select it
+  • CRITICAL: When specific measurement exists but only "Tek Beden" is available,
+    APPEND the measurement to the product "name" field:
+    Input: "شال شيفون 180x70"  → name: "شال شيفون 180×70 سم"
+    Input: "شال صيفي 180 سم ب 70 سم" → name: "شال صيفي 180×70 سم"
+  • Also weave the measurement naturally into the "description" field.
+  • NEVER leave the size attribute empty.
+
+RULE 9 — PRODUCT NAME QUALITY:
+  • Clean, professional, marketable
+  • No prices, no quantities, no phone numbers in the name
+  • Max 6 words
+  • Must be in Arabic
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  REQUIRED OUTPUT FORMAT                                                    ║
+╚══════════════════════════════════════════════════════════════════════════════╝
 Output ONLY a valid JSON object. No markdown. No explanation. No extra text.
-Example structure (use actual UUIDs from the attribute lists above):
+Use the actual UUIDs from the attribute lists above (not the example UUIDs below).
 {json.dumps(output_example, ensure_ascii=False, indent=2)}
 """
     return prompt
@@ -578,23 +596,48 @@ class DeepSeekService:
             return None
 
         system_prompt = (
-            "You are an expert textile color analyst with 20+ years of experience in the fashion and textile industry. "
-            "Analyze the product image and identify the EXACT primary color of the textile/fabric. "
-            "Use precise, internationally recognized color names. Be specific, not generic:\n"
-            "  Blue family: Navy Blue, Royal Blue, Cobalt Blue, Sky Blue, Baby Blue, Teal, Turquoise, Denim Blue\n"
-            "  Red family: Burgundy, Crimson, Scarlet, Wine Red, Cherry Red, Rust, Brick Red, Coral\n"
-            "  Green family: Emerald Green, Olive Green, Forest Green, Sage Green, Mint Green, Bottle Green\n"
-            "  Brown/Neutral: Camel, Chocolate Brown, Tan, Khaki, Beige, Taupe, Sand, Mocha\n"
-            "  White family: Ivory, Cream, Off-White, Pearl White, Snow White\n"
-            "  Black family: Jet Black, Charcoal, Anthracite, Dark Charcoal\n"
-            "  Pink family: Blush Pink, Rose, Fuchsia, Salmon, Dusty Rose, Hot Pink, Powder Pink\n"
-            "  Purple family: Lavender, Lilac, Violet, Plum, Mauve, Amethyst\n"
-            "  Yellow/Orange: Mustard Yellow, Golden Yellow, Saffron, Tangerine, Peach, Amber\n"
-            "Return ONLY a valid JSON object with exactly two keys: "
-            '"color_name" (precise English color name, 1-3 words maximum) '
-            'and "color_emoji" (single Unicode circle emoji that best represents the color). '
-            "Use ONLY these circle emojis: \U0001f534\U0001f7e0\U0001f7e1\U0001f7e2\U0001f535\U0001f7e3\U0001f7e4\u26ab\u26aa. "
-            "No markdown, no explanation, just JSON."
+            "You are a world-class textile color specialist with expertise in fashion, fabric manufacturing, "
+            "and international color standards (Pantone, RAL, NCS). "
+            "Your task: analyze the product image and identify the DOMINANT color of the textile/garment with maximum precision.\n\n"
+
+            "## ANALYSIS METHODOLOGY\n"
+            "Step 1 — Ignore background, mannequin, packaging, and shadows. Focus ONLY on the fabric/garment itself.\n"
+            "Step 2 — Assess the HUE first (is it warm/cool/neutral?), then SATURATION (vivid/muted?), then LIGHTNESS (dark/medium/light?).\n"
+            "Step 3 — Match to the closest professional color name from the reference list below.\n\n"
+
+            "## COLOR REFERENCE (use ONLY these or close variants)\n"
+            "REDS & DARK REDS: Burgundy, Wine Red, Maroon, Crimson, Scarlet, Cherry Red, Rust, Brick Red, Coral, Tomato Red\n"
+            "BLUES: Navy Blue, Royal Blue, Cobalt Blue, Sky Blue, Baby Blue, Teal, Turquoise, Denim Blue, Indigo, Petrol Blue\n"
+            "GREENS: Emerald Green, Olive Green, Forest Green, Sage Green, Mint Green, Bottle Green, Khaki Green, Hunter Green\n"
+            "BROWNS & NEUTRALS: Camel, Chocolate Brown, Tan, Khaki, Beige, Taupe, Sand, Mocha, Walnut Brown, Latte\n"
+            "WHITES & LIGHTS: Ivory, Cream, Off-White, Pearl White, Snow White, Ecru, Champagne\n"
+            "PINKS: Blush Pink, Rose, Fuchsia, Salmon, Dusty Rose, Hot Pink, Powder Pink, Mauve Pink, Nude\n"
+            "PURPLES: Lavender, Lilac, Violet, Plum, Mauve, Amethyst, Eggplant, Deep Purple\n"
+            "YELLOWS & ORANGES: Mustard Yellow, Golden Yellow, Saffron, Tangerine, Peach, Amber, Honey, Apricot\n"
+            "GRAYS: Light Gray, Medium Gray, Charcoal Gray, Anthracite, Slate Gray, Silver\n"
+            "TRUE BLACK: Jet Black (ONLY when fabric is pure black with absolutely NO visible color hue)\n\n"
+
+            "## CRITICAL RULES\n"
+            "- NEVER classify a dark-colored fabric as 'Black' if it has ANY visible hue (red, blue, green, etc.)\n"
+            "- Dark red/maroon/burgundy = use 'Burgundy' or 'Wine Red' or 'Maroon', NEVER 'Black'\n"
+            "- Dark navy = use 'Navy Blue', NEVER 'Black'\n"
+            "- Dark green = use 'Bottle Green' or 'Forest Green', NEVER 'Black'\n"
+            "- If unsure between two colors, pick the one with the most visible hue\n\n"
+
+            "## OUTPUT FORMAT\n"
+            "Return ONLY a valid JSON object with exactly two keys:\n"
+            '  "color_name": precise English color name (1-3 words, from the reference list above)\n'
+            '  "color_emoji": single Unicode circle emoji from this set ONLY:\n'
+            "    \U0001f534 = red/burgundy/wine/maroon/crimson/coral\n"
+            "    \U0001f7e0 = orange/tangerine/amber/peach\n"
+            "    \U0001f7e1 = yellow/mustard/golden/saffron\n"
+            "    \U0001f7e2 = green (all shades)\n"
+            "    \U0001f535 = blue/navy/teal/turquoise/indigo\n"
+            "    \U0001f7e3 = purple/violet/plum/lavender/mauve\n"
+            "    \U0001f7e4 = brown/camel/tan/khaki/beige/taupe/mocha\n"
+            "    \u26ab = true black/jet black ONLY\n"
+            "    \u26aa = white/ivory/cream/gray/silver\n\n"
+            "No markdown, no explanation, no extra text. Return JSON only."
         )
 
         async with aiohttp.ClientSession() as session:

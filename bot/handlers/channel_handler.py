@@ -15,11 +15,24 @@ from bot.services.language_service import get_string, get_user_lang, detect_lang
 from bot.services.kayisoft_api import KayisoftAPI
 
 logger = logging.getLogger(__name__)
+# ── Persistent storage path ─────────────────────────────────────────────────────
+# Railway provides a writable /data volume.
+# If /data is not mounted (local dev or no volume), fall back to /tmp.
+def _resolve_channels_file() -> str:
+    env_path = os.environ.get("CHANNELS_FILE", "")
+    if env_path:
+        return env_path
+    # Prefer /data if writable, else /tmp
+    data_dir = "/data"
+    if os.path.isdir(data_dir) and os.access(data_dir, os.W_OK):
+        return os.path.join(data_dir, "user_channels.json")
+    logger.warning(
+        "/data is not available or not writable — using /tmp/user_channels.json as fallback. "
+        "Add a Railway Volume mounted at /data for persistence across restarts."
+    )
+    return "/tmp/user_channels.json"
 
-# ── Persistent storage path ───────────────────────────────────────────────────
-# Railway provides a writable /data volume (or falls back to /tmp if not mounted)
-_CHANNELS_FILE = os.environ.get("CHANNELS_FILE", "/data/user_channels.json")
-
+_CHANNELS_FILE = _resolve_channels_file()
 
 def _load_channels() -> dict:
     """Load persisted user→channel mapping from disk."""

@@ -555,19 +555,36 @@ def _build_variants_preview(lang: str, variants: list, attr_map: dict) -> str:
                         # Resolve option UUID → human label (prefer label > name > value)
                         for opt in attr_obj.get("options", []):
                             if opt.get("id") == option_uuid:
-                                option_value = (
-                                    opt.get("label")
-                                    or opt.get("name")
-                                    or opt.get("value", option_uuid)
-                                )
-                                # Apply color emoji if value is a hex code
-                                raw_val = opt.get("value", "")
+                                raw_val      = opt.get("value", "")
+                                label_val    = opt.get("label") or opt.get("name") or ""
                                 import re as _re
+
+                                # Handle pipe-separated format: "#FF000000|أسود" → hex + label
+                                if "|" in raw_val:
+                                    hex_part, label_part = raw_val.split("|", 1)
+                                    raw_val   = hex_part.strip()
+                                    if not label_val:
+                                        label_val = label_part.strip()
+                                elif "|" in label_val:
+                                    hex_part, label_part = label_val.split("|", 1)
+                                    raw_val   = hex_part.strip()
+                                    label_val = label_part.strip()
+
+                                # Determine display value: prefer human label over hex
+                                if label_val:
+                                    option_value = label_val
+                                elif raw_val:
+                                    option_value = raw_val
+                                else:
+                                    option_value = option_uuid
+
+                                # Add color emoji if we have a hex value
                                 if raw_val and _re.match(r'^#?[0-9A-Fa-f]{6,8}$', raw_val.strip()):
                                     emoji = _render_color_value(raw_val)
-                                    # If option_value is still hex, show emoji only
-                                    if _re.match(r'^#?[0-9A-Fa-f]{6,8}$', option_value.strip()):
-                                        option_value = emoji
+                                    # Show emoji + human label (never raw hex)
+                                    is_still_hex = _re.match(r'^#?[0-9A-Fa-f]{6,8}$', option_value.strip())
+                                    if is_still_hex:
+                                        option_value = emoji  # Only emoji if no human label
                                     else:
                                         option_value = f"{emoji} {option_value}"
                                 break
@@ -588,17 +605,34 @@ def _build_variants_preview(lang: str, variants: list, attr_map: dict) -> str:
                 option_value = option_id
                 for opt in attr.get("options", []):
                     if opt.get("id") == option_id:
-                        option_value = (
-                            opt.get("label")
-                            or opt.get("name")
-                            or opt.get("value", option_id)
-                        )
-                        # Apply color emoji if raw value is hex
-                        raw_val = opt.get("value", "")
+                        raw_val   = opt.get("value", "")
+                        label_val = opt.get("label") or opt.get("name") or ""
                         import re as _re2
+
+                        # Handle pipe-separated format: "#FF000000|أسود" → hex + label
+                        if "|" in raw_val:
+                            hex_part, label_part = raw_val.split("|", 1)
+                            raw_val   = hex_part.strip()
+                            if not label_val:
+                                label_val = label_part.strip()
+                        elif "|" in label_val:
+                            hex_part, label_part = label_val.split("|", 1)
+                            raw_val   = hex_part.strip()
+                            label_val = label_part.strip()
+
+                        # Determine display value: prefer human label over hex
+                        if label_val:
+                            option_value = label_val
+                        elif raw_val:
+                            option_value = raw_val
+                        else:
+                            option_value = option_id
+
+                        # Add color emoji if we have a hex value
                         if raw_val and _re2.match(r'^#?[0-9A-Fa-f]{6,8}$', raw_val.strip()):
                             emoji = _render_color_value(raw_val)
-                            if _re2.match(r'^#?[0-9A-Fa-f]{6,8}$', option_value.strip()):
+                            is_still_hex = _re2.match(r'^#?[0-9A-Fa-f]{6,8}$', option_value.strip())
+                            if is_still_hex:
                                 option_value = emoji
                             else:
                                 option_value = f"{emoji} {option_value}"
@@ -1284,17 +1318,19 @@ async def start_add_product(
         )
         return ConversationHandler.END
 
-    # Build inline keyboard — one button per visible root category
+    # Build inline keyboard — two buttons per row for compact display
     # is_visible_for_creating=True means this category accepts new products
     # Also build a name lookup map so later steps can show the selected category name
     categories_map = {}
-    keyboard = []
+    buttons_flat = []
     for cat in categories:
         if cat.get("is_visible_for_creating", True):
             cid   = cat.get("id")
             cname = cat.get("name", "—")
             categories_map[cid] = cname
-            keyboard.append([InlineKeyboardButton(cname, callback_data=f"cat_{cid}")])
+            buttons_flat.append(InlineKeyboardButton(cname, callback_data=f"cat_{cid}"))
+    # Arrange into rows of 2 buttons each
+    keyboard = [buttons_flat[i:i+2] for i in range(0, len(buttons_flat), 2)]
 
     # Store the map so handle_category_selection can look up the selected name
     context.user_data["categories_map"] = categories_map
@@ -1371,16 +1407,18 @@ async def handle_category_selection(
         await _load_attributes_and_ask_form(query, context, api, cat_id, lang, progress)
         return FILL_FORM
 
-    # Build subcategory keyboard — one button per visible subcategory
+    # Build subcategory keyboard — two buttons per row for compact display
     # Also build a name map for later steps
     subcategories_map = {}
-    keyboard = []
+    sub_buttons_flat = []
     for sub in subcategories:
         if sub.get("is_visible_for_creating", True):
             sid   = sub.get("id")
             sname = sub.get("name", "—")
             subcategories_map[sid] = sname
-            keyboard.append([InlineKeyboardButton(sname, callback_data=f"sub_{sid}")])
+            sub_buttons_flat.append(InlineKeyboardButton(sname, callback_data=f"sub_{sid}"))
+    # Arrange into rows of 2 buttons each
+    keyboard = [sub_buttons_flat[i:i+2] for i in range(0, len(sub_buttons_flat), 2)]
     context.user_data["subcategories_map"] = subcategories_map
 
     # Build breadcrumb label: "✅ الفئة: Giyim"
@@ -2273,6 +2311,10 @@ async def handle_final_publish(
 
     channel_published = False
     if channel_id:
+        logger.info(
+            "📢 Attempting channel publish: channel_id=%s, user_id=%s, images=%d",
+            channel_id, user_id, len(image_file_ids)
+        )
         channel_published = await _publish_to_channel(
             context=context,
             channel_id=channel_id,
@@ -2286,11 +2328,42 @@ async def handle_final_publish(
             product_id=product_id,
             supplier_id=supplier_id,
         )
+    else:
+        logger.warning(
+            "⚠️ No channel_id found for user_id=%s — product NOT published to channel. "
+            "User must link a channel via /channel command.",
+            user_id
+        )
 
     # ── Success message ────────────────────────────────────────────────────────
     success_text = get_string(lang, "add_product_success")
     if channel_published:
         success_text += "\n\n" + get_string(lang, "add_product_channel_published")
+    elif channel_id:
+        # channel_id exists but publish failed (bot not admin or API error)
+        channel_fail_texts = {
+            "tr": (
+                "⚠️ <b>Kanala yayınlanamadı.</b>\n"
+                "Botun kanalda yönetici olduğundan emin olun, "
+                "ardından 'Kanal Yönetimi' bölümünden kanalı yeniden bağlayın."
+            ),
+            "ar": (
+                "⚠️ <b>فشل النشر على القناة.</b>\n"
+                "تأكد أن البوت مشرف على قناتك، "
+                "ثم أعد ربط القناة من قسم 'إدارة القناة'."
+            ),
+            "en": (
+                "⚠️ <b>Failed to publish to channel.</b>\n"
+                "Make sure the bot is an admin in your channel, "
+                "then re-link it from 'Channel Management'."
+            ),
+        }
+        success_text += "\n\n" + channel_fail_texts.get(lang, channel_fail_texts["en"])
+        logger.error(
+            "❌ Channel publish failed for user_id=%s channel_id=%s — "
+            "bot may not be admin or channel_id is invalid",
+            user_id, channel_id
+        )
     else:
         success_text += "\n\n" + get_string(lang, "add_product_no_channel")
 
