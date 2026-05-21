@@ -2265,11 +2265,11 @@ async def handle_final_publish(
     )
 
     # ── Step 7: Publish professional post to Telegram Channel ─────────────────
-    # channel_id is stored in bot_data["user_channels"][user_id] by channel_handler
-    # when the supplier adds the bot as admin to their channel.
-    # bot_data is shared across all users, keyed by user_id for per-supplier lookup.
-    user_channels = context.bot_data.get("user_channels", {})
-    channel_id = user_channels.get(user_id) or context.user_data.get("channel_id")
+    # channel_id is retrieved via get_channel_id_for_user which checks:
+    #   1. bot_data["user_channels"] (in-memory, fast)
+    #   2. /data/user_channels.json  (persistent, survives Railway restarts)
+    from bot.handlers.channel_handler import get_channel_id_for_user
+    channel_id = get_channel_id_for_user(user_id, context) or context.user_data.get("channel_id")
 
     channel_published = False
     if channel_id:

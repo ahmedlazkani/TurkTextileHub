@@ -221,12 +221,17 @@ RULE 6 — CLOSEST MATCH (CRITICAL FOR REQUIRED ATTRIBUTES):
     3. NEVER omit a [REQUIRED] attribute from selector_attributes
 
 RULE 8 — SIZE ATTRIBUTE SPECIAL HANDLING:
-  When the supplier mentions a specific measurement like "180 سم ب 70 سم" or "180x70":
+  When the supplier mentions a specific measurement like "180 سم ب 70 سم" or "180x70" or "70×180":
   • If the size options list contains ONLY "مقاس موحد" or "Tek Beden" or "One Size" → choose that option
   • If the size options list contains numeric sizes (S, M, L, XL, 38, 40, etc.) → pick the closest
   • If the size options list contains dimension-based options (180x70, 170x80) → pick the closest match
   • NEVER leave the size attribute empty — always pick the best available option
-  • Store the actual measurement in the product name or description if needed
+  • CRITICAL: When the supplier provides a specific measurement (e.g. "180x70") but the only option
+    is "Tek Beden" / "One Size" / "موحد", you MUST include the actual measurement in the product
+    "name" field. Format: append the measurement to the name.
+    Example: supplier says "شال شيفون 180x70" → name should be "شال شيفون 180×70 سم"
+    Example: supplier says "شال صيفي 180 سم ب 70 سم" → name should be "شال صيفي 180×70 سم"
+  • Also mention the measurement in the "description" field naturally.
 
 RULE 7 — shared_attributes VALUE FORMAT:
   The value for each shared_attribute MUST be an array: ["<option_uuid>"]
@@ -573,12 +578,22 @@ class DeepSeekService:
             return None
 
         system_prompt = (
-            "You are a professional color analyst for a textile marketplace. "
-            "When given a product image, identify the PRIMARY color of the textile/fabric. "
+            "You are an expert textile color analyst with 20+ years of experience in the fashion and textile industry. "
+            "Analyze the product image and identify the EXACT primary color of the textile/fabric. "
+            "Use precise, internationally recognized color names. Be specific, not generic:\n"
+            "  Blue family: Navy Blue, Royal Blue, Cobalt Blue, Sky Blue, Baby Blue, Teal, Turquoise, Denim Blue\n"
+            "  Red family: Burgundy, Crimson, Scarlet, Wine Red, Cherry Red, Rust, Brick Red, Coral\n"
+            "  Green family: Emerald Green, Olive Green, Forest Green, Sage Green, Mint Green, Bottle Green\n"
+            "  Brown/Neutral: Camel, Chocolate Brown, Tan, Khaki, Beige, Taupe, Sand, Mocha\n"
+            "  White family: Ivory, Cream, Off-White, Pearl White, Snow White\n"
+            "  Black family: Jet Black, Charcoal, Anthracite, Dark Charcoal\n"
+            "  Pink family: Blush Pink, Rose, Fuchsia, Salmon, Dusty Rose, Hot Pink, Powder Pink\n"
+            "  Purple family: Lavender, Lilac, Violet, Plum, Mauve, Amethyst\n"
+            "  Yellow/Orange: Mustard Yellow, Golden Yellow, Saffron, Tangerine, Peach, Amber\n"
             "Return ONLY a valid JSON object with exactly two keys: "
-            '"color_name" (the international standard English color name, e.g. \'Navy Blue\', \'Burgundy\', \'Ivory\') '
-            'and "color_emoji" (the single Unicode circle emoji that best represents the color). '
-            "Use ONLY these circle emojis: 🔴🟠🟡🟢🔵🟣🟤⚫⚪. "
+            '"color_name" (precise English color name, 1-3 words maximum) '
+            'and "color_emoji" (single Unicode circle emoji that best represents the color). '
+            "Use ONLY these circle emojis: \U0001f534\U0001f7e0\U0001f7e1\U0001f7e2\U0001f535\U0001f7e3\U0001f7e4\u26ab\u26aa. "
             "No markdown, no explanation, just JSON."
         )
 
