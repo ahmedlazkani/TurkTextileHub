@@ -149,6 +149,7 @@ async def serve_product_form(
 async def proxy_attributes(
     category_id: str,
     user_id:     Optional[str] = Query(None, description="Telegram user ID"),
+    lang:        Optional[str] = Query(None, description="User language code (ar/tr/en)"),
 ) -> JSONResponse:
     """
     Proxies GET /api/categories/{category_id}/attributes from KAYISOFT.
@@ -192,7 +193,7 @@ async def proxy_attributes(
                     "Telegram-User-Id": str(user_id or ""),
                     "Platform":         "telegram",
                     "Accept":           "application/json",
-                    "Accept-Language":  "ar",  # Prefer Arabic attribute names
+                    "Accept-Language":  lang or "ar",  # Task 10: Follow user's language
                 },
             )
     except httpx.TimeoutException:

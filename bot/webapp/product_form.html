@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="ar" dir="rtl" id="html-root">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -699,6 +699,22 @@
     const urlParams   = new URLSearchParams(window.location.search);
     const CATEGORY_ID = urlParams.get("category_id") || "";
     const LANG        = urlParams.get("lang")         || "ar";
+
+    // Task 11: Apply language direction to HTML element
+    (function applyLangDir() {
+      const htmlEl = document.getElementById("html-root");
+      if (!htmlEl) return;
+      if (LANG === "ar") {
+        htmlEl.setAttribute("lang", "ar");
+        htmlEl.setAttribute("dir", "rtl");
+      } else if (LANG === "tr") {
+        htmlEl.setAttribute("lang", "tr");
+        htmlEl.setAttribute("dir", "ltr");
+      } else {
+        htmlEl.setAttribute("lang", "en");
+        htmlEl.setAttribute("dir", "ltr");
+      }
+    })();
     const USER_ID     = urlParams.get("user_id")      || "";
 
     /* ──────────────────────────────────────────────────────────
@@ -882,7 +898,7 @@
 
       try {
         // Proxy endpoint served by our FastAPI server
-        const res  = await fetch(`/api/attributes/${CATEGORY_ID}?user_id=${USER_ID}`);
+        const res  = await fetch(`/api/attributes/${CATEGORY_ID}?user_id=${USER_ID}&lang=${LANG}`);
         const json = await res.json();
         const attrs = normalizeAttributes(json);
         renderAttributes(attrs);
@@ -939,21 +955,45 @@
         let controlHtml = "";
 
         if (uiType === "color") {
-          // ── Color swatches ───────────────────────────────────
+          // ── Color swatches (multi-select via checkbox) ────────
+          // Task 8+9: Allow multiple color selection + show color NAME not hex
+          attrState[attrId].value = [];  // override to array for multi-select
           const swatchItems = options.map(opt => {
-            const hex   = opt.hex_code || opt.value || "#cccccc";
-            const label = opt.label || opt.value || "";
-            const safeHex = /^#?[0-9A-Fa-f]{3,8}/.test(hex)
-                          ? (hex.startsWith("#") ? hex.slice(0,7) : `#${hex.slice(0,6)}`)
+            // Task 9: Extract color name from pipe-separated format "#RRGGBBAA|اسم اللون"
+            // or from label/name fields directly
+            let colorName = opt.label || opt.name || "";
+            let hexCode   = opt.hex_code || opt.value || "#cccccc";
+
+            // Handle pipe-separated format: "#FFFFFFFF|أبيض" → hex="#FFFFFFFF", name="أبيض"
+            if (hexCode && hexCode.includes("|")) {
+              const parts = hexCode.split("|");
+              hexCode   = parts[0].trim();
+              if (!colorName) colorName = parts[1].trim();
+            }
+            if (colorName && colorName.includes("|")) {
+              const parts = colorName.split("|");
+              hexCode   = parts[0].trim();
+              colorName = parts[1].trim();
+            }
+
+            // Normalize hex: ensure it starts with # and is 6 digits
+            const safeHex = /^#?[0-9A-Fa-f]{3,8}/.test(hexCode)
+                          ? (hexCode.startsWith("#") ? hexCode.slice(0,7) : `#${hexCode.slice(0,6)}`)
                           : "#cccccc";
+
+            // Display name: prefer colorName, fallback to hex if no name
+            const displayName = colorName && !/^#?[0-9A-Fa-f]{6,8}$/.test(colorName.trim())
+                              ? colorName
+                              : safeHex;
+
             return `
-              <label class="swatch-item" title="${escHtml(label)}">
-                <input type="radio"
+              <label class="swatch-item" title="${escHtml(displayName)}">
+                <input type="checkbox"
                        name="attr_${attrId}"
                        value="${escHtml(opt.id)}"
                        data-attr="${attrId}" />
                 <div class="swatch-circle" style="background:${safeHex};"></div>
-                <span class="swatch-label">${escHtml(label)}</span>
+                <span class="swatch-label">${escHtml(displayName)}</span>
               </label>
             `;
           }).join("");
@@ -1007,9 +1047,13 @@
 
         // ── Attach event listeners ───────────────────────────
         if (uiType === "color") {
-          card.querySelectorAll(`input[name="attr_${attrId}"]`).forEach(radio => {
-            radio.addEventListener("change", function() {
-              attrState[attrId].value = this.value;
+          // Task 8: Multi-select color — collect all checked values as array
+          card.querySelectorAll(`input[name="attr_${attrId}"]`).forEach(cb => {
+            cb.addEventListener("change", function() {
+              const checked = [...card.querySelectorAll(`input[name="attr_${attrId}"]`)]
+                .filter(c => c.checked)
+                .map(c => c.value);
+              attrState[attrId].value = checked;
               clearAttrError(attrId);
               validateAndToggleMainButton();
             });

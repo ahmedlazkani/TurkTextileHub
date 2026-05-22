@@ -30,7 +30,8 @@ import logging
 import os
 from typing import Any, Optional
 
-import requests
+import httpx        # ← async HTTP client لتجنب حجب event loop
+import requests     # ← محتفظ للتوافق مع الدوال المتزامنة الأخرى
 
 from bot.config import BOT_TOKEN
 
@@ -106,9 +107,11 @@ def verify_webhook_signature(payload_body: bytes, signature_header: str) -> bool
 # إرسال رسائل تليجرام
 # ──────────────────────────────────────────────────────────
 
-def _send_telegram_message(chat_id: int, text: str, parse_mode: str = "HTML") -> bool:
+async def _send_telegram_message(chat_id: int, text: str, parse_mode: str = "HTML") -> bool:
     """
     دالة داخلية: ترسل رسالة تليجرام عبر Bot API مباشرة.
+
+    تم التحويل إلى async مع httpx لتجنب حجب event loop.
 
     المعاملات:
         chat_id    (int): معرّف المستخدم أو المحادثة.
@@ -119,25 +122,25 @@ def _send_telegram_message(chat_id: int, text: str, parse_mode: str = "HTML") ->
         bool: True عند النجاح، False عند الفشل.
     """
     try:
-        response = requests.post(
-            f"{_TELEGRAM_API}/sendMessage",
-            json={
-                "chat_id": chat_id,
-                "text": text,
-                "parse_mode": parse_mode,
-            },
-            timeout=10,
-        )
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                f"{_TELEGRAM_API}/sendMessage",
+                json={
+                    "chat_id": chat_id,
+                    "text": text,
+                    "parse_mode": parse_mode,
+                },
+            )
         if response.status_code == 200:
-            logger.info(f"✅ رسالة تليجرام أُرسلت إلى {chat_id}")
+            logger.info(f"✅ رسالة تيليجرام أُرسلت إلى {chat_id}")
             return True
         logger.error(
-            f"❌ فشل إرسال رسالة تليجرام إلى {chat_id}: "
+            f"❌ فشل إرسال رسالة تيليجرام إلى {chat_id}: "
             f"status={response.status_code}, body={response.text[:200]}"
         )
         return False
     except Exception as e:
-        logger.error(f"❌ خطأ في إرسال رسالة تليجرام إلى {chat_id}: {e}")
+        logger.error(f"❌ خطأ في إرسال رسالة تيليجرام إلى {chat_id}: {e}")
         return False
 
 
@@ -145,7 +148,7 @@ def _send_telegram_message(chat_id: int, text: str, parse_mode: str = "HTML") ->
 # معالجات الأحداث
 # ──────────────────────────────────────────────────────────
 
-def _handle_supplier_approved(data: dict) -> dict:
+async def _handle_supplier_approved(data: dict) -> dict:
     """
     يعالج حدث الموافقة على مورد — يُرسل رسالة تهنئة للمورد.
 
@@ -174,11 +177,11 @@ def _handle_supplier_approved(data: dict) -> dict:
         f"ابدأ بكتابة /start"
     )
 
-    success = _send_telegram_message(int(telegram_id), text)
+    success = await _send_telegram_message(int(telegram_id), text)
     return {"status": "ok" if success else "error", "message": "supplier approval sent"}
 
 
-def _handle_supplier_rejected(data: dict) -> dict:
+async def _handle_supplier_rejected(data: dict) -> dict:
     """
     يعالج حدث رفض مورد — يُرسل رسالة إشعار للمورد مع أزرار الدعم.
 
@@ -205,11 +208,11 @@ def _handle_supplier_rejected(data: dict) -> dict:
         f"للمزيد من المعلومات أو لإعادة التقديم، اكتب /start"
     )
 
-    success = _send_telegram_message(int(telegram_id), text)
+    success = await _send_telegram_message(int(telegram_id), text)
     return {"status": "ok" if success else "error", "message": "supplier rejection sent"}
 
 
-def _handle_product_approved(data: dict) -> dict:
+async def _handle_product_approved(data: dict) -> dict:
     """
     يعالج حدث الموافقة على منتج — يُرسل إشعاراً للمورد.
 
@@ -235,11 +238,11 @@ def _handle_product_approved(data: dict) -> dict:
         f"المنتج الآن مرئي للتجار ويمكنهم طلب عروض أسعار."
     )
 
-    success = _send_telegram_message(int(telegram_id), text)
+    success = await _send_telegram_message(int(telegram_id), text)
     return {"status": "ok" if success else "error", "message": "product approval sent"}
 
 
-def _handle_product_rejected(data: dict) -> dict:
+async def _handle_product_rejected(data: dict) -> dict:
     """
     يعالج حدث رفض منتج — يُرسل إشعاراً للمورد مع سبب الرفض.
 
@@ -268,11 +271,11 @@ def _handle_product_rejected(data: dict) -> dict:
         f"يمكنكم تعديله وإعادة إرساله عبر /add_product"
     )
 
-    success = _send_telegram_message(int(telegram_id), text)
+    success = await _send_telegram_message(int(telegram_id), text)
     return {"status": "ok" if success else "error", "message": "product rejection sent"}
 
 
-def _handle_quote_replied(data: dict) -> dict:
+async def _handle_quote_replied(data: dict) -> dict:
     """
     يعالج حدث رد المورد على طلب عرض سعر — يُرسل إشعاراً للتاجر.
 
@@ -302,7 +305,7 @@ def _handle_quote_replied(data: dict) -> dict:
         f"💬 <b>الرد:</b>\n{reply_message}"
     )
 
-    success = _send_telegram_message(int(telegram_id), text)
+    success = await _send_telegram_message(int(telegram_id), text)
     return {"status": "ok" if success else "error", "message": "quote reply sent"}
 
 
@@ -310,7 +313,7 @@ def _handle_quote_replied(data: dict) -> dict:
 # الدالة الرئيسية — نقطة الدخول لكل Webhook
 # ──────────────────────────────────────────────────────────
 
-def process_webhook(event: str, data: dict) -> dict:
+async def process_webhook(event: str, data: dict) -> dict:
     """
     نقطة الدخول الرئيسية — تُوجّه الحدث للمعالج الصحيح.
 
@@ -344,7 +347,7 @@ def process_webhook(event: str, data: dict) -> dict:
     handler = _handlers[event]
 
     try:
-        result = handler(data)
+        result = await handler(data)
         logger.info(f"✅ Webhook معالَج: event={event}, status={result.get('status')}")
         return result
     except Exception as e:

@@ -118,6 +118,7 @@ KEY FIXES vs v5.0:
 
 import asyncio
 import hashlib
+import json          # ← مطلوب لـ json.loads() في handle_webapp_data و handle_form_submitted
 import logging
 import os
 import uuid
@@ -1320,6 +1321,67 @@ async def start_add_product(
     user_id = str(user.id)
     lang    = get_user_lang(user_id, telegram_language_code=user.language_code or "")
 
+    # ── مهمة 5: فحص وجود channel_id قبل بدء التدفق ─────────────────────────────────────────
+    # مورد لم يربط قناته بعد → أرسل رسالة محفّزة بدلاً من فتح التدفق
+    from bot.handlers.channel_handler import get_channel_id_for_user
+    from bot.keyboards import supplier_main_keyboard
+    channel_id = get_channel_id_for_user(user_id, context)
+    if not channel_id:
+        setup_msgs = {
+            "ar": (
+                "📢 <b>خطوة مهمة قبل إضافة المنتجات!</b>\n\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "لنشر منتجاتك تلقائياً على قناتك، يجب أولاً:\n\n"
+                "1️⃣ <b>إنشاء قناة تيليجرام</b> (إذا لم تكن موجودة)\n"
+                "   → اضغط (+) في تيليجرام ← قناة جديدة\n\n"
+                "2️⃣ <b>إضافة البوت كمشرف</b>\n"
+                "   → افتح القناة ← المشرفون ← أضف @TopKapTR_bot\n"
+                "   → امنحه صلاحية: نشر الرسائل ✅\n\n"
+                "3️⃣ <b>انتظر الاكتشاف التلقائي</b>\n"
+                "   → سيرسل البوت تأكيداً فور إضافته\n\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "💡 أو أرسل: /setchannel -1001234567890\n"
+                "🚀 بعد الإعداد ستتمكن من النشر لـ 180+ دولة!"
+            ),
+            "tr": (
+                "📢 <b>Ürün eklemeden önce önemli adım!</b>\n\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "Ürünlerinizi kanalınıza otomatik yayınlamak için:\n\n"
+                "1️⃣ <b>Telegram kanalı oluşturun</b>\n"
+                "   → Telegram'da (+) → Yeni Kanal\n\n"
+                "2️⃣ <b>Botu kanal yöneticisi yapın</b>\n"
+                "   → Kanalı açın → Yöneticiler → @TopKapTR_bot ekleyin\n"
+                "   → Mesaj gönderme yetkisi verin ✅\n\n"
+                "3️⃣ <b>Otomatik tespiti bekleyin</b>\n"
+                "   → Bot eklenince onay mesajı gelecek\n\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "💡 Veya gönderin: /setchannel -1001234567890\n"
+                "🚀 Kurulum sonrası 180+ ülkeye ürün yayınlayın!"
+            ),
+            "en": (
+                "📢 <b>One step before adding products!</b>\n\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "To auto-publish products to your channel:\n\n"
+                "1️⃣ <b>Create a Telegram channel</b>\n"
+                "   → Tap (+) in Telegram → New Channel\n\n"
+                "2️⃣ <b>Add bot as admin</b>\n"
+                "   → Open channel → Admins → Add @TopKapTR_bot\n"
+                "   → Grant: Post Messages ✅\n\n"
+                "3️⃣ <b>Wait for auto-detection</b>\n"
+                "   → Bot sends confirmation once added\n\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "💡 Or send: /setchannel -1001234567890\n"
+                "🚀 After setup, reach 180+ countries!"
+            ),
+        }
+        await update.message.reply_text(
+            setup_msgs.get(lang, setup_msgs["en"]),
+            parse_mode="HTML",
+            reply_markup=supplier_main_keyboard(lang),
+        )
+        return ConversationHandler.END
+    # ── نهاية فحص القناة ────────────────────────────────────────────────────────────────────
+
     # Clear any previous product data to start fresh
     context.user_data.pop("product_data", None)
 
@@ -1383,14 +1445,42 @@ async def start_add_product(
     # Build inline keyboard — two buttons per row for compact display
     # is_visible_for_creating=True means this category accepts new products
     # Also build a name lookup map so later steps can show the selected category name
+    # ── Task 7: Sort categories — gender groups first (Women→Men→Kids), then alphabetical ──
+    _GENDER_PRIORITY = {
+        # Arabic
+        "نساء": 0, "سيدات": 0, "حريمي": 0,
+        "رجال": 1, "رجالي": 1,
+        "أطفال": 2, "اطفال": 2, "بنات": 2, "أولاد": 2,
+        # Turkish
+        "kadın": 0, "bayan": 0, "kadin": 0,
+        "erkek": 1,
+        "çocuk": 2, "cocuk": 2, "kız": 2, "bebek": 2,
+        # English
+        "women": 0, "ladies": 0,
+        "men": 1, "male": 1,
+        "kids": 2, "children": 2, "boys": 2, "girls": 2,
+    }
+
+    def _cat_sort_key(cat_dict):
+        name_lower = cat_dict.get("name", "").lower().strip()
+        # Check if any gender keyword is a substring of the name
+        priority = 99
+        for keyword, p in _GENDER_PRIORITY.items():
+            if keyword in name_lower:
+                priority = p
+                break
+        return (priority, name_lower)
+
+    visible_cats = [c for c in categories if c.get("is_visible_for_creating", True)]
+    visible_cats.sort(key=_cat_sort_key)
+
     categories_map = {}
     buttons_flat = []
-    for cat in categories:
-        if cat.get("is_visible_for_creating", True):
-            cid   = cat.get("id")
-            cname = cat.get("name", "—")
-            categories_map[cid] = cname
-            buttons_flat.append(InlineKeyboardButton(cname, callback_data=f"cat_{cid}"))
+    for cat in visible_cats:
+        cid   = cat.get("id")
+        cname = cat.get("name", "—")
+        categories_map[cid] = cname
+        buttons_flat.append(InlineKeyboardButton(cname, callback_data=f"cat_{cid}"))
     # Arrange into rows of 2 buttons each
     keyboard = [buttons_flat[i:i+2] for i in range(0, len(buttons_flat), 2)]
 
@@ -1471,14 +1561,17 @@ async def handle_category_selection(
 
     # Build subcategory keyboard — two buttons per row for compact display
     # Also build a name map for later steps
+    # ── Task 7: Sort subcategories alphabetically ──
+    visible_subs = [s for s in subcategories if s.get("is_visible_for_creating", True)]
+    visible_subs.sort(key=lambda s: s.get("name", "").lower().strip())
+
     subcategories_map = {}
     sub_buttons_flat = []
-    for sub in subcategories:
-        if sub.get("is_visible_for_creating", True):
-            sid   = sub.get("id")
-            sname = sub.get("name", "—")
-            subcategories_map[sid] = sname
-            sub_buttons_flat.append(InlineKeyboardButton(sname, callback_data=f"sub_{sid}"))
+    for sub in visible_subs:
+        sid   = sub.get("id")
+        sname = sub.get("name", "—")
+        subcategories_map[sid] = sname
+        sub_buttons_flat.append(InlineKeyboardButton(sname, callback_data=f"sub_{sid}"))
     # Arrange into rows of 2 buttons each
     keyboard = [sub_buttons_flat[i:i+2] for i in range(0, len(sub_buttons_flat), 2)]
     context.user_data["subcategories_map"] = subcategories_map

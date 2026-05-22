@@ -31,7 +31,8 @@ import os
 from datetime import datetime, timezone
 from typing import Optional
 
-import requests
+import httpx        # ← async HTTP client بدلاً من requests (لا يحجب event loop)
+import requests     # ← يُستخدم فقط في _upload_to_minio (PUT لا يحتاج async هنا)
 
 from bot.config import BOT_TOKEN
 
@@ -47,7 +48,15 @@ _TELEGRAM_FILES = f"https://api.telegram.org/file/bot{BOT_TOKEN}"
 
 # رابط KAYISOFT API لطلب Signed URLs
 _KAYISOFT_URL: str = os.getenv("KAYISOFT_API_URL", "").rstrip("/")
-_KAYISOFT_KEY: str = os.getenv("KAYISOFT_API_KEY", "")
+
+# إصلاح المهمة 2: قراءة المتغير الصحيح من Railway
+# الترتيب: TELEGRAM_BOT_API_ENDPOINT_KEY → KAYISOFT_API_TOKEN → KAYISOFT_API_KEY
+_KAYISOFT_KEY: str = (
+    os.getenv("TELEGRAM_BOT_API_ENDPOINT_KEY") or
+    os.getenv("KAYISOFT_API_TOKEN") or
+    os.getenv("KAYISOFT_API_KEY") or
+    ""
+).strip()
 
 # مهلة الطلبات بالثواني
 _TIMEOUT = 20
@@ -86,9 +95,12 @@ def _build_filename(file_bytes: bytes, ext: str) -> str:
     return f"{timestamp}-{sha256_hash}.{ext_clean}"
 
 
-def _get_telegram_file_info(file_id: str) -> Optional[dict]:
+# إصلاح المهمة 3: تحويل الدوال الثلاث إلى async مع httpx لتجنب حجب event loop
+async def _get_telegram_file_info(file_id: str) -> Optional[dict]:
     """
     يجلب معلومات الملف من تليجرام (file_path).
+
+    تم التحويل إلى async مع httpx لتجنب حجب event loop عند رفع الصور.
 
     المدخلات:
         file_id (str): معرّف الملف في تليجرام
@@ -97,11 +109,11 @@ def _get_telegram_file_info(file_id: str) -> Optional[dict]:
         dict: معلومات الملف مع file_path، أو None عند الفشل
     """
     try:
-        response = requests.get(
-            f"{_TELEGRAM_API}/getFile",
-            params={"file_id": file_id},
-            timeout=10,
-        )
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                f"{_TELEGRAM_API}/getFile",
+                params={"file_id": file_id},
+            )
         if response.status_code == 200:
             data = response.json()
             if data.get("ok"):
@@ -113,9 +125,11 @@ def _get_telegram_file_info(file_id: str) -> Optional[dict]:
         return None
 
 
-def _download_telegram_file(file_path: str) -> Optional[bytes]:
+async def _download_telegram_file(file_path: str) -> Optional[bytes]:
     """
     يحمّل بايتات الصورة من تليجرام.
+
+    تم التحويل إلى async مع httpx لتجنب حجب event loop.
 
     المدخلات:
         file_path (str): مسار الملف من getFile API
@@ -125,7 +139,8 @@ def _download_telegram_file(file_path: str) -> Optional[bytes]:
     """
     try:
         url = f"{_TELEGRAM_FILES}/{file_path}"
-        response = requests.get(url, timeout=_TIMEOUT)
+        async with httpx.AsyncClient(timeout=float(_TIMEOUT)) as client:
+            response = await client.get(url)
         if response.status_code == 200:
             return response.content
         logger.error(f"❌ فشل تحميل الصورة من تليجرام: status={response.status_code}")
@@ -135,9 +150,11 @@ def _download_telegram_file(file_path: str) -> Optional[bytes]:
         return None
 
 
-def _request_signed_url(filename: str, content_type: str = "image/jpeg") -> Optional[str]:
+async def _request_signed_url(filename: str, content_type: str = "image/jpeg") -> Optional[str]:
     """
     يطلب Signed URL من KAYISOFT API لرفع الصورة.
+
+    تم التحويل إلى async مع httpx لتجنب حجب event loop.
 
     المدخلات:
         filename     (str): اسم الملف بالصيغة المطلوبة
@@ -151,15 +168,15 @@ def _request_signed_url(filename: str, content_type: str = "image/jpeg") -> Opti
         return None
 
     try:
-        response = requests.post(
-            f"{_KAYISOFT_URL}/api/extensions/signed-urls",
-            json={"filename": filename, "content_type": content_type},
-            headers={
-                "Authorization": f"Bearer {_KAYISOFT_KEY}",
-                "Content-Type": "application/json",
-            },
-            timeout=15,
-        )
+        async with httpx.AsyncClient(timeout=float(_TIMEOUT)) as client:
+            response = await client.post(
+                f"{_KAYISOFT_URL}/api/extensions/signed-urls",
+                json={"filename": filename, "content_type": content_type},
+                headers={
+                    "Authorization": f"Bearer {_KAYISOFT_KEY}",
+                    "Content-Type": "application/json",
+                },
+            )
         if response.status_code in (200, 201):
             data = response.json()
             signed_url = data.get("signed_url") or data.get("url")
@@ -180,6 +197,9 @@ def _request_signed_url(filename: str, content_type: str = "image/jpeg") -> Opti
 def _upload_to_minio(signed_url: str, file_bytes: bytes, content_type: str = "image/jpeg") -> bool:
     """
     يرفع الصورة مباشرة إلى MinIO باستخدام Signed URL (PUT).
+
+    ملاحظة: هذه الدالة تبقى متزامنة (sync) لأن PUT إلى MinIO
+    يُستدعى من asyncio.to_thread في upload_telegram_photo.
 
     المدخلات:
         signed_url   (str)  : رابط الرفع المؤقت
@@ -224,16 +244,18 @@ def _extract_public_url(signed_url: str) -> str:
 # الدالة الرئيسية
 # ──────────────────────────────────────────────────────────
 
-def upload_telegram_photo(file_id: str) -> Optional[str]:
+async def upload_telegram_photo(file_id: str) -> Optional[str]:
     """
     يحوّل file_id من تليجرام إلى رابط دائم في MinIO.
 
+    تم التحويل إلى async لاستخدام الدوال الـ async الداخلية.
+
     المنطق الكامل:
-        1. جلب file_path من تليجرام
-        2. تحميل بايتات الصورة
+        1. جلب file_path من تليجرام (async)
+        2. تحميل بايتات الصورة (async)
         3. بناء اسم الملف: {timestamp}-{SHA256}.{ext}
-        4. طلب Signed URL من KAYISOFT
-        5. رفع الصورة إلى MinIO
+        4. طلب Signed URL من KAYISOFT (async)
+        5. رفع الصورة إلى MinIO (sync في thread)
         6. إعادة الرابط الدائم
 
     المدخلات:
@@ -242,10 +264,11 @@ def upload_telegram_photo(file_id: str) -> Optional[str]:
     المخرجات:
         str: الرابط الدائم للصورة في MinIO، أو None عند الفشل
     """
+    import asyncio
     logger.info(f"🖼 بدء رفع صورة: file_id={file_id[:20]}...")
 
     # 1. جلب معلومات الملف من تليجرام
-    file_info = _get_telegram_file_info(file_id)
+    file_info = await _get_telegram_file_info(file_id)
     if not file_info:
         return None
 
@@ -253,7 +276,7 @@ def upload_telegram_photo(file_id: str) -> Optional[str]:
     ext = file_path.rsplit(".", 1)[-1] if "." in file_path else _DEFAULT_EXT
 
     # 2. تحميل بايتات الصورة
-    file_bytes = _download_telegram_file(file_path)
+    file_bytes = await _download_telegram_file(file_path)
     if not file_bytes:
         return None
 
@@ -262,12 +285,12 @@ def upload_telegram_photo(file_id: str) -> Optional[str]:
     content_type = f"image/{ext}" if ext in _ALLOWED_EXTENSIONS else "image/jpeg"
 
     # 4. طلب Signed URL
-    signed_url = _request_signed_url(filename, content_type)
+    signed_url = await _request_signed_url(filename, content_type)
     if not signed_url:
         return None
 
-    # 5. رفع الصورة
-    success = _upload_to_minio(signed_url, file_bytes, content_type)
+    # 5. رفع الصورة (في thread منفصل لعدم حجب event loop)
+    success = await asyncio.to_thread(_upload_to_minio, signed_url, file_bytes, content_type)
     if not success:
         return None
 
@@ -277,9 +300,11 @@ def upload_telegram_photo(file_id: str) -> Optional[str]:
     return public_url
 
 
-def upload_multiple_photos(file_ids: list) -> list:
+async def upload_multiple_photos(file_ids: list) -> list:
     """
     يحوّل قائمة file_ids إلى روابط دائمة في MinIO.
+
+    تم التحويل إلى async لاستخدام upload_telegram_photo الـ async.
 
     المنطق:
         يرفع كل صورة على حدة ويتجاهل الفاشلة منها.
@@ -296,7 +321,7 @@ def upload_multiple_photos(file_ids: list) -> list:
 
     urls = []
     for idx, file_id in enumerate(file_ids):
-        url = upload_telegram_photo(file_id)
+        url = await upload_telegram_photo(file_id)
         if url:
             urls.append(url)
             logger.info(f"✅ صورة {idx + 1}/{len(file_ids)} مرفوعة")
