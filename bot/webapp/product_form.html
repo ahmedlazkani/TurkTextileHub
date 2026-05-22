@@ -1117,14 +1117,15 @@
         tg.MainButton.disable();
       }
 
-      // Short delay so user sees checkmark, then close
+      // Short delay so user sees checkmark, then send data
+      // NOTE: We do NOT call tg.close() — the bot will close the Mini App
+      // after processing (or the user can close it manually via the back button)
       setTimeout(() => {
         if (tg) {
           // sendData sends the payload to the bot handler
           tg.sendData(JSON.stringify(payload));
-          // close() MUST be called to dismiss the Mini App window
-          // Without this, the loading spinner spins forever
-          setTimeout(() => tg.close(), 300);
+          // Keep Mini App open — bot will show AI-enhanced post preview
+          // and prompt user to upload photos
         } else {
           // Dev fallback: log to console
           console.log("FORM DATA:", JSON.stringify(payload, null, 2));
