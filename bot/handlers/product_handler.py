@@ -2872,8 +2872,144 @@ async def cancel_product(
 
 
 ## ══════════════════════════════════════════════════════════════════════════════
+# WEBAPP — handle_form_submitted
+# Triggered by __FORM_SUBMITTED__ sentinel message sent by /webapp/submit endpoint
+# Reads the pending payload from pending_submissions dict and processes it
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def handle_form_submitted(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> int:
+    """
+    STATE: FILL_FORM → CONFIRM_DETAILS
+
+    Called when the Mini App POSTs to /webapp/submit and the FastAPI endpoint
+    sends a __FORM_SUBMITTED__ sentinel message to the user's chat.
+
+    This replaces the old tg.sendData() mechanism which only works with
+    ReplyKeyboard buttons (not InlineKeyboard — our case).
+
+    Flow:
+      1. FastAPI /webapp/submit stores payload in pending_submissions[user_id]
+      2. FastAPI sends __FORM_SUBMITTED__ to the user via Bot API
+      3. This handler fires, reads pending_submissions[user_id], processes it
+      4. Returns CONFIRM_DETAILS so the supplier can review the summary
+
+    Programmatic note:
+      The __FORM_SUBMITTED__ sentinel is a text message (not web_app_data),
+      so it must be registered BEFORE the generic TEXT handler in FILL_FORM.
+    """
+    user    = update.effective_user
+    user_id = str(user.id)
+    lang    = get_user_lang(user_id, telegram_language_code=user.language_code or "")
+
+    # Import pending_submissions from the webapp routes module
+    # Both FastAPI and PTB run in the same process → shared memory
+    try:
+        from bot.routes.webapp_routes import pending_submissions
+    except ImportError:
+        logger.error("handle_form_submitted: could not import pending_submissions")
+        await update.effective_message.reply_text(
+            "❌ حدث خطأ داخلي. يرجى المحاولة مجدداً.",
+            parse_mode=ParseMode.HTML,
+        )
+        return FILL_FORM
+
+    # Retrieve and consume the pending payload
+    payload = pending_submissions.pop(user_id, None)
+    if not payload:
+        logger.warning(
+            "handle_form_submitted: no pending submission for user_id=%s — "
+            "message may have been a duplicate or payload already consumed",
+            user_id,
+        )
+        # Silently ignore — do not send error (user didn't explicitly trigger this)
+        return FILL_FORM
+
+    logger.info(
+        "handle_form_submitted: processing POST submission for user_id=%s keys=%s",
+        user_id, list(payload.keys()),
+    )
+
+    # Delete the __FORM_SUBMITTED__ sentinel message so it doesn't clutter the chat
+    try:
+        await update.effective_message.delete()
+    except Exception:
+        pass  # Non-critical — message may already be gone
+
+    # ── Validate payload ──────────────────────────────────────────────────────
+    validation_errors = _validate_webapp_payload(payload, lang)
+    if validation_errors:
+        error_lines = "\n".join(f"  • {e}" for e in validation_errors)
+        msg = {
+            "ar": f"❌ <b>خطأ في بيانات النموذج:</b>\n{error_lines}\n\nيرجى العودة وتصحيح البيانات.",
+            "tr": f"❌ <b>Form verilerinde hata:</b>\n{error_lines}\n\nLütfen geri dönüp düzeltin.",
+            "en": f"❌ <b>Form validation error:</b>\n{error_lines}\n\nPlease go back and fix the issues.",
+        }.get(lang, f"❌ Validation error:\n{error_lines}")
+        await update.effective_message.reply_text(msg, parse_mode=ParseMode.HTML)
+        return FILL_FORM
+
+    # ── Extract fields ─────────────────────────────────────────────────────────
+    name         = str(payload.get("name", "")).strip()
+    description  = str(payload.get("description", "")).strip()
+    price_str    = str(payload.get("price", "0"))
+    min_quantity = int(payload.get("min_quantity", 1))
+    stock_count  = int(payload.get("stock_count", min_quantity))
+    if stock_count < min_quantity:
+        stock_count = min_quantity
+
+    shared_attributes   = payload.get("shared_attributes",   {}) or {}
+    selector_attributes = payload.get("selector_attributes", []) or []
+    post_languages      = payload.get("post_languages", ["ar"]) or ["ar"]
+
+    product_details = {
+        "name":                name,
+        "description":         description,
+        "price":               price_str,
+        "min_quantity":        min_quantity,
+        "stock_count":         stock_count,
+        "shared_attributes":   shared_attributes,
+        "selector_attributes": selector_attributes,
+        "post_languages":      post_languages,
+        "_source":             "webapp_post",
+    }
+    context.user_data["product_details"] = product_details
+
+    logger.info(
+        "handle_form_submitted: valid form data. "
+        "user_id=%s name=%r price=%s min_qty=%d stock=%d shared=%d selector=%d",
+        user_id, name, price_str, min_quantity, stock_count,
+        len(shared_attributes), len(selector_attributes),
+    )
+
+    # ── Build and show summary with confirm/edit buttons ──────────────────────
+    summary = _build_webapp_summary(product_details, lang, context)
+
+    confirm_buttons = {
+        "ar": ("✅ تأكيد وإرسال الصور", "✏️ تعديل"),
+        "tr": ("✅ Onayla ve Fotoğraf Ekle", "✏️ Düzenle"),
+        "en": ("✅ Confirm & Upload Images", "✏️ Edit"),
+    }
+    confirm_label, edit_label = confirm_buttons.get(lang, confirm_buttons["en"])
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton(confirm_label, callback_data="details_confirm"),
+        InlineKeyboardButton(edit_label,    callback_data="details_edit"),
+    ]])
+
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=summary,
+        reply_markup=keyboard,
+        parse_mode=ParseMode.HTML,
+    )
+    return CONFIRM_DETAILS
+
+
+## ══════════════════════════════════════════════════════════════════════════════
 # WEBAPP — handle_webapp_data
 # Receives JSON submitted by the Mini App via Telegram.WebApp.sendData()
+# (Legacy path — only fires when Mini App is opened via ReplyKeyboard)
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def handle_webapp_data(
@@ -3210,13 +3346,22 @@ def get_product_conv_handler() -> ConversationHandler:
                 ),
             ],
             FILL_FORM: [
-                # PRIMARY: structured WebApp form submission (Mini App)
-                # Must be listed BEFORE the text handler so it has priority
+                # PRIORITY 1: POST-based Mini App form submission (new mechanism)
+                # Fires when FastAPI sends __FORM_SUBMITTED__ sentinel after receiving
+                # the form data via POST /webapp/submit.
+                # MUST be listed FIRST — before the generic TEXT handler.
+                MessageHandler(
+                    filters.Regex(r"^__FORM_SUBMITTED__$") & filters.TEXT,
+                    handle_form_submitted,
+                ),
+                # PRIORITY 2: Legacy sendData path (only works with ReplyKeyboard)
+                # Kept for backward compatibility in case Mini App is opened via
+                # a ReplyKeyboard button in the future.
                 MessageHandler(
                     filters.StatusUpdate.WEB_APP_DATA,
                     handle_webapp_data,
                 ),
-                # SECONDARY: manual entry fallback button (✏️ الإدخال اليدوي)
+                # PRIORITY 3: manual entry fallback button (✏️ الإدخال اليدوي)
                 # NOTE: This handler MUST be in FILL_FORM too (not just SELECT_SUBCATEGORY)
                 # because _load_attributes_and_ask_form returns FILL_FORM state BEFORE
                 # the supplier sees the WebApp button — so the callback arrives in FILL_FORM.
@@ -3224,7 +3369,7 @@ def get_product_conv_handler() -> ConversationHandler:
                     handle_manual_entry_fallback,
                     pattern=r"^form_manual_entry$",
                 ),
-                # FALLBACK: free-text description (legacy AI extraction path)
+                # PRIORITY 4: free-text description (legacy AI extraction path)
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
                     handle_form_input,

@@ -44,20 +44,49 @@ logger = logging.getLogger(__name__)
 # NOTE: /tmp is ephemeral — channel_id will be lost on Railway restarts.
 #       To persist across restarts, add a Railway Volume mounted at /data.
 def _resolve_channels_file() -> str:
-    """Resolve the path to the user_channels.json persistence file."""
+    """
+    Resolve the path to the user_channels.json persistence file.
+
+    Priority order:
+      1. CHANNELS_FILE env var  — explicit override (recommended for Railway)
+      2. /data directory        — Railway Volume mounted at /data
+      3. /app/data directory    — Railway Volume mounted at /app/data
+      4. /tmp                   — ephemeral fallback (LOST on restart)
+
+    To persist channel_ids across Railway restarts:
+      Option A: Add a Railway Volume mounted at /data or /app/data
+      Option B: Set CHANNELS_FILE env var to any writable path
+    """
+    # 1. Explicit env var override
     env_path = os.environ.get("CHANNELS_FILE", "")
     if env_path:
         logger.info("Using CHANNELS_FILE from env: %s", env_path)
         return env_path
+
+    # 2. /data — standard Railway Volume mount point
     data_dir = "/data"
     if os.path.isdir(data_dir) and os.access(data_dir, os.W_OK):
         path = os.path.join(data_dir, "user_channels.json")
         logger.info("Using /data volume for channel persistence: %s", path)
         return path
+
+    # 3. /app/data — alternative Railway Volume mount point
+    app_data_dir = "/app/data"
+    try:
+        os.makedirs(app_data_dir, exist_ok=True)
+        if os.access(app_data_dir, os.W_OK):
+            path = os.path.join(app_data_dir, "user_channels.json")
+            logger.info("Using /app/data for channel persistence: %s", path)
+            return path
+    except Exception:
+        pass
+
+    # 4. /tmp fallback — ephemeral, lost on restart
     logger.warning(
-        "⚠️ /data is not available or not writable — using /tmp/user_channels.json as fallback. "
+        "⚠️ No persistent storage found — using /tmp/user_channels.json as fallback. "
         "channel_id WILL BE LOST on Railway restarts. "
-        "Fix: Add a Railway Volume mounted at /data, or set CHANNELS_FILE env var."
+        "Fix: Add a Railway Volume mounted at /data or /app/data, "
+        "or set CHANNELS_FILE env var to a writable path."
     )
     return "/tmp/user_channels.json"
 

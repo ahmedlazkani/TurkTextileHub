@@ -33,16 +33,31 @@ ARCHITECTURE NOTE:
 import logging
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
 # ── Router ─────────────────────────────────────────────────────────────────────
 router = APIRouter()
+
+# ── Pending submissions store ──────────────────────────────────────────────────
+# Keys:   telegram_user_id (str)
+# Values: dict with form payload — consumed once by the bot polling loop
+# This is a simple in-memory store; it works because bot and FastAPI share the
+# same process (same Python interpreter, same memory space).
+pending_submissions: dict = {}
+
+
+class FormSubmission(BaseModel):
+    """Pydantic model for the POST /webapp/submit request body."""
+    user_id: str
+    payload: dict[str, Any]
 
 # ── In-memory token cache ──────────────────────────────────────────────────────
 # Keys:   telegram_user_id (str)
@@ -221,6 +236,56 @@ async def proxy_attributes(
         category_id,
     )
     return JSONResponse(content=data, status_code=200)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ROUTE 3 — Receive form submission from Mini App (POST)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.post(
+    "/webapp/submit",
+    response_class=JSONResponse,
+    summary="Receive product form data from Mini App",
+    tags=["WebApp"],
+)
+async def submit_product_form(
+    body: FormSubmission,
+) -> JSONResponse:
+    """
+    Called by the Mini App JavaScript via fetch() when the supplier taps Save.
+
+    Stores the payload in pending_submissions[user_id] so the bot's
+    check_pending_submission() can pick it up and continue the conversation.
+
+    This replaces tg.sendData() which only works with ReplyKeyboard buttons.
+    """
+    user_id = str(body.user_id).strip()
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+
+    pending_submissions[user_id] = body.payload
+    logger.info(
+        "submit_product_form: stored submission for user_id=%s keys=%s",
+        user_id, list(body.payload.keys()),
+    )
+
+    # Try to trigger the bot immediately via send_message
+    # The bot will also poll pending_submissions when the user sends any message
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("BOT_TOKEN", "")
+    if bot_token:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                await client.post(
+                    f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                    json={
+                        "chat_id": int(user_id),
+                        "text": "__FORM_SUBMITTED__",
+                    },
+                )
+        except Exception as exc:
+            logger.warning("submit_product_form: could not trigger bot: %s", exc)
+
+    return JSONResponse(content={"status": "ok", "user_id": user_id})
 
 
 # ══════════════════════════════════════════════════════════════════════════════

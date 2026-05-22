@@ -1117,16 +1117,35 @@
         tg.MainButton.disable();
       }
 
-      // Short delay so user sees checkmark, then send data and close
-      setTimeout(() => {
+      // Short delay so user sees checkmark, then POST to server and close
+      setTimeout(async () => {
+        // Determine user_id: prefer URL param, fallback to tg.initDataUnsafe
+        const uid = USER_ID
+          || (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && String(tg.initDataUnsafe.user.id))
+          || "";
+
+        try {
+          // POST the payload to our FastAPI endpoint
+          // This works regardless of whether Mini App was opened via InlineKeyboard or ReplyKeyboard
+          const resp = await fetch("/webapp/submit", {
+            method:  "POST",
+            headers: { "Content-Type": "application/json" },
+            body:    JSON.stringify({ user_id: uid, payload }),
+          });
+
+          if (!resp.ok) {
+            console.error("submit failed:", resp.status, await resp.text());
+          } else {
+            console.log("Form submitted via POST successfully");
+          }
+        } catch (err) {
+          console.error("submit error:", err);
+        }
+
+        // Close Mini App so user returns to bot chat
         if (tg) {
-          // sendData sends the payload to the bot handler
-          tg.sendData(JSON.stringify(payload));
-          // Close Mini App after short delay so user sees success message
-          // Bot will then show AI-enhanced post preview in the chat
-          setTimeout(() => tg.close(), 800);
+          setTimeout(() => tg.close(), 400);
         } else {
-          // Dev fallback: log to console
           console.log("FORM DATA:", JSON.stringify(payload, null, 2));
         }
       }, 700);
