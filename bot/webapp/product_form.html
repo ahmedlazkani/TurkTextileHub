@@ -292,6 +292,45 @@
     }
 
     /* ═══════════════════════════════════════════════════════════
+       BOOL TOGGLE (Yes / No radio buttons)
+    ═══════════════════════════════════════════════════════════ */
+    .bool-toggle {
+      display:   flex;
+      gap:       12px;
+      flex-wrap: wrap;
+    }
+
+    .bool-option {
+      display:        flex;
+      align-items:    center;
+      gap:            8px;
+      cursor:         pointer;
+      padding:        10px 20px;
+      border:         2px solid var(--tg-secondary);
+      border-radius:  var(--radius-md);
+      font-size:      0.9rem;
+      font-weight:    500;
+      transition:     border-color var(--transition), background var(--transition);
+      flex:           1;
+      justify-content: center;
+      min-width:      80px;
+    }
+
+    .bool-option:hover {
+      border-color: var(--tg-btn);
+    }
+
+    .bool-option input[type="radio"] {
+      display: none;  /* hide native radio, style the label instead */
+    }
+
+    .bool-option:has(input:checked) {
+      border-color: var(--tg-btn);
+      background:   rgba(38, 120, 216, 0.10);
+      color:        var(--tg-btn);
+    }
+
+    /* ═══════════════════════════════════════════════════════════
        LOADING SKELETON
     ═══════════════════════════════════════════════════════════ */
     .skeleton {
@@ -1026,13 +1065,41 @@
           `).join("");
           controlHtml = `<div class="checkbox-group">${checks}</div>`;
 
+        } else if (uiType === "numeric") {
+          // ── Numeric input ────────────────────────────────────
+          controlHtml = `
+            <input type="number"
+                   id="ctrl-attr-${attrId}"
+                   data-attr="${attrId}"
+                   inputmode="decimal"
+                   placeholder="${escHtml(attr.name)}..."
+                   step="any" />
+          `;
+
+        } else if (uiType === "bool") {
+          // ── Boolean toggle (Yes / No) ────────────────────────
+          const yesLabel = dir === "rtl" ? "نعم" : (lang === "tr" ? "Evet" : "Yes");
+          const noLabel  = dir === "rtl" ? "لا"  : (lang === "tr" ? "Hayır" : "No");
+          controlHtml = `
+            <div class="bool-toggle">
+              <label class="bool-option">
+                <input type="radio" name="attr_${attrId}" value="true"  data-attr="${attrId}" />
+                <span>${yesLabel}</span>
+              </label>
+              <label class="bool-option">
+                <input type="radio" name="attr_${attrId}" value="false" data-attr="${attrId}" />
+                <span>${noLabel}</span>
+              </label>
+            </div>
+          `;
+
         } else {
-          // ── Text input ───────────────────────────────────────
+          // ── String / text input (default) ────────────────────
           controlHtml = `
             <input type="text"
                    id="ctrl-attr-${attrId}"
                    data-attr="${attrId}"
-                   placeholder="أدخل ${escHtml(attr.name)}..." />
+                   placeholder="${escHtml(attr.name)}..." />
           `;
         }
 
@@ -1079,7 +1146,28 @@
             });
           });
 
+        } else if (uiType === "numeric") {
+          const inp = card.querySelector(`input[data-attr="${attrId}"]`);
+          inp.addEventListener("input", function() {
+            const v = this.value.trim();
+            // Store as number if valid, else null
+            attrState[attrId].value = v !== "" && !isNaN(v) ? Number(v) : null;
+            clearAttrError(attrId);
+            validateAndToggleMainButton();
+          });
+
+        } else if (uiType === "bool") {
+          card.querySelectorAll(`input[name="attr_${attrId}"]`).forEach(rb => {
+            rb.addEventListener("change", function() {
+              // Store as actual boolean
+              attrState[attrId].value = this.value === "true";
+              clearAttrError(attrId);
+              validateAndToggleMainButton();
+            });
+          });
+
         } else {
+          // string / text
           const inp = card.querySelector(`input[data-attr="${attrId}"]`);
           inp.addEventListener("input", function() {
             attrState[attrId].value = this.value.trim() || null;
