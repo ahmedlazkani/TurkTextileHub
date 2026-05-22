@@ -247,6 +247,27 @@ async def proxy_attributes(
         len(data) if isinstance(data, list) else "?",
         category_id,
     )
+
+    # ── DEBUG: log first attribute + first option to understand KAYISOFT response shape ──
+    import json as _json
+    if isinstance(data, list) and data:
+        first_attr = data[0]
+        logger.info(
+            "proxy_attributes DEBUG — first attr keys: %s",
+            list(first_attr.keys()) if isinstance(first_attr, dict) else type(first_attr),
+        )
+        first_opts = first_attr.get("options", []) if isinstance(first_attr, dict) else []
+        if first_opts:
+            logger.info(
+                "proxy_attributes DEBUG — first option keys: %s | value: %s",
+                list(first_opts[0].keys()) if isinstance(first_opts[0], dict) else type(first_opts[0]),
+                _json.dumps(first_opts[0], ensure_ascii=False)[:300],
+            )
+        logger.info(
+            "proxy_attributes DEBUG — full first attr: %s",
+            _json.dumps(first_attr, ensure_ascii=False)[:500],
+        )
+
     return JSONResponse(content=data, status_code=200)
 
 
