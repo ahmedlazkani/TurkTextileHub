@@ -161,7 +161,7 @@ async def proxy_attributes(
         )
 
     # ── Step 2: Call KAYISOFT API ──────────────────────────────────────────────
-    kayisoft_url = f"{KAYISOFT_BASE}/api/categories/{category_id}/attributes"
+    kayisoft_url = f"{KAYISOFT_BASE}/api/seller/categories/{category_id}/attributes"
 
     logger.info(
         "Proxying attributes: url=%s user_id=%s",
