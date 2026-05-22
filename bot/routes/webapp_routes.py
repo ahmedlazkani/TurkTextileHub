@@ -60,7 +60,7 @@ except ImportError:
     )
 
 # ── Config ─────────────────────────────────────────────────────────────────────
-KAYISOFT_BASE    = os.getenv("KAYISOFT_API_URL", os.getenv("KAYISOFT_API_BASE_URL", "https://api.kayisoft.com"))
+KAYISOFT_BASE    = os.getenv("KAYISOFT_API_URL", os.getenv("KAYISOFT_API_BASE_URL", "https://api-wholesale.dev.kayisoft.net"))
 # Use the same token the bot uses — TELEGRAM_BOT_API_ENDPOINT_KEY (or legacy KAYISOFT_API_TOKEN)
 # This is a static Bearer token, NOT a per-user JWT — it works as a server-level auth token
 # .strip() is CRITICAL — env vars from Railway/dotenv may contain trailing \n
