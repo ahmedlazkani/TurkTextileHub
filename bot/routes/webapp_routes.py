@@ -173,9 +173,11 @@ async def proxy_attributes(
             resp = await client.get(
                 kayisoft_url,
                 headers={
-                    "Authorization": f"Bearer {token}",
-                    "Accept":        "application/json",
-                    "Accept-Language": "ar",  # Prefer Arabic attribute names
+                    "Authorization":    f"Bearer {token}",
+                    "Telegram-User-Id": str(user_id or ""),
+                    "Platform":         "telegram",
+                    "Accept":           "application/json",
+                    "Accept-Language":  "ar",  # Prefer Arabic attribute names
                 },
             )
     except httpx.TimeoutException:
