@@ -35,6 +35,7 @@ from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
 from bot.services.language_service import get_string, get_user_lang, detect_lang
 from bot.services.kayisoft_api import KayisoftAPI
+from bot.keyboards import supplier_main_keyboard
 
 logger = logging.getLogger(__name__)
 
@@ -415,7 +416,8 @@ async def handle_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TY
             await context.bot.send_message(
                 chat_id=user.id,
                 text=success_text,
-                parse_mode="HTML"
+                parse_mode="HTML",
+                reply_markup=supplier_main_keyboard(lang),  # Task: Show keyboard after channel linked
             )
         else:
             # Partial success: saved locally, API registration failed
@@ -442,7 +444,8 @@ async def handle_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TY
             await context.bot.send_message(
                 chat_id=user.id,
                 text=partial_texts.get(lang, partial_texts["en"]),
-                parse_mode="HTML"
+                parse_mode="HTML",
+                reply_markup=supplier_main_keyboard(lang),  # Task: Show keyboard even on partial success
             )
     except Exception as e:
         logger.error("Could not send confirmation to user %s: %s", user_id, e)

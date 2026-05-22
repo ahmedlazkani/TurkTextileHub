@@ -2933,6 +2933,17 @@ async def handle_final_publish(
         success_text += "\n\n" + get_string(lang, "add_product_no_channel")
 
     await query.edit_message_text(success_text, parse_mode=ParseMode.HTML)
+    # Task: Re-send main keyboard after product published so user sees buttons
+    from bot.keyboards import supplier_main_keyboard as _smk
+    try:
+        await context.bot.send_message(
+            chat_id=query.from_user.id,
+            text=get_string(lang, "main_menu_supplier"),
+            reply_markup=_smk(lang),
+            parse_mode=ParseMode.HTML,
+        )
+    except Exception:
+        pass
     context.user_data.clear()
     return ConversationHandler.END
 
