@@ -146,6 +146,11 @@ async def _run_telegram_bot() -> None:
 
     logger.info("TopKap Bot started successfully -- polling for updates...")
 
+    # Share the application instance with FastAPI via a module-level variable
+    # so that webapp_routes.py can call bot methods directly
+    import bot.routes.webapp_routes as _wr
+    _wr.set_bot_application(application)
+
     # Use async context manager for clean startup/shutdown
     async with application:
         await application.initialize()

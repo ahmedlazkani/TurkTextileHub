@@ -53,6 +53,17 @@ router = APIRouter()
 # same process (same Python interpreter, same memory space).
 pending_submissions: dict = {}
 
+# ── Bot application reference ─────────────────────────────────────────────────
+# Set by main.py after the bot is initialized so FastAPI can call bot methods
+# directly without going through Telegram API (avoids the sendMessage hack).
+_bot_application = None
+
+def set_bot_application(application) -> None:
+    """Called by main.py to share the PTB Application instance with FastAPI."""
+    global _bot_application
+    _bot_application = application
+    logger.info("webapp_routes: bot application registered ✅")
+
 
 class FormSubmission(BaseModel):
     """Pydantic model for the POST /webapp/submit request body."""
@@ -270,21 +281,57 @@ async def submit_product_form(
         user_id, list(body.payload.keys()),
     )
 
-    # Try to trigger the bot immediately via send_message
-    # The bot will also poll pending_submissions when the user sends any message
-    bot_token = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("BOT_TOKEN", "")
-    if bot_token:
+    # ── Strategy 1: Direct in-process call (preferred) ─────────────────────────
+    # If the bot application is registered, call handle_form_submitted directly
+    # by injecting a fake Update into the bot's update queue.
+    # This is reliable because bot and FastAPI run in the same asyncio event loop.
+    triggered = False
+    if _bot_application is not None:
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                await client.post(
-                    f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                    json={
-                        "chat_id": int(user_id),
-                        "text": "__FORM_SUBMITTED__",
-                    },
-                )
+            from telegram import Update, Message, User, Chat
+            import datetime
+
+            # Build a minimal fake Update that looks like a text message
+            # from the user containing __FORM_SUBMITTED__
+            fake_user = User(
+                id=int(user_id),
+                first_name="Supplier",
+                is_bot=False,
+            )
+            fake_chat = Chat(id=int(user_id), type="private")
+            fake_message = Message(
+                message_id=999999,
+                date=datetime.datetime.utcnow(),
+                chat=fake_chat,
+                from_user=fake_user,
+                text="__FORM_SUBMITTED__",
+            )
+            fake_update = Update(
+                update_id=999999,
+                message=fake_message,
+            )
+            await _bot_application.update_queue.put(fake_update)
+            triggered = True
+            logger.info("submit_product_form: injected fake Update into bot queue for user_id=%s", user_id)
         except Exception as exc:
-            logger.warning("submit_product_form: could not trigger bot: %s", exc)
+            logger.warning("submit_product_form: could not inject Update: %s", exc)
+
+    # ── Strategy 2: sendMessage fallback (if direct injection failed) ───────────
+    if not triggered:
+        bot_token = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("BOT_TOKEN", "")
+        if bot_token:
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    await client.post(
+                        f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                        json={
+                            "chat_id": int(user_id),
+                            "text": "__FORM_SUBMITTED__",
+                        },
+                    )
+                logger.info("submit_product_form: sent __FORM_SUBMITTED__ via sendMessage fallback")
+            except Exception as exc:
+                logger.warning("submit_product_form: sendMessage fallback also failed: %s", exc)
 
     return JSONResponse(content={"status": "ok", "user_id": user_id})
 
