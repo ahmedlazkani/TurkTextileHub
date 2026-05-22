@@ -17,8 +17,8 @@ USAGE (register in your FastAPI app / main.py):
 ENVIRONMENT VARIABLES REQUIRED:
     RAILWAY_DOMAIN          — public domain of this Railway service (e.g. "topkap.up.railway.app")
     KAYISOFT_API_BASE_URL   — base URL of KAYISOFT REST API
-    KAYISOFT_API_KEY        — server-to-server API key for obtaining user tokens
-                              (used when no per-user token is available)
+    TELEGRAM_BOT_API_ENDPOINT_KEY — same Bearer token used by the bot for all KAYISOFT calls
+                              (used when no per-user token is in cache)
 
 ARCHITECTURE NOTE:
     The /api/attributes/{category_id} endpoint must obtain a valid KAYISOFT JWT for the
@@ -60,8 +60,15 @@ except ImportError:
     )
 
 # ── Config ─────────────────────────────────────────────────────────────────────
-KAYISOFT_BASE    = os.getenv("KAYISOFT_API_BASE_URL", "https://api.kayisoft.com")
-KAYISOFT_API_KEY = os.getenv("KAYISOFT_API_KEY", "")
+KAYISOFT_BASE    = os.getenv("KAYISOFT_API_URL", os.getenv("KAYISOFT_API_BASE_URL", "https://api.kayisoft.com"))
+# Use the same token the bot uses — TELEGRAM_BOT_API_ENDPOINT_KEY (or legacy KAYISOFT_API_TOKEN)
+# This is a static Bearer token, NOT a per-user JWT — it works as a server-level auth token
+KAYISOFT_API_KEY = (
+    os.getenv("TELEGRAM_BOT_API_ENDPOINT_KEY") or
+    os.getenv("KAYISOFT_API_TOKEN") or
+    os.getenv("KAYISOFT_API_KEY") or
+    ""
+)
 RAILWAY_DOMAIN   = os.getenv("RAILWAY_DOMAIN", "localhost:8000")
 
 # Path to the compiled HTML form file
@@ -241,45 +248,13 @@ async def _get_user_token(user_id: Optional[str]) -> Optional[str]:
             logger.debug("_get_user_token: cached token expired for user_id=%s", user_id)
             del token_cache[user_id]
 
-    # ── Server-to-server exchange ──────────────────────────────────────────────
-    # Some KAYISOFT deployments expose a privileged endpoint that returns a
-    # per-user token given the Telegram user_id and a server API key.
-    # Adjust the endpoint and payload to match your actual KAYISOFT auth spec.
+    # ── Fallback: use static server-level Bearer token ────────────────────────
+    # KAYISOFT uses a single static Bearer token (TELEGRAM_BOT_API_ENDPOINT_KEY)
+    # for all server-side API calls — same token the bot uses.
+    # This is NOT a per-user JWT; it's a server-to-server API key.
     if not KAYISOFT_API_KEY:
         logger.warning("_get_user_token: KAYISOFT_API_KEY not set — cannot exchange token")
         return None
 
-    try:
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            resp = await client.post(
-                f"{KAYISOFT_BASE}/api/auth/telegram-token",
-                json={
-                    "telegram_user_id": user_id,
-                    "api_key":          KAYISOFT_API_KEY,
-                },
-                headers={"Accept": "application/json"},
-            )
-
-        if resp.status_code == 200:
-            body = resp.json()
-            token = body.get("access_token") or body.get("token")
-            if token:
-                # Cache it for future requests
-                if user_id:
-                    import time
-                    expires_in = body.get("expires_in", 3600)
-                    token_cache[user_id] = {
-                        "access_token": token,
-                        "expires_at":   time.time() + expires_in,
-                    }
-                logger.info("_get_user_token: S2S token exchange OK for user_id=%s", user_id)
-                return token
-
-        logger.warning(
-            "_get_user_token: S2S exchange failed (HTTP %d) for user_id=%s",
-            resp.status_code, user_id,
-        )
-    except Exception as exc:
-        logger.error("_get_user_token: exception during S2S exchange: %s", exc)
-
-    return None
+    logger.info("_get_user_token: using static server token for user_id=%s", user_id)
+    return KAYISOFT_API_KEY
