@@ -989,7 +989,11 @@
       // Short delay so user sees checkmark, then close
       setTimeout(() => {
         if (tg) {
+          // sendData sends the payload to the bot handler
           tg.sendData(JSON.stringify(payload));
+          // close() MUST be called to dismiss the Mini App window
+          // Without this, the loading spinner spins forever
+          setTimeout(() => tg.close(), 300);
         } else {
           // Dev fallback: log to console
           console.log("FORM DATA:", JSON.stringify(payload, null, 2));
