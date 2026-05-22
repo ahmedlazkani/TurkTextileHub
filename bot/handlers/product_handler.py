@@ -142,7 +142,7 @@ from telegram.ext import (
 
 from bot.services.language_service import get_string, get_user_lang
 from bot.services.kayisoft_api import KayisoftAPI
-from bot.services.deepseek_service import deepseek_service
+from bot.services.deepseek_service import deepseek_service, generate_channel_post
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +155,7 @@ SELECT_SUBCATEGORY = 2   # Waiting for subcategory selection
 FILL_FORM          = 3   # Waiting for free-text product description (AI-assisted)
 FIX_MISSING        = 4   # Waiting for supplier to fill missing required attributes
 CONFIRM_DETAILS    = 8   # Waiting for supplier to confirm or edit AI summary
+AI_POST_REVIEW     = 9   # Waiting for supplier to approve DeepSeek-generated channel post
 UPLOAD_IMAGES      = 5   # Waiting for image uploads
 CONFIRM_VARIANTS   = 6   # Waiting for variant preview confirmation
 CONFIRM_PUBLISH    = 7   # Waiting for final publish confirmation
@@ -1966,24 +1967,110 @@ async def handle_confirm_details(
     await query.answer()  # Remove Telegram's loading spinner
 
     if query.data == "details_confirm":
-        # ── Supplier confirmed → proceed to image upload ──────────────────────────────────────
-        progress = _progress_bar(4)
-        upload_prompts = {
-            "tr": f"{progress}\n\n📸 <b>Adım 4 — Ürün Fotoğrafları</b>\n\n"
-                  f"Ürün fotoğraflarınızı gönderin.\n"
-                  f"Kameradan çekebilir veya galerinizden seçebilirsiniz.",
-            "ar": f"{progress}\n\n📸 <b>الخطوة 4 — صور المنتج</b>\n\n"
-                  f"أرسل صور منتجك الآن.\n"
-                  f"يمكنك التصوير مباشرةً من الكاميرا أو الاختيار من المعرض.",
-            "en": f"{progress}\n\n📸 <b>Step 4 — Product Images</b>\n\n"
-                  f"Send your product photos now.\n"
-                  f"You can take a photo directly from your camera or choose from your gallery.",
+        # ── Supplier confirmed → generate AI channel post ────────────────────────────────────────────
+        product_details = context.user_data.get("product_details", {})
+        languages = product_details.get("post_languages") or ["ar", "tr"]
+
+        # Build attributes list for DeepSeek
+        attrs_list = []
+        all_attrs = context.user_data.get("attributes", {})
+        shared_attrs = product_details.get("shared_attributes", {})
+        for attr_id, option_ids in shared_attrs.items():
+            attr_info = all_attrs.get(attr_id, {})
+            attr_name = attr_info.get("name", attr_id)
+            option_names = []
+            for opt_id in (option_ids if isinstance(option_ids, list) else [option_ids]):
+                for opt in attr_info.get("options", []):
+                    if opt.get("id") == opt_id:
+                        option_names.append(opt.get("name", opt_id))
+                        break
+            if option_names:
+                attrs_list.append({"name": attr_name, "value": ", ".join(option_names)})
+
+        selector_attrs = product_details.get("selector_attributes", [])
+        for sel in selector_attrs:
+            attr_id = sel.get("attribute_id", "")
+            opt_id  = sel.get("option_id", "")
+            attr_info = all_attrs.get(attr_id, {})
+            attr_name = attr_info.get("name", attr_id)
+            opt_name  = opt_id
+            for opt in attr_info.get("options", []):
+                if opt.get("id") == opt_id:
+                    opt_name = opt.get("name", opt_id)
+                    break
+            attrs_list.append({"name": attr_name, "value": opt_name})
+
+        post_data = {
+            "name":         product_details.get("name", ""),
+            "description":  product_details.get("description", ""),
+            "price":        product_details.get("price", ""),
+            "min_quantity": product_details.get("min_quantity", 1),
+            "product_code": product_details.get("product_code", ""),
+            "notes":        product_details.get("notes", ""),
+            "attributes":   attrs_list,
         }
-        await query.message.reply_text(
-            upload_prompts.get(lang, upload_prompts["en"]),
+
+        # Show "generating" message
+        generating_msgs = {
+            "ar": "🤖 <b>DeepSeek AI</b> يُحسّن بوست القناة...",
+            "tr": "🤖 <b>DeepSeek AI</b> kanal gönderisi oluşturuluyor...",
+            "en": "🤖 <b>DeepSeek AI</b> is crafting your channel post...",
+        }
+        gen_msg = await query.message.reply_text(
+            generating_msgs.get(lang, generating_msgs["en"]),
             parse_mode=ParseMode.HTML,
         )
-        return UPLOAD_IMAGES
+
+        # Call DeepSeek
+        ai_post = await generate_channel_post(post_data, languages)
+
+        if not ai_post:
+            # Fallback: skip AI review and go straight to image upload
+            await gen_msg.delete()
+            progress = _progress_bar(4)
+            upload_prompts = {
+                "tr": f"{progress}\n\n📸 <b>Adım 4 — Ürün Fotoğrafları</b>\n\nÜrün fotoğraflarınızı gönderin.",
+                "ar": f"{progress}\n\n📸 <b>الخطوة 4 — صور المنتج</b>\n\nأرسل صور منتجك الآن.",
+                "en": f"{progress}\n\n📸 <b>Step 4 — Product Images</b>\n\nSend your product photos now.",
+            }
+            await query.message.reply_text(
+                upload_prompts.get(lang, upload_prompts["en"]),
+                parse_mode=ParseMode.HTML,
+            )
+            return UPLOAD_IMAGES
+
+        # Save AI post for later use in channel publishing
+        context.user_data["ai_channel_post"] = ai_post
+
+        # Show AI post preview with approve/edit/regenerate buttons
+        preview_headers = {
+            "ar": "🤖 <b>معاينة بوست القناة</b> (مُحسَّن بالذكاء الاصطناعي)\n\n",
+            "tr": "🤖 <b>Kanal Gönderisi Önizlemesi</b> (AI ile iyileştirildi)\n\n",
+            "en": "🤖 <b>Channel Post Preview</b> (AI-enhanced)\n\n",
+        }
+        preview_text = preview_headers.get(lang, preview_headers["en"]) + ai_post
+
+        approve_labels = {
+            "ar": ("✅ موافق، ارفع الصور", "🔄 أعد التوليد", "✏️ تعديل يدوي"),
+            "tr": ("✅ Onayla, Fotoğraf Ekle", "🔄 Yeniden Oluştur", "✏️ Manuel Düzenle"),
+            "en": ("✅ Approve & Upload Photos", "🔄 Regenerate", "✏️ Edit Manually"),
+        }
+        approve_lbl, regen_lbl, edit_lbl = approve_labels.get(lang, approve_labels["en"])
+
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton(approve_lbl, callback_data="post_approve"),
+            InlineKeyboardButton(regen_lbl,   callback_data="post_regenerate"),
+        ], [
+            InlineKeyboardButton(edit_lbl,    callback_data="post_edit"),
+        ]])
+
+        await gen_msg.delete()
+        await query.message.reply_text(
+            preview_text,
+            reply_markup=keyboard,
+            parse_mode=ParseMode.HTML,
+        )
+        return AI_POST_REVIEW
 
     else:  # details_edit
         # ── Supplier wants to edit → return to FILL_FORM ──────────────────────────────────────
@@ -1997,6 +2084,178 @@ async def handle_confirm_details(
             parse_mode=ParseMode.HTML,
         )
         return FILL_FORM
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AI POST REVIEW — Approve / Regenerate / Edit
+# ══════════════════════════════════════════════════════════════════════════════
+async def handle_ai_post_review(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> int:
+    """
+    STATE: AI_POST_REVIEW
+    Handles the three buttons shown below the AI-generated channel post:
+      - post_approve     → proceed to image upload
+      - post_regenerate  → call DeepSeek again and show new post
+      - post_edit        → ask supplier to type their own post text
+    """
+    query   = update.callback_query
+    user    = update.effective_user
+    user_id = str(user.id)
+    lang    = get_user_lang(user_id, telegram_language_code=user.language_code or "")
+    await query.answer()
+
+    if query.data == "post_approve":
+        # ── Approved → proceed to image upload ──────────────────────────────
+        progress = _progress_bar(4)
+        upload_prompts = {
+            "tr": f"{progress}\n\n📸 <b>Adım 4 — Ürün Fotoğrafları</b>\n\nÜrün fotoğraflarınızı gönderin.\nKameradan çekebilir veya galerinizden seçebilirsiniz.",
+            "ar": f"{progress}\n\n📸 <b>الخطوة 4 — صور المنتج</b>\n\nأرسل صور منتجك الآن.\nيمكنك التصوير من الكاميرا أو الاختيار من المعرض.",
+            "en": f"{progress}\n\n📸 <b>Step 4 — Product Images</b>\n\nSend your product photos now.\nYou can take a photo from your camera or choose from your gallery.",
+        }
+        await query.message.reply_text(
+            upload_prompts.get(lang, upload_prompts["en"]),
+            parse_mode=ParseMode.HTML,
+        )
+        return UPLOAD_IMAGES
+
+    elif query.data == "post_regenerate":
+        # ── Regenerate → call DeepSeek again ────────────────────────────────
+        product_details = context.user_data.get("product_details", {})
+        languages = product_details.get("post_languages") or ["ar", "tr"]
+
+        gen_msgs = {
+            "ar": "🔄 <b>إعادة توليد البوست...</b>",
+            "tr": "🔄 <b>Gönderi yeniden oluşturuluyor...</b>",
+            "en": "🔄 <b>Regenerating post...</b>",
+        }
+        gen_msg = await query.message.reply_text(
+            gen_msgs.get(lang, gen_msgs["en"]),
+            parse_mode=ParseMode.HTML,
+        )
+
+        # Build post_data again
+        attrs_list = []
+        all_attrs = context.user_data.get("attributes", {})
+        for attr_id, option_ids in product_details.get("shared_attributes", {}).items():
+            attr_info = all_attrs.get(attr_id, {})
+            attr_name = attr_info.get("name", attr_id)
+            option_names = []
+            for opt_id in (option_ids if isinstance(option_ids, list) else [option_ids]):
+                for opt in attr_info.get("options", []):
+                    if opt.get("id") == opt_id:
+                        option_names.append(opt.get("name", opt_id))
+                        break
+            if option_names:
+                attrs_list.append({"name": attr_name, "value": ", ".join(option_names)})
+
+        post_data = {
+            "name":         product_details.get("name", ""),
+            "description":  product_details.get("description", ""),
+            "price":        product_details.get("price", ""),
+            "min_quantity": product_details.get("min_quantity", 1),
+            "product_code": product_details.get("product_code", ""),
+            "notes":        product_details.get("notes", ""),
+            "attributes":   attrs_list,
+        }
+
+        ai_post = await generate_channel_post(post_data, languages)
+        await gen_msg.delete()
+
+        if not ai_post:
+            err_msgs = {
+                "ar": "⚠️ فشل التوليد. سيُستخدم البوست السابق.",
+                "tr": "⚠️ Oluşturma başarısız. Önceki gönderi kullanılacak.",
+                "en": "⚠️ Generation failed. Previous post will be used.",
+            }
+            await query.message.reply_text(err_msgs.get(lang, err_msgs["en"]))
+            return AI_POST_REVIEW
+
+        context.user_data["ai_channel_post"] = ai_post
+
+        preview_headers = {
+            "ar": "🤖 <b>بوست جديد</b> (مُحسَّن بالذكاء الاصطناعي)\n\n",
+            "tr": "🤖 <b>Yeni Gönderi</b> (AI ile iyileştirildi)\n\n",
+            "en": "🤖 <b>New Post</b> (AI-enhanced)\n\n",
+        }
+        preview_text = preview_headers.get(lang, preview_headers["en"]) + ai_post
+
+        approve_labels = {
+            "ar": ("✅ موافق، ارفع الصور", "🔄 أعد التوليد", "✏️ تعديل يدوي"),
+            "tr": ("✅ Onayla, Fotoğraf Ekle", "🔄 Yeniden Oluştur", "✏️ Manuel Düzenle"),
+            "en": ("✅ Approve & Upload Photos", "🔄 Regenerate", "✏️ Edit Manually"),
+        }
+        approve_lbl, regen_lbl, edit_lbl = approve_labels.get(lang, approve_labels["en"])
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton(approve_lbl, callback_data="post_approve"),
+            InlineKeyboardButton(regen_lbl,   callback_data="post_regenerate"),
+        ], [
+            InlineKeyboardButton(edit_lbl,    callback_data="post_edit"),
+        ]])
+        await query.message.reply_text(
+            preview_text,
+            reply_markup=keyboard,
+            parse_mode=ParseMode.HTML,
+        )
+        return AI_POST_REVIEW
+
+    else:  # post_edit
+        # ── Manual edit → ask supplier to type their own post ───────────────
+        edit_prompts = {
+            "ar": "✏️ اكتب نص البوست الذي تريد نشره على القناة:\n(يمكنك استخدام HTML: <b>عريض</b>، <i>مائل</i>)",
+            "tr": "✏️ Kanala göndermek istediğiniz gönderi metnini yazın:\n(HTML kullanabilirsiniz: <b>kalın</b>, <i>italik</i>)",
+            "en": "✏️ Type the post text you want to publish to the channel:\n(You can use HTML: <b>bold</b>, <i>italic</i>)",
+        }
+        await query.message.reply_text(
+            edit_prompts.get(lang, edit_prompts["en"]),
+            parse_mode=ParseMode.HTML,
+        )
+        return AI_POST_REVIEW
+
+
+async def handle_ai_post_manual_edit(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> int:
+    """
+    STATE: AI_POST_REVIEW (text message)
+    Handles supplier typing their own post text after pressing ✏️ Edit Manually.
+    """
+    user    = update.effective_user
+    user_id = str(user.id)
+    lang    = get_user_lang(user_id, telegram_language_code=user.language_code or "")
+    text    = update.message.text.strip()
+
+    if not text:
+        return AI_POST_REVIEW
+
+    context.user_data["ai_channel_post"] = text
+
+    # Show the edited post with approve button
+    approve_labels = {
+        "ar": ("✅ موافق، ارفع الصور", "🔄 أعد التوليد بالذكاء الاصطناعي"),
+        "tr": ("✅ Onayla, Fotoğraf Ekle", "🔄 AI ile Yeniden Oluştur"),
+        "en": ("✅ Approve & Upload Photos", "🔄 Regenerate with AI"),
+    }
+    approve_lbl, regen_lbl = approve_labels.get(lang, approve_labels["en"])
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton(approve_lbl, callback_data="post_approve"),
+        InlineKeyboardButton(regen_lbl,   callback_data="post_regenerate"),
+    ]])
+
+    preview_headers = {
+        "ar": "📝 <b>معاينة البوست المُعدَّل</b>\n\n",
+        "tr": "📝 <b>Düzenlenmiş Gönderi Önizlemesi</b>\n\n",
+        "en": "📝 <b>Edited Post Preview</b>\n\n",
+    }
+    preview_text = preview_headers.get(lang, preview_headers["en"]) + text
+    await update.message.reply_text(
+        preview_text,
+        reply_markup=keyboard,
+        parse_mode=ParseMode.HTML,
+    )
+    return AI_POST_REVIEW
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2983,6 +3242,18 @@ def get_product_conv_handler() -> ConversationHandler:
                 CallbackQueryHandler(
                     handle_confirm_details,
                     pattern=r"^(details_confirm|details_edit)$",
+                ),
+            ],
+            AI_POST_REVIEW: [
+                # Supplier presses ✅ Approve, 🔄 Regenerate, or ✏️ Edit
+                CallbackQueryHandler(
+                    handle_ai_post_review,
+                    pattern=r"^(post_approve|post_regenerate|post_edit)$",
+                ),
+                # Supplier types their own post text (after pressing ✏️ Edit)
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    handle_ai_post_manual_edit,
                 ),
             ],
             UPLOAD_IMAGES: [

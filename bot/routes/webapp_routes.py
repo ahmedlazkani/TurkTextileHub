@@ -63,12 +63,14 @@ except ImportError:
 KAYISOFT_BASE    = os.getenv("KAYISOFT_API_URL", os.getenv("KAYISOFT_API_BASE_URL", "https://api.kayisoft.com"))
 # Use the same token the bot uses — TELEGRAM_BOT_API_ENDPOINT_KEY (or legacy KAYISOFT_API_TOKEN)
 # This is a static Bearer token, NOT a per-user JWT — it works as a server-level auth token
+# .strip() is CRITICAL — env vars from Railway/dotenv may contain trailing \n
+# which causes "Illegal header value" when used as Bearer token
 KAYISOFT_API_KEY = (
     os.getenv("TELEGRAM_BOT_API_ENDPOINT_KEY") or
     os.getenv("KAYISOFT_API_TOKEN") or
     os.getenv("KAYISOFT_API_KEY") or
     ""
-)
+).strip()
 RAILWAY_DOMAIN   = os.getenv("RAILWAY_DOMAIN", "localhost:8000")
 
 # Path to the compiled HTML form file

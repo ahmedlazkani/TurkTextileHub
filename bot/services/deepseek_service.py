@@ -738,7 +738,132 @@ class DeepSeekService:
                 return None
 
 
-# ── Module-level singleton ────────────────────────────────────────────────────
+# ──# ═══════════════════════════════════════════════════════════════════════════════
+# CHANNEL POST GENERATOR
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def generate_channel_post(
+    product_data: dict,
+    languages: List[str],
+) -> Optional[str]:
+    """
+    Generates a professional Telegram channel post for a textile product.
+
+    Parameters
+    ----------
+    product_data : dict
+        Keys: name, description, price, min_quantity, stock_count,
+              product_code (optional), notes (optional),
+              attributes (list of {name, value} dicts)
+    languages : list[str]
+        Subset of ["ar", "tr", "en"] — languages to include in the post.
+
+    Returns
+    -------
+    str | None  — formatted post text, or None on failure.
+    """
+    _key  = os.getenv("DEEPSEEK_API_KEY", "").strip() or os.getenv("OPENAI_API_KEY", "").strip()
+    _base = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1").rstrip("/")
+    if not _base.endswith("/v1"):
+        _base += "/v1"
+    _model = "deepseek-chat"
+
+    if not _key:
+        logger.warning("generate_channel_post: no API key — returning None")
+        return None
+
+    # ── Build language instruction ──────────────────────────────────────────────
+    lang_map = {"ar": "🇸🇦 Arabic (العربية)", "tr": "🇹🇷 Turkish (Türkçe)", "en": "🇬🇧 English"}
+    lang_names = [lang_map.get(l, l) for l in languages]
+
+    if len(languages) == 1:
+        lang_instruction = f"Write the post ONLY in {lang_names[0]}."
+    else:
+        lang_instruction = (
+            "Write the post in ALL of these languages, each section clearly separated:\n"
+            + "\n".join(f"  • {n}" for n in lang_names)
+            + "\nUse a divider line (────────────────────────) between language sections."
+        )
+
+    # ── Build product summary ───────────────────────────────────────────────
+    attrs_text = ""
+    for a in product_data.get("attributes", []):
+        attrs_text += f"  • {a['name']}: {a['value']}\n"
+
+    product_summary = (
+        f"Product Name   : {product_data.get('name', '')}\n"
+        f"Description    : {product_data.get('description', '') or '(not provided)'}\n"
+        f"Price          : {product_data.get('price', '')} $\n"
+        f"Min. Order     : {product_data.get('min_quantity', '')} pcs\n"
+        f"Product Code   : {product_data.get('product_code') or '(not provided)'}\n"
+        f"Notes          : {product_data.get('notes') or '(none)'}\n"
+        f"Attributes     :\n{attrs_text or '  (none)'}"
+    ).strip()
+
+    # ── System prompt ──────────────────────────────────────────────────
+    system_prompt = (
+        "You are an expert copywriter for a Turkish wholesale textile marketplace (TopKap/TopGate).\n"
+        "Your task: write a professional, eye-catching Telegram channel post for a wholesale clothing product.\n\n"
+        "STYLE RULES:\n"
+        "1. Use relevant emojis (✅ 🔥 📌 💰 etc.) but keep it professional — max 2-3 per section.\n"
+        "2. Format each language section like this:\n"
+        "   ────────────────────────\n"
+        "   [Flag + Language Name]\n"
+        "   [Product emoji] [Product Name]\n"
+        "   [Description — 1-2 lines max]\n"
+        "   ────────────────────────\n"
+        "   📌 [Size label]: [sizes]\n"
+        "   🧵 [Fabric label]: [fabric]\n"
+        "   💰 [Price label]: [price] $\n"
+        "   📦 [Min order label]: [qty] pcs\n"
+        "   🔖 [Code label]: [code]   ← OMIT if not provided\n"
+        "   📋 [Notes label]: [notes] ← OMIT if empty\n"
+        "3. Do NOT include phone numbers, WhatsApp links, or URLs.\n"
+        "4. Use correct language for labels:\n"
+        "   Arabic: المقاسات / القماش / السعر / الحد الأدنى / كود / ملاحظات\n"
+        "   Turkish: Beden / Kumaş / Fiyat / Min. Sipariş / Kod / Not\n"
+        "   English: Size / Fabric / Price / Min. Order / Code / Notes\n"
+        "5. Return ONLY the post text — no explanations, no markdown code fences."
+    )
+
+    user_message = f"{lang_instruction}\n\nProduct data:\n{product_summary}"
+
+    payload = {
+        "model":       _model,
+        "messages":    [
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": user_message},
+        ],
+        "temperature": 0.7,
+        "max_tokens":  800,
+    }
+    headers = {
+        "Authorization": f"Bearer {_key}",
+        "Content-Type":  "application/json",
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{_base}/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as resp:
+                if resp.status >= 400:
+                    body = await resp.text()
+                    logger.error("generate_channel_post: API HTTP %d — %s", resp.status, body[:300])
+                    return None
+                result  = await resp.json()
+                content = result["choices"][0]["message"]["content"].strip()
+                logger.info("generate_channel_post: generated %d chars", len(content))
+                return content
+    except Exception as e:
+        logger.error("generate_channel_post: error — %s", e)
+        return None
+
+
+# ── Module-level singleton ────────────────────────────────────────────────
 # Import and use this instance throughout the bot:
 #   from bot.services.deepseek_service import deepseek_service
 deepseek_service = DeepSeekService()

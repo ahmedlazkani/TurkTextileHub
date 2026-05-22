@@ -431,6 +431,53 @@
     ::-webkit-scrollbar { width: 4px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 2px; }
+
+    /* Optional tag */
+    .optional-tag {
+      font-size:     0.65rem;
+      font-weight:   500;
+      color:         var(--tg-hint);
+      background:    rgba(0,0,0,0.06);
+      border-radius: 20px;
+      padding:       2px 7px;
+      letter-spacing: .02em;
+    }
+
+    /* Language selector */
+    .lang-selector {
+      display:   flex;
+      flex-wrap: wrap;
+      gap:       10px;
+      padding-top: 4px;
+    }
+    .lang-option {
+      display:  flex;
+      align-items: center;
+      gap:      6px;
+      cursor:   pointer;
+    }
+    .lang-option input[type="checkbox"] {
+      display: none;
+    }
+    .lang-badge {
+      display:       inline-flex;
+      align-items:   center;
+      gap:           4px;
+      font-size:     0.82rem;
+      font-weight:   600;
+      padding:       6px 14px;
+      border-radius: 20px;
+      border:        2px solid rgba(0,0,0,0.12);
+      background:    var(--tg-bg);
+      color:         var(--tg-hint);
+      transition:    all 0.18s ease;
+      user-select:   none;
+    }
+    .lang-option input:checked + .lang-badge {
+      border-color: var(--tg-btn);
+      background:   rgba(38,120,216,0.10);
+      color:        var(--tg-btn);
+    }
   </style>
 </head>
 
@@ -560,7 +607,64 @@
       </div>
     </div>
 
-    <!-- ─── 7. ملاحظة الصور ─────────────────────────────── -->
+    <!-- ─── 7. كود المنتج (اختياري) ──────────────────────── -->
+    <div class="field-card" id="card-code">
+      <div class="field-label">
+        <span class="icon">🔖</span>
+        كود المنتج
+        <span class="optional-tag">اختياري</span>
+      </div>
+      <input
+        type="text"
+        id="field-code"
+        placeholder="مثال: TK-143"
+        maxlength="50"
+        autocomplete="off"
+        inputmode="text"
+      />
+    </div>
+
+    <!-- ─── 8. الملاحظات (اختياري) ──────────────────────── -->
+    <div class="field-card" id="card-notes">
+      <div class="field-label">
+        <span class="icon">📋</span>
+        ملاحظات
+        <span class="optional-tag">اختياري</span>
+      </div>
+      <textarea
+        id="field-notes"
+        placeholder="مثال: الباكيت يحوي 4 قطع — صيفي — بدون فاتورة"
+        maxlength="500"
+        rows="2"
+      ></textarea>
+      <div class="char-counter" id="counter-notes">0 / 500</div>
+    </div>
+
+    <!-- ─── 9. لغات البوست ────────────────────────────── -->
+    <div class="field-card" id="card-langs">
+      <div class="field-label">
+        <span class="icon">🌐</span>
+        لغات البوست على القناة
+        <span class="required-star">*</span>
+      </div>
+      <div class="lang-selector">
+        <label class="lang-option">
+          <input type="checkbox" id="lang-ar" value="ar" checked />
+          <span class="lang-badge">🇸🇦 عربي</span>
+        </label>
+        <label class="lang-option">
+          <input type="checkbox" id="lang-tr" value="tr" />
+          <span class="lang-badge">🇹🇷 Türkçe</span>
+        </label>
+        <label class="lang-option">
+          <input type="checkbox" id="lang-en" value="en" />
+          <span class="lang-badge">🇬🇧 English</span>
+        </label>
+      </div>
+      <div class="field-error" id="error-langs">يجب اختيار لغة واحدة على الأقل</div>
+    </div>
+
+    <!-- ─── 10. ملاحظة الصور ────────────────────────────── -->
     <div class="info-card">
       <span class="info-card-icon">📸</span>
       <div class="info-card-text">
@@ -649,6 +753,26 @@
 
     document.getElementById("field-desc").addEventListener("input", function() {
       updateCounter("counter-desc", this.value.length, 1000);
+    });
+
+    document.getElementById("field-notes")?.addEventListener("input", function() {
+      updateCounter("counter-notes", this.value.length, 500);
+    });
+
+    // Lang checkboxes — ensure at least one is selected
+    ["lang-ar","lang-tr","lang-en"].forEach(id => {
+      document.getElementById(id)?.addEventListener("change", function() {
+        const anyChecked = ["lang-ar","lang-tr","lang-en"].some(l => document.getElementById(l)?.checked);
+        const errEl  = document.getElementById("error-langs");
+        const cardEl = document.getElementById("card-langs");
+        if (!anyChecked) {
+          errEl?.classList.add("visible");
+          cardEl?.classList.add("has-error");
+        } else {
+          errEl?.classList.remove("visible");
+          cardEl?.classList.remove("has-error");
+        }
+      });
     });
 
     /* ──────────────────────────────────────────────────────────
@@ -966,13 +1090,20 @@
         }
       }
 
+      const code  = (document.getElementById("field-code")?.value || "").trim();
+      const notes = (document.getElementById("field-notes")?.value || "").trim();
+      const langs = ["ar","tr","en"].filter(l => document.getElementById(`lang-${l}`)?.checked);
+
       const payload = {
         name,
-        description:       desc,
-        price:             price,
-        min_quantity:      minQty,
-        stock_count:       stock,
-        shared_attributes: sharedAttrs,
+        description:         desc,
+        price:               price,
+        min_quantity:        minQty,
+        stock_count:         stock,
+        product_code:        code  || null,
+        notes:               notes || null,
+        post_languages:      langs.length ? langs : ["ar"],
+        shared_attributes:   sharedAttrs,
         selector_attributes: selectorAttrs,
       };
 
