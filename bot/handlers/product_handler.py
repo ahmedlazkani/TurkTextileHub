@@ -1322,11 +1322,12 @@ async def start_add_product(
     lang    = get_user_lang(user_id, telegram_language_code=user.language_code or "")
 
     # ── مهمة 5: فحص وجود channel_id قبل بدء التدفق ─────────────────────────────────────────
-    # مورد لم يربط قناته بعد → أرسل رسالة محفّزة بدلاً من فتح التدفق
+    # القناة اختيارية: إذا لم يربط المورد قناته، نُرسل إشعاراً تحفيزياً ونكمل التدفق
+    # المنتج يُنشر على KAYISOFT بكل الأحوال، والقناة تُستخدم فقط إذا كانت مربوطة
     from bot.handlers.channel_handler import get_channel_id_for_user
     from bot.keyboards import supplier_main_keyboard
     channel_id = get_channel_id_for_user(user_id, context)
-    if not channel_id:
+    if not channel_id:  # Channel is REQUIRED — supplier must link before adding products
         setup_msgs = {
             "ar": (
                 "📢 <b>خطوة مهمة قبل إضافة المنتجات!</b>\n\n"
@@ -1374,13 +1375,20 @@ async def start_add_product(
                 "🚀 After setup, reach 180+ countries!"
             ),
         }
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        # Inline button to guide user to /setchannel quickly
+        inline_btns = {
+            "ar": [[InlineKeyboardButton("🔗 أعرف كيف أحصل على معرّف قناتي", callback_data="how_to_get_channel_id")]],
+            "tr": [[InlineKeyboardButton("🔗 Kanal ID'mi nasıl öğrenirim?", callback_data="how_to_get_channel_id")]],
+            "en": [[InlineKeyboardButton("🔗 How to get my channel ID?", callback_data="how_to_get_channel_id")]],
+        }
         await update.message.reply_text(
             setup_msgs.get(lang, setup_msgs["en"]),
             parse_mode="HTML",
-            reply_markup=supplier_main_keyboard(lang),
+            reply_markup=InlineKeyboardMarkup(inline_btns.get(lang, inline_btns["en"])),
         )
         return ConversationHandler.END
-    # ── نهاية فحص القناة ────────────────────────────────────────────────────────────────────
+    # ── نهاية فحص القناة ──────────────────────────────────────────────────────────────────────────────────────
 
     # Clear any previous product data to start fresh
     context.user_data.pop("product_data", None)

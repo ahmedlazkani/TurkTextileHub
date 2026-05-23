@@ -31,8 +31,8 @@ FIX (2026-05-21-v2): Critical fixes applied:
 import json
 import logging
 import os
-from telegram import Update
-from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters, CallbackQueryHandler
 from bot.services.language_service import get_string, get_user_lang, detect_lang
 from bot.services.kayisoft_api import KayisoftAPI
 from bot.keyboards import supplier_main_keyboard
@@ -452,6 +452,60 @@ async def handle_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Inline callback: How to get channel ID
+# ══════════════════════════════════════════════════════════════════════════════
+async def handle_how_to_get_channel_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Responds to the inline button 'How to get my channel ID?'.
+    Explains the two methods: @userinfobot and forwarding a message.
+    Then prompts the user to send /setchannel <id>.
+    """
+    query = update.callback_query
+    await query.answer()
+
+    user_id = str(query.from_user.id)
+    lang = get_user_lang(user_id)
+
+    texts = {
+        "ar": (
+            "🔗 <b>كيف تحصل على معرّف قناتك:</b>\n\n"
+            "<b>الطريقة السهلة:</b>\n"
+            "1️⃣ افتح قناتك → أي رسالة → اضغط عليها طويلاً → <b>إعادة توجيه</b>\n"
+            "2️⃣ أرسلها لبوت @userinfobot\n"
+            "3️⃣ سيظهر لك معرّف القناة يبدأ بـ <code>-100</code>\n\n"
+            "<b>ثم أرسل:</b>\n"
+            "<code>/setchannel -100XXXXXXXXXX</code>\n\n"
+            "⚠️ إذا كنت قد أضفت البوت كمشرف ولم يصلك تأكيد، فقط أرسل الأمر أعلاه بمعرّف قناتك."
+        ),
+        "tr": (
+            "🔗 <b>Kanal ID'nizi nasıl öğrenirsiniz:</b>\n\n"
+            "<b>Kolay yöntem:</b>\n"
+            "1️⃣ Kanalınızı açın → Herhangi bir mesaja uzun basın → <b>İlet</b>\n"
+            "2️⃣ @userinfobot'a iletin\n"
+            "3️⃣ <code>-100</code> ile başlayan kanal ID'si görünecek\n\n"
+            "<b>Sonra gönderin:</b>\n"
+            "<code>/setchannel -100XXXXXXXXXX</code>\n\n"
+            "⚠️ Botu yönetici olarak eklediniz ama onay gelmedi ise, yukarıdaki komutu gönderin."
+        ),
+        "en": (
+            "🔗 <b>How to get your channel ID:</b>\n\n"
+            "<b>Easy method:</b>\n"
+            "1️⃣ Open your channel → Long-press any message → <b>Forward</b>\n"
+            "2️⃣ Forward it to @userinfobot\n"
+            "3️⃣ You'll see the channel ID starting with <code>-100</code>\n\n"
+            "<b>Then send:</b>\n"
+            "<code>/setchannel -100XXXXXXXXXX</code>\n\n"
+            "⚠️ If you already added the bot as admin but got no confirmation, just send the command above."
+        ),
+    }
+
+    await query.message.reply_text(
+        texts.get(lang, texts["en"]),
+        parse_mode="HTML",
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Register all channel-related handlers
 # ══════════════════════════════════════════════════════════════════════════════
 def register_channel_handlers(application) -> None:
@@ -467,3 +521,5 @@ def register_channel_handlers(application) -> None:
     application.add_handler(CommandHandler('channel', start_channel_connection))
     # /setchannel <channel_id> — manual override
     application.add_handler(CommandHandler('setchannel', handle_setchannel))
+    # Inline button: how to get channel ID
+    application.add_handler(CallbackQueryHandler(handle_how_to_get_channel_id, pattern='^how_to_get_channel_id$'))
