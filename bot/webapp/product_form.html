@@ -1030,29 +1030,55 @@
           // Task 8+9: Allow multiple color selection + show color NAME not hex
           attrState[attrId].value = [];  // override to array for multi-select
           const swatchItems = options.map(opt => {
-            // Task 9: Extract color name from pipe-separated format "#RRGGBBAA|اسم اللون"
-            // or from label/name fields directly
-            let colorName = opt.label || opt.name || "";
-            let hexCode   = opt.hex_code || opt.value || "#cccccc";
+            // ─────────────────────────────────────────────────────────────────
+            // KAYISOFT color format: "#AARRGGBB|اسم اللون"
+            //   where AA = Alpha (FF = fully opaque), RR/GG/BB = color channels
+            // Examples:
+            //   "#FF000000|أسود"  → black  (#000000)
+            //   "#FFFFFFFF|أبيض"  → white  (#FFFFFF)
+            //   "#FFFF0000|أحمر"  → red    (#FF0000)
+            //   "#FF0000FF|أزرق"  → blue   (#0000FF)
+            // We must strip the leading AA byte to get a valid CSS #RRGGBB hex.
+            // ─────────────────────────────────────────────────────────────────
 
-            // Handle pipe-separated format: "#FFFFFFFF|أبيض" → hex="#FFFFFFFF", name="أبيض"
-            if (hexCode && hexCode.includes("|")) {
-              const parts = hexCode.split("|");
-              hexCode   = parts[0].trim();
-              if (!colorName) colorName = parts[1].trim();
+            let colorName = opt.label || opt.name || "";
+            let rawHex    = opt.hex_code || opt.value || "";
+
+            // Step 1 — Split pipe-separated value: "#AARRGGBB|name" → [rawHex, colorName]
+            if (rawHex && rawHex.includes("|")) {
+              const parts = rawHex.split("|");
+              rawHex    = parts[0].trim();
+              if (!colorName) colorName = parts[parts.length - 1].trim();
             }
+            // Also handle if label itself contains pipe (edge case)
             if (colorName && colorName.includes("|")) {
               const parts = colorName.split("|");
-              hexCode   = parts[0].trim();
-              colorName = parts[1].trim();
+              if (!rawHex) rawHex = parts[0].trim();
+              colorName = parts[parts.length - 1].trim();
             }
 
-            // Normalize hex: ensure it starts with # and is 6 digits
-            const safeHex = /^#?[0-9A-Fa-f]{3,8}/.test(hexCode)
-                          ? (hexCode.startsWith("#") ? hexCode.slice(0,7) : `#${hexCode.slice(0,6)}`)
-                          : "#cccccc";
+            // Step 2 — Convert KAYISOFT ARGB (#AARRGGBB, 9 chars) → CSS RGB (#RRGGBB)
+            // KAYISOFT sends 8-digit hex with leading alpha channel (AA).
+            // CSS background only understands #RRGGBB (6 digits) or #RRGGBBAA (8 digits, reversed).
+            let safeHex = "#cccccc";  // fallback: neutral grey
+            if (rawHex) {
+              const h = rawHex.startsWith("#") ? rawHex.slice(1) : rawHex;
+              if (h.length === 8) {
+                // ARGB: AA RR GG BB  →  extract RR GG BB (chars 2-7)
+                safeHex = `#${h.slice(2, 8)}`;
+              } else if (h.length === 6) {
+                // Already RGB
+                safeHex = `#${h}`;
+              } else if (h.length === 3) {
+                // Short RGB: expand to 6
+                safeHex = `#${h[0]}${h[0]}${h[1]}${h[1]}${h[2]}${h[2]}`;
+              } else if (/^[0-9A-Fa-f]+$/.test(h)) {
+                // Unknown length — use first 6 digits as best-effort
+                safeHex = `#${h.slice(0, 6).padEnd(6, '0')}`;
+              }
+            }
 
-            // Display name: prefer colorName, fallback to hex if no name
+            // Step 3 — Display name: use colorName if it's not a hex string itself
             const displayName = colorName && !/^#?[0-9A-Fa-f]{6,8}$/.test(colorName.trim())
                               ? colorName
                               : safeHex;

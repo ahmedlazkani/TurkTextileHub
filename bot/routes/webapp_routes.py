@@ -292,13 +292,37 @@ async def proxy_attributes(
                         ""
                     )
                 # Ensure 'label' is set for display (extract from pipe-separated value if needed)
+                raw_val = str(opt.get("value", ""))
                 if not opt.get("label"):
-                    raw_val = opt.get("value", "")
-                    if raw_val and "|" in str(raw_val):
-                        parts = str(raw_val).split("|")
+                    if raw_val and "|" in raw_val:
+                        parts = raw_val.split("|")
                         opt["label"] = parts[-1].strip()  # last part = human-readable name
                     else:
-                        opt["label"] = str(raw_val)
+                        opt["label"] = raw_val
+
+                # ── Normalize hex_code: convert KAYISOFT ARGB (#AARRGGBB) → CSS RGB (#RRGGBB) ──
+                # KAYISOFT stores colors as "#AARRGGBB|name" where AA is the alpha channel.
+                # CSS only understands #RRGGBB (6 digits), so we strip the leading AA byte.
+                # This pre-processing in the proxy avoids duplicating the logic in the HTML.
+                if not opt.get("hex_code"):
+                    # Extract hex part from pipe-separated value
+                    hex_raw = raw_val.split("|")[0].strip() if "|" in raw_val else raw_val.strip()
+                    if hex_raw.startswith("#"):
+                        h = hex_raw[1:]  # strip leading #
+                    else:
+                        h = hex_raw
+
+                    if len(h) == 8 and all(c in "0123456789ABCDEFabcdef" for c in h):
+                        # ARGB (8 digits): AA RR GG BB → extract RR GG BB
+                        opt["hex_code"] = f"#{h[2:8]}"
+                    elif len(h) == 6 and all(c in "0123456789ABCDEFabcdef" for c in h):
+                        # Already RGB (6 digits)
+                        opt["hex_code"] = f"#{h}"
+                    elif len(h) == 3 and all(c in "0123456789ABCDEFabcdef" for c in h):
+                        # Short RGB: expand to 6
+                        opt["hex_code"] = f"#{h[0]*2}{h[1]*2}{h[2]*2}"
+                    else:
+                        opt["hex_code"] = ""  # let HTML handle fallback
 
         logger.info(
             "proxy_attributes: normalized %d attributes with options",
