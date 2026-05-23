@@ -30,6 +30,7 @@ FIX (2026-05-21-v2): Critical fixes applied:
 """
 import json
 import logging
+import urllib.parse
 import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters, CallbackQueryHandler
@@ -176,6 +177,27 @@ def get_channel_id_for_user(user_id: str, context: ContextTypes.DEFAULT_TYPE) ->
 # ══════════════════════════════════════════════════════════════════════════════
 # /channel — Show instructions to add bot as admin
 # ══════════════════════════════════════════════════════════════════════════════
+
+def _support_keyboard(lang: str, extra_buttons: list | None = None):
+    """Gmail support button — opens pre-filled email to topkap.support@kayisoft.net"""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    import urllib.parse
+    subjects = {"ar": "مساعدة — TopKap", "tr": "Destek — TopKap", "en": "Support — TopKap"}
+    bodies   = {
+        "ar": "مرحباً فريق TopKap،\n\nأحتاج مساعدة بخصوص:\n\n",
+        "tr": "Merhaba TopKap ekibi,\n\nŞu konuda yardıma ihtiyacım var:\n\n",
+        "en": "Hello TopKap team,\n\nI need help with:\n\n",
+    }
+    labels   = {"ar": "📧 تواصل مع الدعم", "tr": "📧 Destek ile iletişim", "en": "📧 Contact Support"}
+    subject  = urllib.parse.quote(subjects.get(lang, subjects["en"]))
+    body     = urllib.parse.quote(bodies.get(lang, bodies["en"]))
+    mailto   = f"mailto:topkap.support@kayisoft.net?subject={subject}&body={body}"
+    support_row = [InlineKeyboardButton(labels.get(lang, labels["en"]), url=mailto)]
+    rows = list(extra_buttons) if extra_buttons else []
+    rows.append(support_row)
+    return InlineKeyboardMarkup(rows)
+
+
 async def start_channel_connection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Instructs the user to add the bot to their channel as an admin.
@@ -270,7 +292,11 @@ async def handle_setchannel(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 "3. Channel IDs start with -100"
             ),
         }
-        await update.message.reply_text(usage.get(lang, usage["en"]), parse_mode="HTML")
+        await update.message.reply_text(
+            usage.get(lang, usage["en"]),
+            parse_mode="HTML",
+            reply_markup=_support_keyboard(lang),
+        )
         return
 
     channel_id_raw = context.args[0].strip()
@@ -297,7 +323,11 @@ async def handle_setchannel(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 "<code>-1001234567890</code>"
             ),
         }
-        await update.message.reply_text(error_texts.get(lang, error_texts["en"]), parse_mode="HTML")
+        await update.message.reply_text(
+            error_texts.get(lang, error_texts["en"]),
+            parse_mode="HTML",
+            reply_markup=_support_keyboard(lang),
+        )
         return
 
     # Save the channel_id

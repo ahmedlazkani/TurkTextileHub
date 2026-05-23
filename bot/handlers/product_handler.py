@@ -191,6 +191,59 @@ def _progress_bar(current: int, total: int = 5) -> str:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Support Button Helper
+# Adds a Gmail mailto button below error messages so suppliers can contact us
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _support_keyboard(lang: str, extra_buttons: list | None = None) -> InlineKeyboardMarkup:
+    """
+    Returns an InlineKeyboardMarkup with a Gmail support button.
+    The button opens Gmail (or default mail app) with a pre-filled email
+    to topkap.support@kayisoft.net in the user's language.
+
+    Args:
+        lang:          User language code ("ar", "tr", "en")
+        extra_buttons: Optional list of additional InlineKeyboardButton rows
+                       to include ABOVE the support button row.
+
+    Returns:
+        InlineKeyboardMarkup with support button (and optional extra rows)
+
+    Gmail mailto URL format:
+        mailto:EMAIL?subject=SUBJECT&body=BODY
+    """
+    subjects = {
+        "ar": "مساعدة — TopKap",
+        "tr": "Destek — TopKap",
+        "en": "Support — TopKap",
+    }
+    bodies = {
+        "ar": "مرحباً فريق TopKap،\n\nأحتاج مساعدة بخصوص:\n\n",
+        "tr": "Merhaba TopKap ekibi,\n\nŞu konuda yardıma ihtiyacım var:\n\n",
+        "en": "Hello TopKap team,\n\nI need help with:\n\n",
+    }
+    labels = {
+        "ar": "📧 تواصل مع الدعم",
+        "tr": "📧 Destek ile iletişim",
+        "en": "📧 Contact Support",
+    }
+
+    subject = urllib.parse.quote(subjects.get(lang, subjects["en"]))
+    body    = urllib.parse.quote(bodies.get(lang, bodies["en"]))
+    mailto  = f"mailto:topkap.support@kayisoft.net?subject={subject}&body={body}"
+
+    support_row = [InlineKeyboardButton(
+        labels.get(lang, labels["en"]),
+        url=mailto,
+    )]
+
+    rows = list(extra_buttons) if extra_buttons else []
+    rows.append(support_row)
+    return InlineKeyboardMarkup(rows)
+
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # TopGate URL Builders
 # NOTE: Update base URL when KAYISOFT provides official deep-link format
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1376,16 +1429,16 @@ async def start_add_product(
             ),
         }
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-        # Inline button to guide user to /setchannel quickly
-        inline_btns = {
-            "ar": [[InlineKeyboardButton("🔗 أعرف كيف أحصل على معرّف قناتي", callback_data="how_to_get_channel_id")]],
-            "tr": [[InlineKeyboardButton("🔗 Kanal ID'mi nasıl öğrenirim?", callback_data="how_to_get_channel_id")]],
-            "en": [[InlineKeyboardButton("🔗 How to get my channel ID?", callback_data="how_to_get_channel_id")]],
+        # Inline buttons: channel ID guide + support
+        channel_id_rows = {
+            "ar": [InlineKeyboardButton("🔗 أعرف كيف أحصل على معرّف قناتي", callback_data="how_to_get_channel_id")],
+            "tr": [InlineKeyboardButton("🔗 Kanal ID'mi nasıl öğrenirim?", callback_data="how_to_get_channel_id")],
+            "en": [InlineKeyboardButton("🔗 How to get my channel ID?", callback_data="how_to_get_channel_id")],
         }
         await update.message.reply_text(
             setup_msgs.get(lang, setup_msgs["en"]),
             parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(inline_btns.get(lang, inline_btns["en"])),
+            reply_markup=_support_keyboard(lang, extra_buttons=[channel_id_rows.get(lang, channel_id_rows["en"])]),
         )
         return ConversationHandler.END
     # ── نهاية فحص القناة ──────────────────────────────────────────────────────────────────────────────────────
@@ -1437,16 +1490,14 @@ async def start_add_product(
             ),
         }
         retry_labels = {"tr": "🔄 Tekrar Dene", "ar": "🔄 أعد المحاولة", "en": "🔄 Try Again"}
-        retry_keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton(
-                retry_labels.get(lang, retry_labels["en"]),
-                callback_data="retry_add_product",
-            )
-        ]])
+        retry_row = [InlineKeyboardButton(
+            retry_labels.get(lang, retry_labels["en"]),
+            callback_data="retry_add_product",
+        )]
         await loading_msg.edit_text(
             error_texts.get(lang, error_texts["en"]),
             parse_mode=ParseMode.HTML,
-            reply_markup=retry_keyboard,
+            reply_markup=_support_keyboard(lang, extra_buttons=[retry_row]),
         )
         return ConversationHandler.END
 
@@ -2771,7 +2822,8 @@ async def handle_final_publish(
         }
         await query.edit_message_text(
             price_error.get(lang, price_error["en"]),
-            parse_mode=ParseMode.HTML
+            parse_mode=ParseMode.HTML,
+            reply_markup=_support_keyboard(lang),
         )
         return ConversationHandler.END
 
@@ -3169,6 +3221,7 @@ async def handle_webapp_data(
         await update.effective_message.reply_text(
             "❌ لم يتم استقبال بيانات من النموذج. يرجى المحاولة مجدداً.",
             parse_mode=ParseMode.HTML,
+            reply_markup=_support_keyboard(lang),
         )
         return FILL_FORM
 
@@ -3182,6 +3235,7 @@ async def handle_webapp_data(
         await update.effective_message.reply_text(
             "❌ بيانات النموذج غير صالحة. يرجى إعادة المحاولة.",
             parse_mode=ParseMode.HTML,
+            reply_markup=_support_keyboard(lang),
         )
         return FILL_FORM
 
@@ -3193,7 +3247,11 @@ async def handle_webapp_data(
             "tr": f"❌ <b>Form verilerinde hata:</b>\n{error_lines}\n\nLütfen geri dönüp düzeltin.",
             "en": f"❌ <b>Form validation error:</b>\n{error_lines}\n\nPlease go back and fix the issues.",
         }.get(lang, f"❌ Validation error:\n{error_lines}")
-        await update.effective_message.reply_text(msg, parse_mode=ParseMode.HTML)
+        await update.effective_message.reply_text(
+            msg,
+            parse_mode=ParseMode.HTML,
+            reply_markup=_support_keyboard(lang),
+        )
         return FILL_FORM
 
     name         = str(payload.get("name", "")).strip()
