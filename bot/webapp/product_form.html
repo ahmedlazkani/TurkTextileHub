@@ -580,7 +580,7 @@
     <div class="field-card" id="card-price">
       <div class="field-label">
         <span class="icon">💰</span>
-        السعر (₺ ليرة تركية)
+        السعر ($ دولار أمريكي)
         <span class="required-star">*</span>
       </div>
       <input
@@ -612,23 +612,11 @@
       <div class="field-error" id="error-minqty">يجب أن يكون الحد الأدنى 1 على الأقل</div>
     </div>
 
-    <!-- ─── 5. المخزون ─────────────────────────────────────── -->
-    <div class="field-card" id="card-stock">
-      <div class="field-label">
-        <span class="icon">🏭</span>
-        المخزون
-        <span class="required-star">*</span>
-      </div>
-      <input
-        type="number"
-        id="field-stock"
-        placeholder="مثال: 5000"
-        min="1"
-        step="1"
-        inputmode="numeric"
-      />
-      <div class="field-error" id="error-stock">يجب أن يكون المخزون 1 على الأقل</div>
-    </div>
+    <!-- ─── 5. المخزون (مخفي — يُرسل 500 افتراضياً) ─────────────────────────── -->
+    <- product_handler.py: add detailed logging in Stock field is intentionally hidden from the supplier form.
+         A default value of 500 is sent automatically in the payload.
+         Suppliers can update the stock quantity from within the KAYISOFT app. -->
+    <input type="hidden" id="field-stock" value="500" />
 
     <!-- ─── 6. الخصائص الديناميكية (placeholder during load) ── -->
     <div class="section-divider" id="attrs-divider" style="display:none;">الخصائص</div>
@@ -863,14 +851,7 @@
         clearError("card-minqty", "error-minqty");
       }
 
-      // Stock
-      const stock = parseInt(document.getElementById("field-stock").value);
-      if (!stock || stock < 1) {
-        showError("card-stock", "error-stock");
-        valid = false;
-      } else {
-        clearError("card-stock", "error-stock");
-      }
+      // Stock — hidden field with default value 500, no validation needed
 
       // Dynamic required attributes
       for (const [attrId, state] of Object.entries(attrState)) {
@@ -901,9 +882,7 @@
       const name  = document.getElementById("field-name").value.trim();
       const price = parseFloat(document.getElementById("field-price").value);
       const minQ  = parseInt(document.getElementById("field-minqty").value);
-      const stock = parseInt(document.getElementById("field-stock").value);
-
-      const basicOk = name.length >= 3 && price >= 0.01 && minQ >= 1 && stock >= 1;
+      const basicOk = name.length >= 3 && price >= 0.01 && minQ >= 1;
 
       if (basicOk) {
         tg.MainButton.show();
@@ -912,19 +891,11 @@
       }
     }
 
-    // Attach live validation to numeric fields
-    ["field-price","field-minqty","field-stock"].forEach(id => {
+    // Attach live validation to numeric fields (stock is hidden with default 500, excluded)
+    ["field-price", "field-minqty"].forEach(id => {
       document.getElementById(id).addEventListener("input", validateAndToggleMainButton);
     });
 
-    // Stock default: auto-fill with min_quantity value if user leaves it empty
-    document.getElementById("field-minqty").addEventListener("blur", function() {
-      const stockEl = document.getElementById("field-stock");
-      if (!stockEl.value && this.value) {
-        stockEl.value = this.value;
-        validateAndToggleMainButton();
-      }
-    });
 
     /* ──────────────────────────────────────────────────────────
        DYNAMIC ATTRIBUTES — FETCH & RENDER
@@ -991,12 +962,24 @@
 
       attrs.forEach(attr => {
         const attrId  = attr.id;
-        // Normalize ui_type: KAYISOFT uses "multi_select_color" and "select_color"
-        // which should both render as color swatches (multi-select)
+        // Normalize ui_type from KAYISOFT API to internal render types.
+        // KAYISOFT ui_type values observed:
+        //   "select_color" / "multi_select_color" → color swatches
+        //   "select" / "single_select"            → single-choice dropdown
+        //   "multi_select" / "multiselect"         → multi-choice checkboxes
+        //   "list"                                 → single-choice dropdown (options from API)
+        //   "multi_select_list"                    → multi-choice checkboxes (options from API)
+        //   "numeric"                              → number input
+        //   "bool"                                 → yes/no radio
+        //   anything else                          → text input
         const rawUiType = (attr.ui_type || "text").toLowerCase();
-        const uiType = rawUiType.includes("color") ? "color"
-                     : rawUiType.includes("multi_select") ? "multiselect"
-                     : rawUiType.includes("select") ? "select"
+        const uiType = rawUiType.includes("color")                    ? "color"
+                     : (rawUiType === "multi_select_list" ||
+                        rawUiType.includes("multi_select") ||
+                        rawUiType === "multiselect")                   ? "multiselect"
+                     : (rawUiType === "list" ||
+                        rawUiType.includes("select") ||
+                        rawUiType === "single_select")                 ? "select"
                      : rawUiType;
         const isReq   = !!attr.required;
         const isVar   = !!attr.is_variant_selector;
