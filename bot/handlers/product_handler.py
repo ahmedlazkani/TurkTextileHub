@@ -2790,10 +2790,24 @@ async def handle_final_publish(
     # WRONG (old): {attr_uuid: [option_uuid]}  ← caused HTTP 422 Missing required attribute
     # RIGHT (new): {attr_key: [option_uuid]}   ← matches KAYISOFT API spec exactly
     ai_shared_attrs = product_details.get("shared_attributes", {})
+    logger.info(
+        "🔍 RAW shared_attributes from HTML: %s",
+        str(ai_shared_attrs)[:500]
+    )
+    logger.info(
+        "🔍 id_to_key map has %d entries: %s",
+        len(id_to_key), str(id_to_key)[:300]
+    )
     shared_attributes = {}
     for attr_id, option_ids in ai_shared_attrs.items():
         # Convert UUID key → string key using id_to_key map
         attr_key = id_to_key.get(attr_id, attr_id)  # fallback to UUID if key not found
+        logger.info(
+            "🔑 attr_id=%s → attr_key=%s | option_ids=%s",
+            attr_id[:20] if len(attr_id) > 20 else attr_id,
+            attr_key,
+            str(option_ids)[:100]
+        )
         if isinstance(option_ids, list):
             if option_ids:  # Only add if not empty
                 shared_attributes[attr_key] = option_ids

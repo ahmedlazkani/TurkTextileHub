@@ -940,6 +940,32 @@
         const res  = await fetch(`/api/attributes/${CATEGORY_ID}?user_id=${USER_ID}&lang=${LANG}`);
         const json = await res.json();
         const attrs = normalizeAttributes(json);
+
+        // DEBUG: log first attribute and its options to console
+        if (attrs && attrs.length > 0) {
+          console.log('[TopKap] First attribute:', JSON.stringify(attrs[0], null, 2).slice(0, 800));
+          const firstOpts = attrs[0].options || [];
+          if (firstOpts.length > 0) {
+            console.log('[TopKap] First option:', JSON.stringify(firstOpts[0]));
+            console.log('[TopKap] opt.id =', firstOpts[0].id, '| opt.value =', firstOpts[0].value);
+          }
+        }
+
+        // DEFENSIVE: ensure every option has a valid id before rendering
+        // If opt.id is missing, fall back to opt.uuid → opt.key → opt.value
+        attrs.forEach(attr => {
+          (attr.options || []).forEach(opt => {
+            if (!opt.id) {
+              opt.id = opt.uuid || opt.option_id || opt.key || opt.value || '';
+              console.warn('[TopKap] opt.id was missing for attr', attr.key, '— using fallback:', opt.id);
+            }
+            if (!opt.label) {
+              const raw = opt.value || '';
+              opt.label = raw.includes('|') ? raw.split('|').pop().trim() : raw;
+            }
+          });
+        });
+
         renderAttributes(attrs);
       } catch (err) {
         console.error("Failed to load attributes:", err);
@@ -965,7 +991,13 @@
 
       attrs.forEach(attr => {
         const attrId  = attr.id;
-        const uiType  = attr.ui_type || "text";
+        // Normalize ui_type: KAYISOFT uses "multi_select_color" and "select_color"
+        // which should both render as color swatches (multi-select)
+        const rawUiType = (attr.ui_type || "text").toLowerCase();
+        const uiType = rawUiType.includes("color") ? "color"
+                     : rawUiType.includes("multi_select") ? "multiselect"
+                     : rawUiType.includes("select") ? "select"
+                     : rawUiType;
         const isReq   = !!attr.required;
         const isVar   = !!attr.is_variant_selector;
         const options = attr.options || [];
@@ -1238,6 +1270,11 @@
         shared_attributes:   sharedAttrs,
         selector_attributes: selectorAttrs,
       };
+
+      // DEBUG: log payload before sending
+      console.log('[TopKap] handleSubmit payload:', JSON.stringify(payload, null, 2).slice(0, 1000));
+      console.log('[TopKap] shared_attributes:', JSON.stringify(sharedAttrs));
+      console.log('[TopKap] selector_attributes:', JSON.stringify(selectorAttrs));
 
       // ── Show success overlay ───────────────────────────────
       const overlay = document.getElementById("success-overlay");

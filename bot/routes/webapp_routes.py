@@ -268,6 +268,43 @@ async def proxy_attributes(
             _json.dumps(first_attr, ensure_ascii=False)[:500],
         )
 
+    # ── NORMALIZE: ensure every option has a valid 'id' field ─────────────────
+    # KAYISOFT may return options with different field names depending on the endpoint.
+    # The WebApp HTML relies on opt.id for the value to send back.
+    # If opt.id is missing/empty, fall back to: opt.uuid → opt.key → opt.value
+    if isinstance(data, list):
+        for attr in data:
+            if not isinstance(attr, dict):
+                continue
+            options = attr.get("options", [])
+            if not isinstance(options, list):
+                continue
+            for opt in options:
+                if not isinstance(opt, dict):
+                    continue
+                # Ensure 'id' is a non-empty string
+                if not opt.get("id"):
+                    opt["id"] = (
+                        opt.get("uuid") or
+                        opt.get("option_id") or
+                        opt.get("key") or
+                        opt.get("value") or
+                        ""
+                    )
+                # Ensure 'label' is set for display (extract from pipe-separated value if needed)
+                if not opt.get("label"):
+                    raw_val = opt.get("value", "")
+                    if raw_val and "|" in str(raw_val):
+                        parts = str(raw_val).split("|")
+                        opt["label"] = parts[-1].strip()  # last part = human-readable name
+                    else:
+                        opt["label"] = str(raw_val)
+
+        logger.info(
+            "proxy_attributes: normalized %d attributes with options",
+            sum(1 for a in data if isinstance(a, dict) and a.get("options"))
+        )
+
     return JSONResponse(content=data, status_code=200)
 
 
