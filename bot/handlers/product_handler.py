@@ -1460,8 +1460,12 @@ async def start_add_product(
     )
 
     # Fetch root categories from KAYISOFT API (parent="" → root level)
-    api        = KayisoftAPI(telegram_user_id=user_id, language=lang)
-    categories = await api.get_categories()
+    api = KayisoftAPI(telegram_user_id=user_id, language=lang)
+    try:
+        categories = await api.get_categories()
+    except Exception as exc:
+        logger.error("start_add_product: unexpected exception from get_categories: %s", exc)
+        categories = None
 
     # ── Error handling: API returned None or empty list ───────────────────────
     # FIX: Previously the loading message was deleted BEFORE checking for errors,

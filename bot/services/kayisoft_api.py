@@ -101,7 +101,7 @@ class KayisoftAPI:
                     url,
                     headers=headers,
                     params=params,
-                    timeout=aiohttp.ClientTimeout(total=30),
+                    timeout=aiohttp.ClientTimeout(total=10),
                 ) as resp:
                     text = await resp.text()
                     if resp.status >= 400:
@@ -164,7 +164,7 @@ class KayisoftAPI:
                     url,
                     headers=headers,
                     json=body or {},
-                    timeout=aiohttp.ClientTimeout(total=30),
+                    timeout=aiohttp.ClientTimeout(total=15),
                 ) as resp:
                     text = await resp.text()
                     logger.info("POST %s \u2192 HTTP %s | response: %s", endpoint, resp.status, text[:300])
