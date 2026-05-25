@@ -1428,7 +1428,6 @@ async def start_add_product(
                 "🚀 After setup, reach 180+ countries!"
             ),
         }
-        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
         # Inline buttons: channel ID guide + support
         channel_id_rows = {
             "ar": [InlineKeyboardButton("🔗 أعرف كيف أحصل على معرّف قناتي", callback_data="how_to_get_channel_id")],
