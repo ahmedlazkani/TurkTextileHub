@@ -2848,32 +2848,12 @@ async def handle_final_publish(
             id_to_key[attr_id_raw] = attr_key_raw
     logger.info("🔑 id_to_key map: %s", str(id_to_key)[:500])
 
-    # ── Build option_id → option_value lookup map ────────────────────────────
-    # KAYISOFT API requires the OPTION VALUE (text string) in shared_attributes,
-    # NOT the option UUID. We build this map from raw_attributes options list.
-    # Format: {option_uuid: "value_string"}
-    # For color options: value is "#AARRGGBB|اسم" → we extract the name part
-    option_id_to_value = {}
-    for attr in raw_attributes:
-        for opt in attr.get("options", []) or []:
-            opt_id  = opt.get("id", "")
-            opt_val = opt.get("value", "") or ""
-            if opt_id:
-                # For "#AARRGGBB|name" format, extract the human-readable name
-                if "|" in opt_val:
-                    human_val = opt_val.split("|")[-1].strip()
-                else:
-                    human_val = opt_val.strip()
-                option_id_to_value[opt_id] = human_val or opt_val
-    logger.info(
-        "🗂️ option_id_to_value map: %d entries (sample: %s)",
-        len(option_id_to_value),
-        str(dict(list(option_id_to_value.items())[:5]))[:300]
-    )
-
-    # Build shared_attributes: {attr_key: [option_value_string]} — NON-variant attributes
-    # KAYISOFT API requires the option VALUE string (e.g. "فيسكوز"), NOT the UUID.
-    # Error if UUID sent: "Incorrect value for string attribute, It must be from a list string"
+    # ── Build shared_attributes: {attr_key: [option_uuid]} ─────────────────────
+    # KAYISOFT API REQUIRES:
+    #   - Key   = attribute KEY string (e.g. "material"), NOT the UUID
+    #   - Value = list of option UUIDs (e.g. ["4411e6ed-..."])
+    # Error if key is UUID:   "Invalid option for attribute filter"
+    # Error if value is text: "Incorrect value for string attribute"
     ai_shared_attrs = product_details.get("shared_attributes", {})
     logger.info(
         "🔍 RAW shared_attributes from HTML: %s",
@@ -2887,23 +2867,20 @@ async def handle_final_publish(
     for attr_id, option_ids in ai_shared_attrs.items():
         # Convert UUID key → string key using id_to_key map
         attr_key = id_to_key.get(attr_id, attr_id)  # fallback to UUID if key not found
-        # Convert option UUIDs → option value strings
+        # Keep option_ids as UUIDs — KAYISOFT requires UUID list, NOT text values
         if not isinstance(option_ids, list):
             option_ids = [option_ids] if option_ids else []
-        resolved_values = []
-        for oid in option_ids:
-            resolved = option_id_to_value.get(oid, oid)  # fallback to raw if not found
-            resolved_values.append(resolved)
+        # Filter out empty values
+        clean_ids = [oid for oid in option_ids if oid]
         logger.info(
-            "🔑 attr_id=%s → attr_key=%s | option_ids=%s → values=%s",
+            "🔑 attr_id=%s → attr_key=%s | option_ids=%s",
             attr_id[:20] if len(attr_id) > 20 else attr_id,
             attr_key,
-            str(option_ids)[:80],
-            str(resolved_values)[:80]
+            str(clean_ids)[:80]
         )
-        if resolved_values:
-            shared_attributes[attr_key] = resolved_values
-    logger.info("📋 shared_attributes (key+value-based): %s", str(shared_attributes)[:500])
+        if clean_ids:
+            shared_attributes[attr_key] = clean_ids
+    logger.info("📋 shared_attributes (key+UUID-based): %s", str(shared_attributes)[:500])
 
     # Build selector_attributes: [{attribute_id, option_id}] — variant-defining
     # NOTE: selector_attributes in variants also need key-based format per PDF spec
