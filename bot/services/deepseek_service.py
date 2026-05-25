@@ -762,14 +762,25 @@ async def generate_channel_post(
     -------
     str | None  — formatted post text, or None on failure.
     """
-    _key  = os.getenv("DEEPSEEK_API_KEY", "").strip() or os.getenv("OPENAI_API_KEY", "").strip()
-    _base = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1").rstrip("/")
-    if not _base.endswith("/v1"):
-        _base += "/v1"
-    _model = "deepseek-chat"
+    deepseek_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
+    openai_key   = os.getenv("OPENAI_API_KEY", "").strip()
 
-    if not _key:
-        logger.warning("generate_channel_post: no API key — returning None")
+    if deepseek_key:
+        _key   = deepseek_key
+        _base  = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1").rstrip("/")
+        if not _base.endswith("/v1"):
+            _base += "/v1"
+        _model = "deepseek-chat"
+        logger.info("generate_channel_post: using DeepSeek")
+    elif openai_key:
+        _key   = openai_key
+        _base  = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+        if not _base.endswith("/v1"):
+            _base += "/v1"
+        _model = os.getenv("FALLBACK_AI_MODEL", "gpt-4.1-mini")
+        logger.info("generate_channel_post: using OpenAI fallback (%s)", _model)
+    else:
+        logger.warning("generate_channel_post: no API key (DEEPSEEK_API_KEY or OPENAI_API_KEY) — returning None")
         return None
 
     # ── Build language instruction ──────────────────────────────────────────────
@@ -804,6 +815,14 @@ async def generate_channel_post(
     system_prompt = (
         "You are an expert copywriter for a Turkish wholesale textile marketplace (TopKap/TopGate).\n"
         "Your task: write a professional, eye-catching Telegram channel post for a wholesale clothing product.\n\n"
+        "CRITICAL DATA RULES:\n"
+        "A. NEVER invent or add information not present in the product data.\n"
+        "B. SIZE/MEASUREMENTS: Use ONLY the sizes listed in the Attributes section.\n"
+        "   - If only one size is listed (e.g. 'Tek Beden', 'One Size', 'مقاس موحد') → show it as-is, do NOT expand to S/M/L/XL.\n"
+        "   - If multiple sizes are listed → show all of them exactly as provided.\n"
+        "   - NEVER guess or add sizes that are not in the data.\n"
+        "C. FABRIC/MATERIAL: Use ONLY what is listed in Attributes. Do not invent fabric types.\n"
+        "D. PRICE: Use ONLY the price provided. Do not modify or add discounts.\n\n"
         "STYLE RULES:\n"
         "1. Use relevant emojis (✅ 🔥 📌 💰 etc.) but keep it professional — max 2-3 per section.\n"
         "2. Format each language section like this:\n"
@@ -812,8 +831,8 @@ async def generate_channel_post(
         "   [Product emoji] [Product Name]\n"
         "   [Description — 1-2 lines max]\n"
         "   ────────────────────────\n"
-        "   📌 [Size label]: [sizes]\n"
-        "   🧵 [Fabric label]: [fabric]\n"
+        "   📌 [Size label]: [sizes — ONLY from attributes]\n"
+        "   🧵 [Fabric label]: [fabric — ONLY from attributes, OMIT if not provided]\n"
         "   💰 [Price label]: [price] $\n"
         "   📦 [Min order label]: [qty] pcs\n"
         "   🔖 [Code label]: [code]   ← OMIT if not provided\n"
