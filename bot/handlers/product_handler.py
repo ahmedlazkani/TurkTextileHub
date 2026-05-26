@@ -3012,8 +3012,27 @@ async def handle_final_publish(
     else:
         success_text += "\n\n" + get_string(lang, "add_product_no_channel")
 
-    await query.edit_message_text(success_text, parse_mode=ParseMode.HTML)
-    # Task: Re-send main keyboard after product published so user sees buttons
+    # ── Inline button: Add Another Product ──────────────────────────────────
+    add_another_labels = {
+        "ar": "➕ إضافة منتج جديد",
+        "tr": "➕ Yeni Ürün Ekle",
+        "en": "➕ Add Another Product",
+    }
+    success_keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                add_another_labels.get(lang, add_another_labels["en"]),
+                callback_data="add_another_product",
+            )
+        ]
+    ])
+
+    await query.edit_message_text(
+        success_text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=success_keyboard,
+    )
+    # Re-send main keyboard so user sees all navigation buttons
     from bot.keyboards import supplier_main_keyboard as _smk
     try:
         await context.bot.send_message(
@@ -3516,6 +3535,8 @@ def get_product_conv_handler() -> ConversationHandler:
             ),
             # Slash command alternative
             CommandHandler("add_product", start_add_product),
+            # ✅ Inline button after successful publish — "Add Another Product"
+            CallbackQueryHandler(start_add_product, pattern=r"^add_another_product$"),
         ],
         states={
             SELECT_CATEGORY: [
