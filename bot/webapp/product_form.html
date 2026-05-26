@@ -727,7 +727,90 @@
     const CATEGORY_ID = urlParams.get("category_id") || "";
     const LANG        = urlParams.get("lang")         || "ar";
 
-    // Task 11: Apply language direction to HTML element
+    // ── i18n: Full translation dictionary ──────────────────────────────────────
+    const I18N = {
+      ar: {
+        header_title:       "📦 إضافة منتج جديد",
+        header_sub:         "يرجى تعبئة معلومات المنتج أدناه",
+        label_name:         "اسم المنتج",
+        placeholder_name:   "مثال: شال شيفون صيفي",
+        error_name:         "يجب أن يحتوي الاسم على 3 أحرف على الأقل",
+        label_desc:         "الوصف",
+        placeholder_desc:   "اكتب وصف المنتج بالتفصيل...",
+        label_price:        "السعر ($ دولار أمريكي)",
+        placeholder_price:  "مثال: 200",
+        error_price:        "يجب أن يكون السعر أكبر من 0",
+        label_minqty:       "الحد الأدنى للطلب",
+        placeholder_minqty: "مثال: 300",
+        error_minqty:       "يجب أن يكون الحد الأدنى 1 على الأقل",
+        label_code:         "كود المنتج",
+        placeholder_code:   "مثال: TK-143",
+        optional:           "اختياري",
+        label_notes:        "ملاحظات",
+        placeholder_notes:  "مثال: الباكيت يحوي 4 قطع — صيفي — بدون فاتورة",
+        label_langs:        "لغات البوست على القناة",
+        error_langs:        "يجب اختيار لغة واحدة على الأقل",
+        attrs_divider:      "الخصائص",
+        info_photos:        "سيتم طلب <strong>صور المنتج</strong> في الخطوة التالية مباشرةً داخل المحادثة",
+        success_text:       "تم الحفظ بنجاح! ✨",
+        btn_save:           "✅ حفظ بيانات المنتج",
+      },
+      tr: {
+        header_title:       "📦 Yeni Ürün Ekle",
+        header_sub:         "Lütfen aşağıdaki ürün bilgilerini doldurun",
+        label_name:         "Ürün Adı",
+        placeholder_name:   "Örnek: Yazlık Şifon Şal",
+        error_name:         "İsim en az 3 karakter içermelidir",
+        label_desc:         "Açıklama",
+        placeholder_desc:   "Ürün açıklamasını detaylı yazın...",
+        label_price:        "Fiyat ($ ABD Doları)",
+        placeholder_price:  "Örnek: 200",
+        error_price:        "Fiyat 0'dan büyük olmalıdır",
+        label_minqty:       "Minimum Sipariş Miktarı",
+        placeholder_minqty: "Örnek: 300",
+        error_minqty:       "Minimum miktar en az 1 olmalıdır",
+        label_code:         "Ürün Kodu",
+        placeholder_code:   "Örnek: TK-143",
+        optional:           "isteğe bağlı",
+        label_notes:        "Notlar",
+        placeholder_notes:  "Örnek: Paket 4 adet içerir — yazlık — faturasız",
+        label_langs:        "Kanal Gönderi Dilleri",
+        error_langs:        "En az bir dil seçilmelidir",
+        attrs_divider:      "Özellikler",
+        info_photos:        "<strong>Ürün fotoğrafları</strong> bir sonraki adımda sohbet içinde istenecektir",
+        success_text:       "Başarıyla kaydedildi! ✨",
+        btn_save:           "✅ Ürün Bilgilerini Kaydet",
+      },
+      en: {
+        header_title:       "📦 Add New Product",
+        header_sub:         "Please fill in the product information below",
+        label_name:         "Product Name",
+        placeholder_name:   "Example: Summer Chiffon Scarf",
+        error_name:         "Name must be at least 3 characters",
+        label_desc:         "Description",
+        placeholder_desc:   "Write the product description in detail...",
+        label_price:        "Price ($ USD)",
+        placeholder_price:  "Example: 200",
+        error_price:        "Price must be greater than 0",
+        label_minqty:       "Minimum Order Quantity",
+        placeholder_minqty: "Example: 300",
+        error_minqty:       "Minimum quantity must be at least 1",
+        label_code:         "Product Code",
+        placeholder_code:   "Example: TK-143",
+        optional:           "optional",
+        label_notes:        "Notes",
+        placeholder_notes:  "Example: Pack contains 4 pcs — summer — no invoice",
+        label_langs:        "Channel Post Languages",
+        error_langs:        "At least one language must be selected",
+        attrs_divider:      "Attributes",
+        info_photos:        "<strong>Product photos</strong> will be requested in the next step inside the chat",
+        success_text:       "Saved successfully! ✨",
+        btn_save:           "✅ Save Product Data",
+      },
+    };
+    const T = I18N[LANG] || I18N["en"];
+
+    // ── Apply language direction ─────────────────────────────────────────────
     (function applyLangDir() {
       const htmlEl = document.getElementById("html-root");
       if (!htmlEl) return;
@@ -741,6 +824,76 @@
         htmlEl.setAttribute("lang", "en");
         htmlEl.setAttribute("dir", "ltr");
       }
+    })();
+
+    // ── Apply translations to all static text elements ───────────────────────
+    (function applyTranslations() {
+      // Header
+      const hTitle = document.querySelector(".header-title");
+      const hSub   = document.querySelector(".header-sub");
+      if (hTitle) hTitle.textContent = T.header_title;
+      if (hSub)   hSub.textContent   = T.header_sub;
+
+      // Field labels (text node only, keep icon and star)
+      function setLabelText(cardId, text) {
+        const label = document.querySelector(`#${cardId} .field-label`);
+        if (!label) return;
+        // Replace text nodes only, keep child elements (icon, star, optional-tag)
+        Array.from(label.childNodes).forEach(n => {
+          if (n.nodeType === Node.TEXT_NODE && n.textContent.trim()) {
+            n.textContent = " " + text + " ";
+          }
+        });
+      }
+      setLabelText("card-name",   T.label_name);
+      setLabelText("card-desc",   T.label_desc);
+      setLabelText("card-price",  T.label_price);
+      setLabelText("card-minqty", T.label_minqty);
+      setLabelText("card-code",   T.label_code);
+      setLabelText("card-notes",  T.label_notes);
+      setLabelText("card-langs",  T.label_langs);
+
+      // Optional tags
+      document.querySelectorAll(".optional-tag").forEach(el => {
+        el.textContent = T.optional;
+      });
+
+      // Placeholders
+      const setPlaceholder = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.placeholder = val;
+      };
+      setPlaceholder("field-name",   T.placeholder_name);
+      setPlaceholder("field-desc",   T.placeholder_desc);
+      setPlaceholder("field-price",  T.placeholder_price);
+      setPlaceholder("field-minqty", T.placeholder_minqty);
+      setPlaceholder("field-code",   T.placeholder_code);
+      setPlaceholder("field-notes",  T.placeholder_notes);
+
+      // Error messages
+      const setError = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = val;
+      };
+      setError("error-name",   T.error_name);
+      setError("error-price",  T.error_price);
+      setError("error-minqty", T.error_minqty);
+      setError("error-langs",  T.error_langs);
+
+      // Attributes section divider
+      const attrDiv = document.getElementById("attrs-divider");
+      if (attrDiv) attrDiv.textContent = T.attrs_divider;
+
+      // Info card (photos notice)
+      const infoText = document.querySelector(".info-card-text");
+      if (infoText) infoText.innerHTML = T.info_photos;
+
+      // Success overlay
+      const successText = document.querySelector(".success-text");
+      if (successText) successText.textContent = T.success_text;
+
+      // MainButton text
+      if (tg && tg.MainButton) tg.MainButton.setText(T.btn_save);
     })();
     const USER_ID     = urlParams.get("user_id")      || "";
 
