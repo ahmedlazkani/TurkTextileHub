@@ -50,13 +50,22 @@ def get_string(lang: str, key: str) -> str:
         key (str): مفتاح النص في ملف الترجمة
 
     المُخرجات:
-        str: النص المترجم، أو النص العربي كاحتياطي، أو المفتاح نفسه
+        str: النص المترجم، أو النص الإنجليزي كاحتياطي، أو المفتاح نفسه
+
+    NOTE: Fallback order:
+      1. Requested language (lang)
+      2. English (en)  — neutral fallback that doesn't override user's choice
+      3. Key itself    — so UI never shows an empty string
+
+    IMPORTANT: Do NOT fall back to Turkish (tr) — a user who chose Arabic
+    must never see Turkish text just because a key is missing in Arabic.
     """
     if lang in _translations and key in _translations[lang]:
         return _translations[lang][key]
 
-    if "tr" in _translations and key in _translations["tr"]:
-        return _translations["tr"][key]
+    # Fallback to English (neutral) instead of Turkish
+    if "en" in _translations and key in _translations["en"]:
+        return _translations["en"][key]
 
     return key
 

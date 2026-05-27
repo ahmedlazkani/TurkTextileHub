@@ -1374,6 +1374,11 @@ async def start_add_product(
     user_id = str(user.id)
     lang    = get_user_lang(user_id, telegram_language_code=user.language_code or "")
 
+    # ── حفظ اللغة في user_data لاستخدامها في كل خطوات التدفق ────────────────────────────────
+    # هذا يضمن أن اللغة تبقى ثابتة طوال جلسة إضافة المنتج حتى لو تغيّر _user_langs
+    # (مثلاً بعد Railway restart أو إذا تغيّر telegram_language_code)
+    context.user_data["lang"] = lang
+
     # ── مهمة 5: فحص وجود channel_id قبل بدء التدفق ─────────────────────────────────────────
     # القناة اختيارية: إذا لم يربط المورد قناته، نُرسل إشعاراً تحفيزياً ونكمل التدفق
     # المنتج يُنشر على KAYISOFT بكل الأحوال، والقناة تُستخدم فقط إذا كانت مربوطة
@@ -1595,7 +1600,9 @@ async def handle_category_selection(
     await query.answer()
 
     user_id = str(query.from_user.id)
-    lang    = get_user_lang(user_id, telegram_language_code=query.from_user.language_code or "")
+    # Use lang stored in user_data (set at start_add_product) for consistency
+    # Fallback to get_user_lang only if user_data was cleared unexpectedly
+    lang    = context.user_data.get("lang") or get_user_lang(user_id, telegram_language_code=query.from_user.language_code or "")
     cat_id  = query.data.split("_", 1)[1]
 
     # Store selected root category ID and resolve its name from the map
@@ -1678,7 +1685,8 @@ async def handle_subcategory_selection(
     await query.answer()
 
     user_id = str(query.from_user.id)
-    lang    = get_user_lang(user_id, telegram_language_code=query.from_user.language_code or "")
+    # Use lang stored in user_data (set at start_add_product) for consistency
+    lang    = context.user_data.get("lang") or get_user_lang(user_id, telegram_language_code=query.from_user.language_code or "")
     sub_id  = query.data.split("_", 1)[1]
 
     # Resolve subcategory name from the map saved in handle_category_selection
@@ -1873,7 +1881,8 @@ async def handle_form_input(
     """
     user    = update.effective_user
     user_id = str(user.id)
-    lang    = get_user_lang(user_id, telegram_language_code=user.language_code or "")
+    # Use lang stored in user_data (set at start_add_product) for consistency
+    lang    = context.user_data.get("lang") or get_user_lang(user_id, telegram_language_code=user.language_code or "")
     text    = update.message.text
 
     raw_attributes  = context.user_data.get("raw_attributes", [])
@@ -1995,7 +2004,8 @@ async def handle_fix_missing(
     """
     user    = update.effective_user
     user_id = str(user.id)
-    lang    = get_user_lang(user_id, telegram_language_code=user.language_code or "")
+    # Use lang stored in user_data (set at start_add_product) for consistency
+    lang    = context.user_data.get("lang") or get_user_lang(user_id, telegram_language_code=user.language_code or "")
     new_text = update.message.text
 
     raw_attributes  = context.user_data.get("raw_attributes", [])
@@ -2117,7 +2127,8 @@ async def handle_confirm_details(
     query   = update.callback_query
     user    = update.effective_user
     user_id = str(user.id)
-    lang    = get_user_lang(user_id, telegram_language_code=user.language_code or "")
+    # Use lang stored in user_data (set at start_add_product) for consistency
+    lang    = context.user_data.get("lang") or get_user_lang(user_id, telegram_language_code=user.language_code or "")
 
     await query.answer()  # Remove Telegram's loading spinner
 
@@ -2258,7 +2269,8 @@ async def handle_ai_post_review(
     query   = update.callback_query
     user    = update.effective_user
     user_id = str(user.id)
-    lang    = get_user_lang(user_id, telegram_language_code=user.language_code or "")
+    # Use lang stored in user_data (set at start_add_product) for consistency
+    lang    = context.user_data.get("lang") or get_user_lang(user_id, telegram_language_code=user.language_code or "")
     await query.answer()
 
     if query.data == "post_approve":
@@ -2379,7 +2391,8 @@ async def handle_ai_post_manual_edit(
     """
     user    = update.effective_user
     user_id = str(user.id)
-    lang    = get_user_lang(user_id, telegram_language_code=user.language_code or "")
+    # Use lang stored in user_data (set at start_add_product) for consistency
+    lang    = context.user_data.get("lang") or get_user_lang(user_id, telegram_language_code=user.language_code or "")
     text    = update.message.text.strip()
 
     if not text:
@@ -2434,7 +2447,8 @@ async def handle_image_upload(
     """
     user    = update.effective_user
     user_id = str(user.id)
-    lang    = get_user_lang(user_id, telegram_language_code=user.language_code or "")
+    # Use lang stored in user_data (set at start_add_product) for consistency
+    lang    = context.user_data.get("lang") or get_user_lang(user_id, telegram_language_code=user.language_code or "")
 
     # Initialize image list on first upload
     if "images" not in context.user_data:
@@ -2532,9 +2546,10 @@ async def handle_variants_confirmation(
     await query.answer()
 
     user_id = str(query.from_user.id)
-    lang    = get_user_lang(user_id, telegram_language_code=query.from_user.language_code or "")
+    # Use lang stored in user_data (set at start_add_product) for consistency
+    lang    = context.user_data.get("lang") or get_user_lang(user_id, telegram_language_code=query.from_user.language_code or "")
 
-    # ── Add more images ────────────────────────────────────────────────────────
+    # ── Add more images ──────────────────────────────────────────────────────────────────────────────────
     if query.data == "add_more":
         await query.edit_message_text(
             get_string(lang, "add_product_upload_more"),
@@ -2662,9 +2677,10 @@ async def handle_final_publish(
     await query.answer()
 
     user_id = str(query.from_user.id)
-    lang    = get_user_lang(user_id, telegram_language_code=query.from_user.language_code or "")
+    # Use lang stored in user_data (set at start_add_product) for consistency
+    lang    = context.user_data.get("lang") or get_user_lang(user_id, telegram_language_code=query.from_user.language_code or "")
 
-    # ── Cancel ─────────────────────────────────────────────────────────────────
+    # ── Cancel ─────────────────────────────────────────────────────────────────────────────────────
     if query.data == "publish_no":
         await query.edit_message_text(
             get_string(lang, "add_product_cancelled"),
@@ -3036,7 +3052,8 @@ async def cancel_product(
     """
     user    = update.effective_user
     user_id = str(user.id)
-    lang    = get_user_lang(user_id, telegram_language_code=user.language_code or "")
+    # Read lang BEFORE clearing user_data (it will be cleared below)
+    lang    = context.user_data.get("lang") or get_user_lang(user_id, telegram_language_code=user.language_code or "")
 
     context.user_data.clear()
 
@@ -3078,7 +3095,8 @@ async def handle_form_submitted(
     """
     user    = update.effective_user
     user_id = str(user.id)
-    lang    = get_user_lang(user_id, telegram_language_code=user.language_code or "")
+    # Use lang stored in user_data (set at start_add_product) for consistency
+    lang    = context.user_data.get("lang") or get_user_lang(user_id, telegram_language_code=user.language_code or "")
 
     # Import pending_submissions from the webapp routes module
     # Both FastAPI and PTB run in the same process → shared memory
@@ -3211,7 +3229,8 @@ async def handle_webapp_data(
     """
     user    = update.effective_user
     user_id = str(user.id)
-    lang    = get_user_lang(user_id, telegram_language_code=user.language_code or "")
+    # Use lang stored in user_data (set at start_add_product) for consistency
+    lang    = context.user_data.get("lang") or get_user_lang(user_id, telegram_language_code=user.language_code or "")
 
     web_app_data = update.effective_message.web_app_data
     if not web_app_data or not web_app_data.data:
@@ -3446,7 +3465,8 @@ async def handle_manual_entry_fallback(
     await query.answer()
     user    = update.effective_user
     user_id = str(user.id)
-    lang    = get_user_lang(user_id, telegram_language_code=user.language_code or "")
+    # Use lang stored in user_data (set at start_add_product) for consistency
+    lang    = context.user_data.get("lang") or get_user_lang(user_id, telegram_language_code=user.language_code or "")
 
     processed_attrs = context.user_data.get("processed_attributes", {})
     required_names = (
