@@ -2477,38 +2477,11 @@ async def handle_image_upload(
 
     progress = _progress_bar(5)
 
-    # ── Color Analysis via AI Vision ───────────────────────────────────────────
-    # After each uploaded image, analyze the primary color using GPT-4o mini
-    # vision and display the international color name + circle emoji to the
-    # supplier. This replaces raw HEX codes with a human-friendly indicator.
-    #
-    # DESIGN NOTE: We get the Telegram file URL (public CDN link) and pass it
-    # directly to the vision API. Falls back silently if analysis fails.
+    # ── Color Analysis DISABLED ────────────────────────────────────────────────
+    # Colors are selected by the supplier from KAYISOFT attribute options
+    # (fetched from the KAYISOFT endpoint). AI color extraction from images
+    # was removed to avoid conflicts with the official KAYISOFT color list.
     color_line = ""
-    try:
-        tg_file = await update.message.photo[-1].get_file() if update.message.photo \
-            else await update.message.document.get_file()
-        image_url = tg_file.file_path  # Telegram CDN URL (valid for ~1 hour)
-
-        # v6.2: Only analyze color for the FIRST image — avoid redundant API calls
-        # for multi-image uploads. Color is stored in detected_colors list.
-        if not context.user_data.get("detected_colors"):
-            color_result = await deepseek_service.analyze_image_color(image_url)
-        else:
-            color_result = None
-        if color_result:
-            color_name  = color_result.get("color_name", "")
-            color_emoji = color_result.get("color_emoji", "🔵")
-            # Store detected color in user_data for use in product description
-            if "detected_colors" not in context.user_data:
-                context.user_data["detected_colors"] = []
-            context.user_data["detected_colors"].append(
-                {"name": color_name, "emoji": color_emoji}
-            )
-            color_line = f"\n\n🎨 <b>{color_emoji} {color_name}</b>"
-    except Exception as _color_err:
-        # Non-critical: color analysis failure must never block the upload flow
-        logger.warning("Color analysis skipped: %s", _color_err)
 
     # Build action keyboard
     keyboard = InlineKeyboardMarkup([
