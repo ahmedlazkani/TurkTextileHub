@@ -659,10 +659,13 @@ def _build_variants(
 
 def _build_variants_preview(lang: str, variants: list, attr_map: dict) -> str:
     """
-    Builds a human-readable preview of the auto-generated variants.
+    Builds a human-readable GROUPED preview of the auto-generated variants.
 
-    Shows each variant's selector attributes and price so the supplier
-    can verify before publishing.
+    Instead of listing every variant separately (#1 Siyah|M, #2 Siyah|L...),
+    this groups by attribute and shows unique values:
+      🎨 Renk: ⬛ Siyah, ⬜ Beyaz
+      📏 Beden: M, L, XL
+      💰 3.0 ₺ | 📦 500 pcs
 
     Args:
         lang:     Supplier's language code
@@ -672,6 +675,8 @@ def _build_variants_preview(lang: str, variants: list, attr_map: dict) -> str:
     Returns:
         str: HTML-formatted preview text
     """
+    import re as _re_prev
+
     headers = {
         "tr": "🔄 <b>Ürün Varyantları</b>",
         "ar": "🔄 <b>متغيرات المنتج</b>",
@@ -679,121 +684,104 @@ def _build_variants_preview(lang: str, variants: list, attr_map: dict) -> str:
     }
     header = headers.get(lang, headers["en"])
 
-    lines = [header, ""]
+    # ── Helper: resolve a single option UUID → human display value ──────────
+    def _resolve_option(attr_obj: dict, option_uuid: str) -> str:
+        for opt in attr_obj.get("options", []):
+            if opt.get("id") == option_uuid:
+                raw_val   = opt.get("value", "")
+                label_val = opt.get("label") or opt.get("name") or ""
+                # Handle pipe-separated: "#FF000000|Siyah"
+                if "|" in raw_val:
+                    hex_part, lbl = raw_val.split("|", 1)
+                    raw_val = hex_part.strip()
+                    if not label_val:
+                        label_val = lbl.strip()
+                elif "|" in label_val:
+                    hex_part, lbl = label_val.split("|", 1)
+                    raw_val = hex_part.strip()
+                    label_val = lbl.strip()
+                # Prefer human label
+                display = label_val if label_val else (raw_val if raw_val else option_uuid)
+                # Add color emoji
+                if raw_val and _re_prev.match(r'^#?[0-9A-Fa-f]{6,8}$', raw_val.strip()):
+                    emoji = _render_color_value(raw_val)
+                    is_hex = _re_prev.match(r'^#?[0-9A-Fa-f]{6,8}$', display.strip())
+                    display = emoji if is_hex else f"{emoji} {display}"
+                return display
+        return option_uuid
 
-    for i, variant in enumerate(variants, 1):
-        selectors = variant.get("selector_attributes", [])
-        price     = variant.get("prices", [{}])[0].get("price", 0)
-        stock     = variant.get("stock_count", 0)
+    # ── Collect unique values per attribute across all variants ─────────────
+    # attr_key → (attr_name, [unique_display_values], seen_set)
+    attr_order: list   = []  # ordered list of attr_keys
+    attr_names: dict   = {}  # attr_key → human name
+    attr_values: dict  = {}  # attr_key → list of unique display values (ordered)
+    attr_seen: dict    = {}  # attr_key → set of seen display values
 
-        # Build selector label (e.g. "Renk: Kırmızı | Beden: M")
-        # selector_attributes can be:
-        #   - dict: {attr_key: [option_uuid, ...]}  ← new API format
-        #   - list: [{attribute_id, option_id}, ...]  ← legacy format
-        selector_labels = []
+    for variant in variants:
+        selectors = variant.get("selector_attributes", {})
         if isinstance(selectors, dict):
-            # New format: {attr_key: [option_uuid, ...]}
-            # Find attr by key in attr_map values, then resolve option label/value
             for attr_key, option_ids in selectors.items():
-                # Try to find attr by key in attr_map
-                attr_name    = attr_key  # fallback to key itself
-                option_uuid  = option_ids[0] if option_ids else ""
-                option_value = option_uuid  # fallback
-                for attr_id_candidate, attr_obj in attr_map.items():
+                option_uuid = option_ids[0] if option_ids else ""
+                # Resolve attr name
+                if attr_key not in attr_names:
+                    attr_order.append(attr_key)
+                    attr_names[attr_key] = attr_key  # fallback
+                    attr_values[attr_key] = []
+                    attr_seen[attr_key]   = set()
+                    for _, attr_obj in attr_map.items():
+                        if attr_obj.get("key") == attr_key:
+                            attr_names[attr_key] = attr_obj.get("name", attr_key)
+                            break
+                # Resolve option display
+                display = option_uuid
+                for _, attr_obj in attr_map.items():
                     if attr_obj.get("key") == attr_key:
-                        attr_name = attr_obj.get("name", attr_key)
-                        # Resolve option UUID → human label (prefer label > name > value)
-                        for opt in attr_obj.get("options", []):
-                            if opt.get("id") == option_uuid:
-                                raw_val      = opt.get("value", "")
-                                label_val    = opt.get("label") or opt.get("name") or ""
-                                import re as _re
-
-                                # Handle pipe-separated format: "#FF000000|أسود" → hex + label
-                                if "|" in raw_val:
-                                    hex_part, label_part = raw_val.split("|", 1)
-                                    raw_val   = hex_part.strip()
-                                    if not label_val:
-                                        label_val = label_part.strip()
-                                elif "|" in label_val:
-                                    hex_part, label_part = label_val.split("|", 1)
-                                    raw_val   = hex_part.strip()
-                                    label_val = label_part.strip()
-
-                                # Determine display value: prefer human label over hex
-                                if label_val:
-                                    option_value = label_val
-                                elif raw_val:
-                                    option_value = raw_val
-                                else:
-                                    option_value = option_uuid
-
-                                # Add color emoji if we have a hex value
-                                if raw_val and _re.match(r'^#?[0-9A-Fa-f]{6,8}$', raw_val.strip()):
-                                    emoji = _render_color_value(raw_val)
-                                    # Show emoji + human label (never raw hex)
-                                    is_still_hex = _re.match(r'^#?[0-9A-Fa-f]{6,8}$', option_value.strip())
-                                    if is_still_hex:
-                                        option_value = emoji  # Only emoji if no human label
-                                    else:
-                                        option_value = f"{emoji} {option_value}"
-                                break
+                        display = _resolve_option(attr_obj, option_uuid)
                         break
-                selector_labels.append(f"{attr_name}: {option_value}")
+                if display not in attr_seen[attr_key]:
+                    attr_seen[attr_key].add(display)
+                    attr_values[attr_key].append(display)
         else:
-            # Legacy list format: [{attribute_id, option_id}, ...]
+            # Legacy list format
             for sel in selectors:
                 if not isinstance(sel, dict):
-                    selector_labels.append(str(sel))
                     continue
                 attr_id   = sel.get("attribute_id", "")
                 option_id = sel.get("option_id", "")
-                attr      = attr_map.get(attr_id, {})
-                attr_name = attr.get("name", attr_id)
+                attr_obj  = attr_map.get(attr_id, {})
+                attr_key  = attr_obj.get("key", attr_id)
+                if attr_key not in attr_names:
+                    attr_order.append(attr_key)
+                    attr_names[attr_key]  = attr_obj.get("name", attr_id)
+                    attr_values[attr_key] = []
+                    attr_seen[attr_key]   = set()
+                display = _resolve_option(attr_obj, option_id)
+                if display not in attr_seen[attr_key]:
+                    attr_seen[attr_key].add(display)
+                    attr_values[attr_key].append(display)
 
-                # Find option label (prefer label > name > value)
-                option_value = option_id
-                for opt in attr.get("options", []):
-                    if opt.get("id") == option_id:
-                        raw_val   = opt.get("value", "")
-                        label_val = opt.get("label") or opt.get("name") or ""
-                        import re as _re2
+    # ── Get price and stock from first variant ───────────────────────────────
+    price = variants[0].get("prices", [{}])[0].get("price", 0) if variants else 0
+    stock = variants[0].get("stock_count", 0) if variants else 0
+    total = len(variants)
 
-                        # Handle pipe-separated format: "#FF000000|أسود" → hex + label
-                        if "|" in raw_val:
-                            hex_part, label_part = raw_val.split("|", 1)
-                            raw_val   = hex_part.strip()
-                            if not label_val:
-                                label_val = label_part.strip()
-                        elif "|" in label_val:
-                            hex_part, label_part = label_val.split("|", 1)
-                            raw_val   = hex_part.strip()
-                            label_val = label_part.strip()
+    # ── Build output ─────────────────────────────────────────────────────────
+    variant_count_labels = {
+        "tr": f"📊 Toplam {total} varyant",
+        "ar": f"📊 إجمالي {total} متغير",
+        "en": f"📊 Total {total} variants",
+    }
 
-                        # Determine display value: prefer human label over hex
-                        if label_val:
-                            option_value = label_val
-                        elif raw_val:
-                            option_value = raw_val
-                        else:
-                            option_value = option_id
+    lines = [header, "", variant_count_labels.get(lang, variant_count_labels["en"]), ""]
 
-                        # Add color emoji if we have a hex value
-                        if raw_val and _re2.match(r'^#?[0-9A-Fa-f]{6,8}$', raw_val.strip()):
-                            emoji = _render_color_value(raw_val)
-                            is_still_hex = _re2.match(r'^#?[0-9A-Fa-f]{6,8}$', option_value.strip())
-                            if is_still_hex:
-                                option_value = emoji
-                            else:
-                                option_value = f"{emoji} {option_value}"
-                        break
+    for attr_key in attr_order:
+        name   = attr_names.get(attr_key, attr_key)
+        values = attr_values.get(attr_key, [])
+        lines.append(f"🎨 <b>{name}:</b> {', '.join(values)}")
 
-                selector_labels.append(f"{attr_name}: {option_value}")
-
-        selector_str = " | ".join(selector_labels) if selector_labels else "—"
-        lines.append(f"<b>#{i}</b> {selector_str}")
-        lines.append(f"    💰 {price} ₺  |  📦 {stock} pcs")
-        lines.append("")
+    lines.append("")
+    lines.append(f"💰 {price} ₺  |  📦 {stock} pcs")
+    lines.append("")
 
     confirm_prompts = {
         "tr": "✅ Doğru görünüyor mu? Yayınlamak için onaylayın.",
@@ -2616,16 +2604,42 @@ async def handle_image_upload(
         )],
     ])
 
-    await update.message.reply_text(
+    msg_text = (
         f"{progress}\n\n"
         + get_string(lang, "add_product_confirm").format(
             count=image_count,
             max=max_images,
         )
-        + color_line,
-        reply_markup=keyboard,
-        parse_mode=ParseMode.HTML,
+        + color_line
     )
+
+    # Try to edit the previous image-upload message (if any) to keep only one active keyboard.
+    # This prevents multiple active "Yayınla" buttons from accumulating.
+    prev_msg_id   = context.user_data.get("last_image_msg_id")
+    prev_chat_id  = context.user_data.get("last_image_chat_id")
+    edited = False
+    if prev_msg_id and prev_chat_id:
+        try:
+            await context.bot.edit_message_text(
+                chat_id    = prev_chat_id,
+                message_id = prev_msg_id,
+                text       = msg_text,
+                reply_markup = keyboard,
+                parse_mode   = ParseMode.HTML,
+            )
+            edited = True
+        except Exception:
+            edited = False  # Message too old or already edited — fall through to new message
+
+    if not edited:
+        sent = await update.message.reply_text(
+            msg_text,
+            reply_markup = keyboard,
+            parse_mode   = ParseMode.HTML,
+        )
+        context.user_data["last_image_msg_id"]  = sent.message_id
+        context.user_data["last_image_chat_id"] = sent.chat_id
+
     return CONFIRM_VARIANTS
 
 
