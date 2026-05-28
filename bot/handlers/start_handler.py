@@ -553,7 +553,6 @@ async def handle_menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
         btn_map[get_string(_lang, "btn_statistics")]     = "statistics"
         btn_map[get_string(_lang, "btn_manage_channel")] = "channel"
         btn_map[get_string(_lang, "btn_settings")]       = "settings"
-        btn_map[get_string(_lang, "btn_subscription")]   = "subscription"
         btn_map[get_string(_lang, "btn_help")]           = "help"
         btn_map[get_string(_lang, "btn_why_topkap")]     = "why_topkap"
 
@@ -692,7 +691,7 @@ def register_start_handlers(application) -> None:
     for _lang in ["tr", "ar", "en"]:
         for key in [
             "btn_add_product", "btn_my_products", "btn_statistics",
-            "btn_manage_channel", "btn_settings", "btn_subscription",
+            "btn_manage_channel", "btn_settings",
             "btn_help", "btn_why_topkap",
         ]:
             val = get_string(_lang, key)

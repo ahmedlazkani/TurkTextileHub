@@ -50,12 +50,13 @@ def supplier_main_keyboard(lang: str) -> ReplyKeyboardMarkup:
         Row 1: [➕ Add Product]                    ← primary action, full width
         Row 2: [📦 My Products]  [📊 Statistics]
         Row 3: [🔗 Channel Management]             ← full width
-        Row 4: [⚙️ Settings]    [💎 Subscription]
-        Row 5: [💡 Why TopKap?]  [❓ Help]
+        Row 4: [⚙️ Settings]    [💡 Why TopKap?]
+        Row 5: [❓ Help]
         Row 6: [📱 TopKap App]                     ← WebApp button (opens in Telegram)
 
     The WebApp button opens the TopKap supplier app directly inside Telegram
     using Telegram's built-in WebApp feature — no external browser needed.
+    Subscription removed — managed through the app directly.
     """
     keyboard = [
         # Row 1: Primary action — full width
@@ -67,14 +68,13 @@ def supplier_main_keyboard(lang: str) -> ReplyKeyboardMarkup:
         ],
         # Row 3: Channel Management — full width
         [KeyboardButton(get_string(lang, "btn_manage_channel"))],
-        # Row 4: Settings & Subscription
+        # Row 4: Settings & Why TopKap
         [
             KeyboardButton(get_string(lang, "btn_settings")),
-            KeyboardButton(get_string(lang, "btn_subscription")),
-        ],
-        # Row 5: Why TopKap + Help
-        [
             KeyboardButton(get_string(lang, "btn_why_topkap")),
+        ],
+        # Row 5: Help — full width
+        [
             KeyboardButton(get_string(lang, "btn_help")),
         ],
         # Row 6: TopKap App — WebApp button (opens supplier app inside Telegram)
