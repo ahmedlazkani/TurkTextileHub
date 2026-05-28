@@ -1467,9 +1467,20 @@ async def start_add_product(
     lang    = get_user_lang(user_id, telegram_language_code=user.language_code or "")
 
     # ── حفظ اللغة في user_data لاستخدامها في كل خطوات التدفق ────────────────────────────────
-    # هذا يضمن أن اللغة تبقى ثابتة طوال جلسة إضافة المنتج حتى لو تغيّر _user_langs
-    # (مثلاً بعد Railway restart أو إذا تغيّر telegram_language_code)
     context.user_data["lang"] = lang
+
+    # ── دعم كلا الحالتين: message (زر ReplyKeyboard) و callback_query (زر inline) ──────────
+    # عند الاستدعاء من زر "إضافة منتج جديد" بعد النشر، update.message يكون None
+    _query = update.callback_query
+    if _query:
+        await _query.answer()
+        async def _send_msg(text, **kwargs):
+            return await context.bot.send_message(
+                chat_id=update.effective_chat.id, text=text, **kwargs
+            )
+    else:
+        async def _send_msg(text, **kwargs):
+            return await update.message.reply_text(text, **kwargs)
 
     # ── مهمة 5: فحص وجود channel_id قبل بدء التدفق ─────────────────────────────────────────
     # القناة اختيارية: إذا لم يربط المورد قناته، نُرسل إشعاراً تحفيزياً ونكمل التدفق
@@ -1531,7 +1542,7 @@ async def start_add_product(
             "tr": [InlineKeyboardButton("🔗 Kanal ID'mi nasıl öğrenirim?", callback_data="how_to_get_channel_id")],
             "en": [InlineKeyboardButton("🔗 How to get my channel ID?", callback_data="how_to_get_channel_id")],
         }
-        await update.message.reply_text(
+        await _send_msg(
             setup_msgs.get(lang, setup_msgs["en"]),
             parse_mode="HTML",
             reply_markup=_support_keyboard(lang, extra_buttons=[channel_id_rows.get(lang, channel_id_rows["en"])]),
@@ -1550,7 +1561,7 @@ async def start_add_product(
 
     # Show loading message with progress bar
     progress = _progress_bar(1)
-    loading_msg = await update.message.reply_text(
+    loading_msg = await _send_msg(
         f"{progress}\n\n{get_string(lang, 'add_product_loading_categories')}",
         parse_mode=ParseMode.HTML,
     )
@@ -3578,6 +3589,37 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
         f"{L['stock']}: {stock}",
     ]
 
+    import re as _re
+    from collections import OrderedDict as _OD
+
+    def _clean_option_display(opt: dict, fallback: str = "") -> tuple:
+        """
+        Returns (display_label, raw_hex) from an option dict.
+        Handles pipe-separated format: '#FF000000|Siyah' → ('Siyah', '#FF000000')
+        Never returns raw hex codes in the display label.
+        """
+        raw_name  = opt.get("name") or opt.get("label") or opt.get("value", fallback)
+        raw_value = opt.get("value", "")
+        display   = raw_name
+        hex_val   = raw_value
+
+        # Handle pipe-separated: '#FF000000|Siyah' in name or value
+        if "|" in display:
+            hex_part, lbl = display.split("|", 1)
+            display = lbl.strip()
+            hex_val = hex_part.strip()
+        elif "|" in hex_val:
+            hex_part, lbl = hex_val.split("|", 1)
+            hex_val = hex_part.strip()
+            if not display or _re.match(r'^#?[0-9A-Fa-f]{6,8}$', display.strip()):
+                display = lbl.strip()
+
+        # If display is still a raw hex code, clear it (will show emoji only)
+        if _re.match(r'^#?[0-9A-Fa-f]{6,8}$', display.strip()):
+            display = ""
+
+        return display, hex_val
+
     if shared_attrs or selector_attrs:
         attr_header = {
             "tr": "\n📌 <b>Özellikler:</b>",
@@ -3585,29 +3627,57 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
             "en": "\n📌 <b>Attributes:</b>",
         }
         lines.append(attr_header.get(lang, attr_header["en"]))
+
+        # ── Shared attributes ─────────────────────────────────────────────────
         for attr_id, option_ids in shared_attrs.items():
             attr      = attr_map.get(attr_id, {})
             attr_name = attr.get("name", attr_id)
-            values    = []
+            rendered  = []
             for opt_id in (option_ids if isinstance(option_ids, list) else [option_ids]):
                 for opt in attr.get("options", []):
                     if opt.get("id") == opt_id:
-                        values.append(opt.get("label") or opt.get("value", opt_id))
+                        display, hex_val = _clean_option_display(opt, opt_id)
+                        emoji = _render_color_value(hex_val if hex_val else display)
+                        if display:
+                            rendered.append(f"{emoji} {display}" if emoji else display)
+                        else:
+                            rendered.append(emoji)
                         break
                 else:
-                    values.append(str(opt_id)[:8])
-            lines.append(f"  • {attr_name}: {', '.join(values)}")
+                    rendered.append(str(opt_id)[:8])
+            lines.append(f"  • {attr_name}: {', '.join(rendered)}")
+
+        # ── Selector attributes — GROUP by attribute_id (one line per attr) ──
+        # Before: 🎨 Beden: M / 🎨 Beden: L / 🎨 Beden: XL  (3 lines)
+        # After:  🎨 Beden: M, L, XL                          (1 line)
+        sel_grouped: dict = _OD()  # attr_id → {"name": str, "attr": dict, "values": list}
         for sel in selector_attrs:
-            attr_id   = sel.get("attribute_id", "")
-            option_id = sel.get("option_id", "")
-            attr      = attr_map.get(attr_id, {})
-            attr_name = attr.get("name") or attr_id
-            opt_val   = option_id[:8]
-            for opt in attr.get("options", []):
-                if opt.get("id") == option_id:
-                    opt_val = opt.get("label") or opt.get("value", option_id)
-                    break
-            lines.append(f"  🎨 {attr_name}: {opt_val}")
+            a_id = sel.get("attribute_id", "")
+            o_id = sel.get("option_id", "")
+            if not a_id:
+                continue
+            if a_id not in sel_grouped:
+                a = attr_map.get(a_id, {})
+                sel_grouped[a_id] = {"name": a.get("name") or a_id, "attr": a, "values": []}
+            sel_grouped[a_id]["values"].append(o_id)
+
+        for a_id, grp in sel_grouped.items():
+            attr      = grp["attr"]
+            attr_name = grp["name"]
+            rendered  = []
+            for o_id in grp["values"]:
+                for opt in attr.get("options", []):
+                    if opt.get("id") == o_id:
+                        display, hex_val = _clean_option_display(opt, o_id)
+                        emoji = _render_color_value(hex_val if hex_val else display)
+                        if display:
+                            rendered.append(f"{emoji} {display}" if emoji else display)
+                        else:
+                            rendered.append(emoji)
+                        break
+                else:
+                    rendered.append(o_id[:8])
+            lines.append(f"  🎨 {attr_name}: {', '.join(rendered)}")
 
     return "\n".join(lines)
 
