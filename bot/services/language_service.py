@@ -165,10 +165,12 @@ def get_user_lang(telegram_id: str, telegram_language_code: str = "") -> str:
     if stored:
         return stored
     if telegram_language_code:
-        detected = detect_lang(telegram_language_code)
-        # Cache it so subsequent calls in the same session are consistent
-        _user_langs[str(telegram_id)] = detected
-        return detected
+        # IMPORTANT: Do NOT write to _user_langs here.
+        # Writing here would overwrite an explicit user choice (set via set_user_lang)
+        # if _user_langs was cleared after a Railway restart and the user's Telegram
+        # device language differs from their chosen bot language.
+        # Only set_user_lang() (called from language selection button) should persist.
+        return detect_lang(telegram_language_code)
     return "tr"
 
 

@@ -400,8 +400,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info("No deep link args — showing normal onboarding for telegram_id=%s", telegram_id)
 
     # ── Normal /start — show onboarding ───────────────────────────────────────
-    lang = get_user_lang(telegram_id) or detect_lang(user.language_code)
-    set_user_lang(telegram_id, lang)
+    # IMPORTANT: Only call set_user_lang if the user has NO stored preference.
+    # If we always call set_user_lang here, a user who chose Turkish manually
+    # (set_lang_tr button) would have their choice overwritten on every /start
+    # because detect_lang(user.language_code) returns "ar" for Arabic-device users.
+    from bot.services.language_service import _user_langs as _stored_langs
+    _has_stored = bool(_stored_langs.get(str(telegram_id)))
+    lang = get_user_lang(telegram_id, telegram_language_code=user.language_code or "")
+    if not _has_stored:
+        # First time — persist the auto-detected language
+        set_user_lang(telegram_id, lang)
 
     motivation = _get_motivational(lang)
     caption = f"{motivation}\n\n{get_string(lang, 'welcome_message')}"
