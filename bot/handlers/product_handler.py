@@ -508,7 +508,7 @@ def _build_variants(
             descs.append({"language": lng, "text": text})
         return descs
 
-    # If no selector attributes → single variant
+    # ── If no selector attributes → single variant ──────────────────────────────────────────────────────────────────────────────────
     if not ai_selector_attrs:
         return [{
             "stock_id":            f"VAR-{uuid.uuid4().hex[:8].upper()}",
@@ -524,81 +524,115 @@ def _build_variants(
             "dimensions":          None,
         }]
 
-    # Group selector attributes by attribute_id to find the primary variant axis
-    # Primary variant attribute: is_primary_variant_attribute=True
-    primary_attr_id = None
-    for attr in raw_attributes:
-        if attr.get("is_primary_variant_attribute") and attr.get("is_variant_selector"):
-            primary_attr_id = attr.get("id")
-            break
+    # ── KAYISOFT API RULE: each variant's selector_attributes must have EXACTLY ONE option
+    # per attribute. We must create one variant per combination of (primary_option × other_options).
+    #
+    # Example: sizes=[S, M, L], colors=[Red, Blue]
+    #   → 6 variants: (S,Red), (S,Blue), (M,Red), (M,Blue), (L,Red), (L,Blue)
+    #
+    # If only one selector attribute (e.g. sizes=[S, M, L]):
+    #   → 3 variants: (S,), (M,), (L,)
+    #
+    # _to_selector_dict MUST receive exactly one {attribute_id, option_id} per attribute
+    # so that the resulting dict is {attr_key: [single_option_uuid]}.
+    # ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-    # If no primary found, use the first selector attribute
-    if not primary_attr_id and ai_selector_attrs:
-        primary_attr_id = ai_selector_attrs[0].get("attribute_id")
+    # Step 1: Group all selector entries by attribute_id
+    # Each group = one attribute with potentially multiple selected options
+    from collections import defaultdict
+    attr_groups: dict[str, list[str]] = defaultdict(list)  # {attribute_id: [option_id, ...]}
+    for sel in ai_selector_attrs:
+        attr_id   = sel.get("attribute_id", "")
+        option_id = sel.get("option_id", "")
+        if attr_id and option_id:
+            attr_groups[attr_id].append(option_id)
 
-    # Build one variant per option of the primary attribute
-    primary_options = [
-        sa for sa in ai_selector_attrs
-        if sa.get("attribute_id") == primary_attr_id
-    ]
-
-    # Non-primary selector attributes (shared across all variants)
-    other_selectors = [
-        sa for sa in ai_selector_attrs
-        if sa.get("attribute_id") != primary_attr_id
-    ]
-
-    if not primary_options:
-        # Fallback: single variant with all selector attributes
-        # Convert list → dict format: {attr_key: [option_uuid]}
+    if not attr_groups:
+        # All entries were malformed → single fallback variant
         return [{
             "stock_id":            f"VAR-{uuid.uuid4().hex[:8].upper()}",
             "stock_count":         stock_count,
             "visibility_status":   "public",
-            # tax_percentage & cost_price omitted entirely:
-            # API requires positive number or absence; null causes HTTP 422
             "titles":              _build_titles(product_name, product_name_en, lang),
             "descriptions":        _build_descriptions(description, description_en, lang),
-            "selector_attributes": _to_selector_dict(ai_selector_attrs),
             "prices":              [{"min_quantity": min_quantity, "price": price_float}],
             "images":              uploaded_file_names,
             "videos":              [],
             "dimensions":          None,
         }]
 
-    # ── Distribute images across variants ───────────────────────────────────────
+    # Step 2: Identify the PRIMARY variant attribute (is_primary_variant_attribute=True)
+    # This is the axis along which images are distributed (e.g. color).
+    # All other attributes are secondary (e.g. size, material).
+    primary_attr_id = None
+    for attr in raw_attributes:
+        if attr.get("is_primary_variant_attribute") and attr.get("is_variant_selector"):
+            primary_attr_id = attr.get("id")
+            break
+    # Fallback: use the attribute with the most options as primary
+    if not primary_attr_id:
+        primary_attr_id = max(attr_groups, key=lambda k: len(attr_groups[k]))
+
+    primary_options  = attr_groups.get(primary_attr_id, [])
+    secondary_groups = {k: v for k, v in attr_groups.items() if k != primary_attr_id}
+
+    # Step 3: Cartesian product of primary × secondary options
+    # Each combination becomes one variant with EXACTLY ONE option per attribute.
+    import itertools
+
+    # Build list of (attr_id, option_id) tuples for secondary attributes
+    secondary_axes = [
+        [(attr_id, opt_id) for opt_id in opt_ids]
+        for attr_id, opt_ids in secondary_groups.items()
+    ]
+
+    # Cartesian product: primary_option × secondary_axis_1 × secondary_axis_2 ...
+    if secondary_axes:
+        combinations = list(itertools.product(primary_options, *secondary_axes))
+    else:
+        combinations = [(opt,) for opt in primary_options]
+
+    # Step 4: Distribute images across variants
     # Strategy:
-    #   - 1 variant  → all images go to that variant
-    #   - N variants, images >= N → distribute evenly (first variant gets remainder)
-    #   - N variants, images < N  → all images go to EVERY variant (same photos for all colors)
-    #     This handles the case where supplier uploads photos for a single color sample
-    #     and wants all colors to show those photos.
-    images_per_variant = []
-    n_variants = len(primary_options)
+    #   - 1 variant  → all images
+    #   - N variants, images >= N → distribute evenly
+    #   - N variants, images < N  → all images duplicated to every variant
+    n_variants = len(combinations)
     n_images   = len(uploaded_file_names)
+    images_per_variant: list[list] = []
 
     if n_variants <= 1 or n_images == 0:
-        # Single variant or no images → all images to first (only) variant
         images_per_variant = [uploaded_file_names] * max(1, n_variants)
     elif n_images < n_variants:
-        # Fewer images than variants → duplicate all images across every variant
-        # (supplier uploaded sample photos; all colors share the same images)
         images_per_variant = [uploaded_file_names] * n_variants
     else:
-        # Enough images to distribute — split evenly; last variant gets remainder
         chunk = n_images // n_variants
         for i in range(n_variants):
             start = i * chunk
             end   = start + chunk if i < n_variants - 1 else n_images
             images_per_variant.append(uploaded_file_names[start:end])
 
+    # Step 5: Build one variant dict per combination
     variants = []
-    for i, primary_opt in enumerate(primary_options):
-        # Each variant's selector_attributes = primary option + shared non-primary selectors
-        # Convert from list format [{attribute_id, option_id}] → dict {attr_key: [option_uuid]}
-        variant_selectors_list = [primary_opt] + other_selectors
-        variant_selectors_dict = _to_selector_dict(variant_selectors_list)
-        variant_images         = images_per_variant[i] if i < len(images_per_variant) else []
+    for i, combo in enumerate(combinations):
+        # combo[0] = primary option_id (str)
+        # combo[1..] = (attr_id, option_id) tuples for secondary attributes
+        primary_opt_id = combo[0]
+
+        # Build selector_attributes dict: {attr_key: [single_option_uuid]}
+        sel_dict: dict[str, list] = {}
+
+        # Primary attribute → exactly one option
+        primary_key = _key_map.get(primary_attr_id, primary_attr_id)
+        sel_dict[primary_key] = [primary_opt_id]
+
+        # Secondary attributes → exactly one option each
+        for sec_pair in combo[1:]:
+            sec_attr_id, sec_opt_id = sec_pair
+            sec_key = _key_map.get(sec_attr_id, sec_attr_id)
+            sel_dict[sec_key] = [sec_opt_id]
+
+        variant_images = images_per_variant[i] if i < len(images_per_variant) else []
 
         variants.append({
             "stock_id":            f"VAR-{uuid.uuid4().hex[:8].upper()}",
@@ -608,7 +642,7 @@ def _build_variants(
             # API requires positive number or absence; null causes HTTP 422
             "titles":              _build_titles(product_name, product_name_en, lang),
             "descriptions":        _build_descriptions(description, description_en, lang),
-            "selector_attributes": variant_selectors_dict,
+            "selector_attributes": sel_dict,
             "prices":              [{"min_quantity": min_quantity, "price": price_float}],
             "images":              variant_images,
             "videos":              [],
