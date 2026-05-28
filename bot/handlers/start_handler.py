@@ -549,12 +549,10 @@ async def handle_menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
     btn_map = {}
     for _lang in ["tr", "ar", "en"]:
         btn_map[get_string(_lang, "btn_add_product")]    = "add_product"
-        btn_map[get_string(_lang, "btn_my_products")]    = "my_products"
-        btn_map[get_string(_lang, "btn_statistics")]     = "statistics"
         btn_map[get_string(_lang, "btn_manage_channel")] = "channel"
-        btn_map[get_string(_lang, "btn_settings")]       = "settings"
-        btn_map[get_string(_lang, "btn_help")]           = "help"
         btn_map[get_string(_lang, "btn_why_topkap")]     = "why_topkap"
+        btn_map[get_string(_lang, "btn_help")]           = "help"
+        btn_map[get_string(_lang, "btn_language")]       = "language"
 
     action = btn_map.get(text)
 
@@ -565,32 +563,14 @@ async def handle_menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
         # This fallback is kept only as a safety net in case of handler ordering issues.
         pass
 
-    elif action == "my_products":
-        await update.message.reply_text(
-            COMING_SOON[lang]["my_products"],
-            parse_mode=ParseMode.HTML,
-        )
-
-    elif action == "statistics":
-        await update.message.reply_text(
-            COMING_SOON[lang]["statistics"],
-            parse_mode=ParseMode.HTML,
-        )
-
     elif action == "channel":
         from bot.handlers.channel_handler import start_channel_connection
         await start_channel_connection(update, context)
 
-    elif action == "settings":
+    elif action == "language":
         await update.message.reply_text(
             SETTINGS_MSG[lang],
             reply_markup=language_keyboard(),
-            parse_mode=ParseMode.HTML,
-        )
-
-    elif action == "subscription":
-        await update.message.reply_text(
-            COMING_SOON[lang]["subscription"],
             parse_mode=ParseMode.HTML,
         )
 
@@ -690,9 +670,8 @@ def register_start_handlers(application) -> None:
     menu_buttons = []
     for _lang in ["tr", "ar", "en"]:
         for key in [
-            "btn_add_product", "btn_my_products", "btn_statistics",
-            "btn_manage_channel", "btn_settings",
-            "btn_help", "btn_why_topkap",
+            "btn_add_product", "btn_manage_channel",
+            "btn_why_topkap", "btn_help", "btn_language",
         ]:
             val = get_string(_lang, key)
             if val and val != key:

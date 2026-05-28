@@ -147,9 +147,13 @@ async def _run_telegram_bot() -> None:
     logger.info("TopKap Bot started successfully -- polling for updates...")
 
     # Share the application instance with FastAPI via a module-level variable
-    # so that webapp_routes.py can call bot methods directly
+    # so that webapp_routes.py and orders_handler.py can call bot methods directly
     import bot.routes.webapp_routes as _wr
     _wr.set_bot_application(application)
+
+    # Register bot application with orders notification handler
+    import bot.handlers.orders_handler as _oh
+    _oh.set_bot_application(application)
 
     # Use async context manager for clean startup/shutdown
     async with application:
@@ -213,6 +217,7 @@ def create_app():
     from fastapi import FastAPI
     from fastapi.responses import JSONResponse
     from bot.routes.webapp_routes import router as webapp_router
+    from bot.handlers.orders_handler import router as orders_router
 
     app = FastAPI(
         title="TopKap WebApp Server",
@@ -223,6 +228,9 @@ def create_app():
 
     # Register WebApp routes
     app.include_router(webapp_router)
+
+    # Register Orders Webhook routes (POST /webhook/orders)
+    app.include_router(orders_router)
 
     # Health check endpoint (Railway uses this to verify the service is alive)
     @app.get("/health", tags=["System"])
