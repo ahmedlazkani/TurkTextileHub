@@ -96,11 +96,54 @@ def detect_lang(language_code: str) -> str:
 # تحميل الترجمات مرة واحدة عند استيراد الوحدة
 _translations = load_translations()
 
-# ── In-memory language store ──────────────────────────────────────────────────
-# NOTE: This dict lives in RAM and is cleared on every Railway restart.
-# Until a persistent DB is added, we use telegram_language_code as a fallback
-# so users don't revert to Turkish after every deployment.
+# ── Persistent language store ────────────────────────────────────────────────
+# Saves user language preferences to disk so they survive Railway restarts.
+# File location priority: /data > /app/data > /tmp (same logic as channel_handler)
+
+import os as _os
+
+def _resolve_langs_file() -> str:
+    """Resolve path for user_langs.json persistence file."""
+    env_path = _os.environ.get("LANGS_FILE", "")
+    if env_path:
+        return env_path
+    data_dir = "/data"
+    if _os.path.isdir(data_dir) and _os.access(data_dir, _os.W_OK):
+        return _os.path.join(data_dir, "user_langs.json")
+    app_data_dir = "/app/data"
+    try:
+        _os.makedirs(app_data_dir, exist_ok=True)
+        if _os.access(app_data_dir, _os.W_OK):
+            return _os.path.join(app_data_dir, "user_langs.json")
+    except Exception:
+        pass
+    return "/tmp/user_langs.json"
+
+_LANGS_FILE = _resolve_langs_file()
+
 _user_langs: dict = {}
+
+def _load_langs() -> dict:
+    """Load persisted user→lang mapping from disk."""
+    try:
+        with open(_LANGS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_langs() -> None:
+    """Save current user→lang mapping to disk."""
+    try:
+        parent = _os.path.dirname(_LANGS_FILE)
+        if parent:
+            _os.makedirs(parent, exist_ok=True)
+        with open(_LANGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(_user_langs, f, ensure_ascii=False)
+    except Exception as e:
+        print(f"⚠️ Could not save user_langs: {e}")
+
+# Load persisted langs on module import
+_user_langs = _load_langs()
 
 
 def get_user_lang(telegram_id: str, telegram_language_code: str = "") -> str:
@@ -130,5 +173,9 @@ def get_user_lang(telegram_id: str, telegram_language_code: str = "") -> str:
 
 
 def set_user_lang(telegram_id: str, lang: str) -> None:
-    """Explicitly set the language for a user (called from language selection button)."""
+    """Explicitly set the language for a user (called from language selection button).
+    
+    Persists the choice to disk so it survives Railway restarts.
+    """
     _user_langs[str(telegram_id)] = lang
+    _save_langs()

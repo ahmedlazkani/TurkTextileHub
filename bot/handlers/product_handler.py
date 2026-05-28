@@ -919,6 +919,7 @@ async def _publish_to_channel(
     supplier_name: str,
     product_id: str,
     supplier_id: str,
+    attributes: list = None,  # list of {"name": str, "value": str} for DeepSeek post
 ) -> bool:
     """
     Publishes a professional product post to the supplier's Telegram channel.
@@ -944,7 +945,8 @@ async def _publish_to_channel(
     Returns:
         bool: True on success, False on any failure
     """
-    caption, keyboard = _build_channel_post(
+    # ── Build keyboard (always uses static builder for buttons) ────────────────
+    _, keyboard = _build_channel_post(
         lang=lang,
         product_name=product_name,
         description=description,
@@ -954,6 +956,40 @@ async def _publish_to_channel(
         product_id=product_id,
         supplier_id=supplier_id,
     )
+
+    # ── Build post caption via DeepSeek AI (professional copywriting) ─────────
+    # DeepSeek generates a polished, multilingual channel post.
+    # Falls back to static _build_channel_post caption if AI fails.
+    from bot.services.deepseek_service import generate_channel_post as _gen_post
+    product_data_for_ai = {
+        "name":         product_name,
+        "description":  description,
+        "price":        price,
+        "min_quantity": min_order,
+        "product_code": None,
+        "notes":        None,
+        "attributes":   attributes or [],
+    }
+    # Use supplier's language for the post
+    post_languages = [lang] if lang in ("ar", "tr", "en") else ["tr"]
+    logger.info("🤖 Generating AI channel post via DeepSeek (lang=%s)...", lang)
+    ai_caption = await _gen_post(product_data_for_ai, post_languages)
+    if ai_caption:
+        caption = ai_caption
+        logger.info("✅ AI channel post generated (%d chars)", len(caption))
+    else:
+        # Fallback: use static caption from _build_channel_post
+        logger.warning("⚠️ AI post generation failed — using static caption fallback")
+        caption, _ = _build_channel_post(
+            lang=lang,
+            product_name=product_name,
+            description=description,
+            price=price,
+            min_order=min_order,
+            supplier_name=supplier_name,
+            product_id=product_id,
+            supplier_id=supplier_id,
+        )
 
     try:
         if len(image_file_ids) > 1:
@@ -1043,7 +1079,13 @@ def _render_color_value(value: str) -> str:
     if not hex_match:
         return value  # Not a hex color — return as-is
 
-    hex_digits = hex_match.group(1)[:6]  # Take first 6 digits (ignore alpha)
+    raw_hex = hex_match.group(1)
+    # KAYISOFT API uses AARRGGBB format (8 digits) — skip first 2 (alpha) to get RGB
+    # Standard 6-digit hex is RRGGBB — use directly
+    if len(raw_hex) == 8:
+        hex_digits = raw_hex[2:8]  # skip alpha channel (first 2 digits)
+    else:
+        hex_digits = raw_hex[:6]
     try:
         r = int(hex_digits[0:2], 16)
         g = int(hex_digits[2:4], 16)
@@ -1220,45 +1262,61 @@ def _build_extraction_summary(
                 else:
                     # Human label available — show emoji + label
                     rendered_values.append(f"{emoji} {display}" if emoji != display else display)
-            lines.append(f"  • {attr_name}: {', '.join(rendered_values)}")
+            lines.append(f"  \u2022 {attr_name}: {', '.join(rendered_values)}")
 
+        # \u2500\u2500 Group selector_attrs by attribute_id so each attribute appears on ONE line \u2500\u2500
+        # e.g. instead of: \u2022 Size: M / \u2022 Size: L / \u2022 Size: XL
+        # we show:         \u2022 Size: M, L, XL
+        import re as _re
+        from collections import OrderedDict as _OD
+        sel_grouped: dict = _OD()  # attr_id → {"name": str, "values": list}
         for sel in selector_attrs:
             attr_id   = sel.get("attribute_id", "")
             option_id = sel.get("option_id", "")
-            # Try attr_map by UUID first, then by key as fallback
-            attr      = attr_map.get(attr_id) or attr_key_map.get(attr_id, {})
-            attr_name = attr.get("name") or attr.get("key") or attr_id
-            display_val = option_id
-            raw_val     = ""
-            for opt in attr.get("options", []):
-                if opt.get("id") == option_id:
-                    # Prefer human label over raw hex value
-                    display_val = (
-                        opt.get("label")
-                        or opt.get("name")
-                        or opt.get("value", option_id)
-                    )
-                    raw_val = opt.get("value", "")
-                    break
-            # Apply color rendering: emoji + human label (never raw hex)
-            # Handle "#RRGGBBAA|label" format from API (pipe-separated hex|name)
-            import re as _re
-            if "|" in display_val:
-                hex_part, label_part = display_val.split("|", 1)
-                raw_val  = hex_part.strip()
-                display_val = label_part.strip()
-            elif "|" in raw_val:
-                hex_part, label_part = raw_val.split("|", 1)
-                raw_val = hex_part.strip()
-                if not display_val or _re.match(r'^#?[0-9A-Fa-f]{6,8}$', display_val.strip()):
-                    display_val = label_part.strip()
-            emoji = _render_color_value(raw_val if raw_val else display_val)
-            is_hex = bool(_re.match(r'^#?[0-9A-Fa-f]{6,8}$', display_val.strip()))
-            if is_hex:
-                option_value = emoji
-            else:
-                option_value = f"{emoji} {display_val}" if emoji != display_val else display_val
-            lines.append(f"  • {attr_name}: {option_value}")
+            if not attr_id:
+                continue
+            if attr_id not in sel_grouped:
+                attr      = attr_map.get(attr_id) or attr_key_map.get(attr_id, {})
+                attr_name = attr.get("name") or attr.get("key") or attr_id
+                sel_grouped[attr_id] = {"name": attr_name, "attr": attr, "values": []}
+            sel_grouped[attr_id]["values"].append(option_id)
+
+        for attr_id, grp in sel_grouped.items():
+            attr      = grp["attr"]
+            attr_name = grp["name"]
+            rendered_values = []
+            for option_id in grp["values"]:
+                display_val = option_id
+                raw_val     = ""
+                for opt in attr.get("options", []):
+                    if opt.get("id") == option_id:
+                        # Prefer human label over raw hex value
+                        raw_name = opt.get("name") or opt.get("value", option_id)
+                        raw_val  = opt.get("value", "")
+                        # Parse pipe-separated format: "#FFFFFFFF|أبيض" → label="أبيض"
+                        if "|" in raw_name:
+                            _, display_val = raw_name.split("|", 1)
+                            display_val = display_val.strip()
+                            raw_val = raw_name.split("|", 1)[0].strip()
+                        elif "|" in raw_val:
+                            raw_val, lbl = raw_val.split("|", 1)
+                            raw_val = raw_val.strip()
+                            display_val = lbl.strip() if lbl.strip() else raw_name
+                        else:
+                            display_val = raw_name
+                        break
+                # Strip any remaining hex from display_val
+                if "|" in display_val:
+                    _, display_val = display_val.split("|", 1)
+                    display_val = display_val.strip()
+                if _re.match(r'^#?[0-9A-Fa-f]{6,8}$', display_val.strip()):
+                    display_val = ""  # pure hex — use emoji only
+                emoji = _render_color_value(raw_val if raw_val else option_id)
+                if display_val:
+                    rendered_values.append(f"{emoji} {display_val}" if emoji != display_val else display_val)
+                else:
+                    rendered_values.append(emoji)
+            lines.append(f"  \u2022 {attr_name}: {', '.join(rendered_values)}")
 
     return "\n".join(lines)
 
@@ -2983,6 +3041,74 @@ async def handle_final_publish(
             "📢 Attempting channel publish: channel_id=%s, user_id=%s, images=%d",
             channel_id, user_id, len(image_file_ids)
         )
+        # ── Build human-readable attributes list for DeepSeek post ───────────────────────
+        # Build a lookup: attr_id → attr dict (for name + options resolution)
+        _attr_map_pub = {a.get("id", ""): a for a in raw_attributes if a.get("id")}
+        _attrs_list_pub = []
+
+        # Group selector_attrs by attribute_id (e.g. all sizes together, all colors together)
+        import re as _re_pub
+        from collections import OrderedDict as _OD_pub
+        _sel_grouped_pub: dict = _OD_pub()
+        for _sel in ai_selector_attrs:
+            _aid  = _sel.get("attribute_id", "")
+            _oid  = _sel.get("option_id", "")
+            if not _aid:
+                continue
+            if _aid not in _sel_grouped_pub:
+                _a = _attr_map_pub.get(_aid, {})
+                _sel_grouped_pub[_aid] = {"name": _a.get("name") or _a.get("key") or _aid, "attr": _a, "vals": []}
+            _sel_grouped_pub[_aid]["vals"].append(_oid)
+
+        for _aid, _grp in _sel_grouped_pub.items():
+            _rendered = []
+            for _oid in _grp["vals"]:
+                _display = _oid
+                _raw_v   = ""
+                for _opt in _grp["attr"].get("options", []):
+                    if _opt.get("id") == _oid:
+                        _raw_n = _opt.get("name") or _opt.get("value", _oid)
+                        _raw_v = _opt.get("value", "")
+                        if "|" in _raw_n:
+                            _, _display = _raw_n.split("|", 1)
+                            _display = _display.strip()
+                            _raw_v   = _raw_n.split("|", 1)[0].strip()
+                        elif "|" in _raw_v:
+                            _raw_v, _lbl = _raw_v.split("|", 1)
+                            _display = _lbl.strip() if _lbl.strip() else _raw_n
+                        else:
+                            _display = _raw_n
+                        break
+                # Strip any remaining hex from display
+                if "|" in _display:
+                    _, _display = _display.split("|", 1)
+                    _display = _display.strip()
+                if _re_pub.match(r'^#?[0-9A-Fa-f]{6,8}$', _display.strip()):
+                    _display = ""  # pure hex — skip
+                if _display:
+                    _rendered.append(_display)
+            if _rendered:
+                _attrs_list_pub.append({"name": _grp["name"], "value": ", ".join(_rendered)})
+
+        # Add shared attributes (material, pattern, etc.)
+        for _aid, _opt_ids in ai_shared_attrs.items():
+            _a = _attr_map_pub.get(_aid, {})
+            _aname = _a.get("name") or _a.get("key") or _aid
+            _rendered = []
+            for _oid in (_opt_ids if isinstance(_opt_ids, list) else [_opt_ids]):
+                for _opt in _a.get("options", []):
+                    if _opt.get("id") == _oid:
+                        _raw_n = _opt.get("label") or _opt.get("name") or _opt.get("value", _oid)
+                        if "|" in _raw_n:
+                            _, _raw_n = _raw_n.split("|", 1)
+                            _raw_n = _raw_n.strip()
+                        _rendered.append(_raw_n)
+                        break
+                else:
+                    _rendered.append(str(_oid))
+            if _rendered:
+                _attrs_list_pub.append({"name": _aname, "value": ", ".join(_rendered)})
+
         channel_published = await _publish_to_channel(
             context=context,
             channel_id=channel_id,
@@ -2995,6 +3121,7 @@ async def handle_final_publish(
             supplier_name=supplier_name,
             product_id=product_id,
             supplier_id=supplier_id,
+            attributes=_attrs_list_pub,
         )
     else:
         logger.warning(
