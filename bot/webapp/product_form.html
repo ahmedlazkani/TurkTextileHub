@@ -713,8 +713,7 @@
     if (tg) {
       tg.ready();
       tg.expand();
-      // Configure the MainButton
-      tg.MainButton.setText("✅ حفظ بيانات المنتج");
+      // MainButton text is set later in applyTranslations() using T.btn_save
       tg.MainButton.color       = tg.themeParams.button_color       || "#2678d8";
       tg.MainButton.textColor   = tg.themeParams.button_text_color  || "#ffffff";
       tg.MainButton.onClick(handleSubmit);
@@ -754,6 +753,8 @@
         info_photos:        "سيتم طلب <strong>صور المنتج</strong> في الخطوة التالية مباشرةً داخل المحادثة",
         success_text:       "تم الحفظ بنجاح! ✨",
         btn_save:           "✅ حفظ بيانات المنتج",
+        select_placeholder: "— اختر —",
+        field_required:     "هذا الحقل مطلوب",
       },
       tr: {
         header_title:       "📦 Yeni Ürün Ekle",
@@ -780,6 +781,8 @@
         info_photos:        "<strong>Ürün fotoğrafları</strong> bir sonraki adımda sohbet içinde istenecektir",
         success_text:       "Başarıyla kaydedildi! ✨",
         btn_save:           "✅ Ürün Bilgilerini Kaydet",
+        select_placeholder: "— Seçin —",
+        field_required:     "Bu alan zorunludur",
       },
       en: {
         header_title:       "📦 Add New Product",
@@ -806,6 +809,8 @@
         info_photos:        "<strong>Product photos</strong> will be requested in the next step inside the chat",
         success_text:       "Saved successfully! ✨",
         btn_save:           "✅ Save Product Data",
+        select_placeholder: "— Select —",
+        field_required:     "This field is required",
       },
     };
     const T = I18N[LANG] || I18N["en"];
@@ -1240,7 +1245,7 @@
           controlHtml = `
             <div class="select-wrapper">
               <select id="ctrl-attr-${attrId}" data-attr="${attrId}">
-                <option value="">— اختر —</option>
+                <option value="">${T.select_placeholder}</option>
                 ${opts}
               </select>
             </div>
@@ -1272,8 +1277,8 @@
 
         } else if (uiType === "bool") {
           // ── Boolean toggle (Yes / No) ────────────────────────
-          const yesLabel = dir === "rtl" ? "نعم" : (lang === "tr" ? "Evet" : "Yes");
-          const noLabel  = dir === "rtl" ? "لا"  : (lang === "tr" ? "Hayır" : "No");
+          const yesLabel = LANG === "ar" ? "نعم" : (LANG === "tr" ? "Evet" : "Yes");
+          const noLabel  = LANG === "ar" ? "لا"  : (LANG === "tr" ? "Hayır" : "No");
           controlHtml = `
             <div class="bool-toggle">
               <label class="bool-option">
@@ -1299,7 +1304,7 @@
 
         const errorHtml = `
           <div class="field-error" id="error-attr-${attrId}">
-            هذا الحقل مطلوب
+            ${T.field_required}
           </div>
         `;
 
