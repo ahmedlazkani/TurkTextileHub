@@ -1600,7 +1600,8 @@ async def start_add_product(
         )
         return ConversationHandler.END
 
-    # Build inline keyboard — two buttons per row for compact display
+    # Build inline keyboard — ONE button per row for main categories
+    # ── Rationale: same as subcategories — full-width rows prevent name truncation
     # is_visible_for_creating=True means this category accepts new products
     # Also build a name lookup map so later steps can show the selected category name
     # ── Task 7: Sort categories — gender groups first (Women→Men→Kids), then alphabetical ──
@@ -1639,8 +1640,8 @@ async def start_add_product(
         cname = cat.get("name", "—")
         categories_map[cid] = cname
         buttons_flat.append(InlineKeyboardButton(cname, callback_data=f"cat_{cid}"))
-    # Arrange into rows of 2 buttons each
-    keyboard = [buttons_flat[i:i+2] for i in range(0, len(buttons_flat), 2)]
+    # One button per row — full-width, no truncation
+    keyboard = [[btn] for btn in buttons_flat]
 
     # Store the map so handle_category_selection can look up the selected name
     context.user_data["categories_map"] = categories_map
@@ -1719,21 +1720,23 @@ async def handle_category_selection(
         await _load_attributes_and_ask_form(query, context, api, cat_id, lang, progress)
         return FILL_FORM
 
-    # Build subcategory keyboard — two buttons per row for compact display
-    # Also build a name map for later steps
+    # Build subcategory keyboard — ONE button per row (sequential layout)
+    # ── Rationale: two-per-row causes names to be truncated with "..." in Telegram
+    #    (Telegram limits inline button text to ~20 chars per button in 2-col layout).
+    #    One-per-row gives each button the full message width, so names like
+    #    "Erkek Spor Giyim & Aksesuar" are always fully visible.
     # ── Task 7: Sort subcategories alphabetically ──
     visible_subs = [s for s in subcategories if s.get("is_visible_for_creating", True)]
     visible_subs.sort(key=lambda s: s.get("name", "").lower().strip())
 
     subcategories_map = {}
-    sub_buttons_flat = []
+    # Each sub-list is a single row → one button per row (full-width, no truncation)
+    keyboard = []
     for sub in visible_subs:
         sid   = sub.get("id")
         sname = sub.get("name", "—")
         subcategories_map[sid] = sname
-        sub_buttons_flat.append(InlineKeyboardButton(sname, callback_data=f"sub_{sid}"))
-    # Arrange into rows of 2 buttons each
-    keyboard = [sub_buttons_flat[i:i+2] for i in range(0, len(sub_buttons_flat), 2)]
+        keyboard.append([InlineKeyboardButton(sname, callback_data=f"sub_{sid}")])
     context.user_data["subcategories_map"] = subcategories_map
 
     # Build breadcrumb label: "✅ الفئة: Giyim"
