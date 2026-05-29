@@ -1883,33 +1883,45 @@ async def _load_attributes_and_ask_form(
     )
 
     # ── Build message text ─────────────────────────────────────────────────────
+    SEP = "━━━━━━━━━━━━━━━━━━━━"
     if webapp_url:
-        prompts = {
-            "ar": (
-                "📝 <b>الخطوة 3 — بيانات المنتج</b>\n\n"
-                "اضغط الزر أدناه لفتح نموذج المنتج المنظّم.\n"
-                "يمكنك تعبئة الاسم، السعر، الكميات، والخصائص بشكل مريح."
-            ),
-            "tr": (
-                "📝 <b>Adım 3 — Ürün Bilgileri</b>\n\n"
-                "Aşağıdaki butona tıklayarak yapılandırılmış ürün formunu açın.\n"
-                "Ad, fiyat, miktar ve özellikler rahatça girilebilir."
-            ),
-            "en": (
-                "📝 <b>Step 3 — Product Details</b>\n\n"
-                "Tap the button below to open the structured product form.\n"
-                "Fill in the name, price, quantities, and attributes with ease."
-            ),
+        # ── Header ────────────────────────────────────────────────────────────
+        step_headers = {
+            "ar": "📝 <b>الخطوة 3 — بيانات المنتج</b>",
+            "tr": "📝 <b>Adım 3 — Ürün Bilgileri</b>",
+            "en": "📝 <b>Step 3 — Product Details</b>",
         }
-        form_prompt = prompts.get(lang, prompts["en"])
+        # ── Instruction ────────────────────────────────────────────────────────
+        instructions = {
+            "ar": "اضغط الزر أدناه لفتح نموذج المنتج المنظّم.",
+            "tr": "Aşağıdaki butona tıklayarak ürün formunu açın.",
+            "en": "Tap the button below to open the structured product form.",
+        }
+        # ── Required fields block ──────────────────────────────────────────────
         if required_names:
-            req_label = {
-                "ar": "📋 <b>الحقول المطلوبة في النموذج:</b>",
-                "tr": "📋 <b>Formda zorunlu alanlar:</b>",
-                "en": "📋 <b>Required fields in the form:</b>",
-            }.get(lang, "📋 <b>Required fields:</b>")
-            fields_list = "\n".join(f"  • {n}" for n in required_names if n)
-            form_prompt += f"\n\n{req_label}\n{fields_list}"
+            req_headers = {
+                "ar": "🔴 <b>الحقول الإجبارية</b> <i>(يجب تعبئتها)</i>",
+                "tr": "🔴 <b>Zorunlu Alanlar</b> <i>(doldurulması gerekir)</i>",
+                "en": "🔴 <b>Required Fields</b> <i>(must be filled)</i>",
+            }
+            fields_lines = "\n".join(
+                f"  ❗ {n}" for n in required_names if n
+            )
+            req_block = (
+                req_headers.get(lang, req_headers["en"])
+                + "\n"
+                + fields_lines
+            )
+        else:
+            req_block = ""
+
+        parts = [step_headers.get(lang, step_headers["en"])]
+        parts.append(SEP)
+        parts.append(instructions.get(lang, instructions["en"]))
+        if req_block:
+            parts.append(SEP)
+            parts.append(req_block)
+        form_prompt = "\n".join(parts)
     else:
         # Fallback: no RAILWAY_DOMAIN set → use old text-based flow
         form_prompt = get_string(lang, "add_product_fill_form")
@@ -1919,8 +1931,8 @@ async def _load_attributes_and_ask_form(
                 "ar": "الحقول المطلوبة",
                 "en": "Required fields",
             }.get(lang, "Required fields")
-            form_prompt += f"\n\n📋 <b>{required_label}:</b>\n" + "\n".join(
-                f"  • {name}" for name in required_names if name
+            form_prompt += f"\n\n🔴 <b>{required_label}:</b>\n" + "\n".join(
+                f"  ❗ {name}" for name in required_names if name
             )
 
     body_parts = [progress]
@@ -2025,19 +2037,25 @@ async def handle_form_input(
     missing = _check_missing_required(extracted_data, processed_attrs)
 
     if missing:
-        # Show missing attributes and ask supplier to provide them
-        missing_labels = {
-            "tr": "Eksik zorunlu alanlar",
-            "ar": "الحقول المطلوبة الناقصة",
-            "en": "Missing required fields",
+        # ── Build clear, prominent missing-fields alert ───────────────────────────────────────
+        SEP = "━━━━━━━━━━━━━━━━━━━━"
+        alert_headers = {
+            "tr": "🚨 <b>Eksik Zorunlu Alanlar!</b>",
+            "ar": "🚨 <b>حقول إجبارية ناقصة!</b>",
+            "en": "🚨 <b>Missing Required Fields!</b>",
         }
-        missing_prompt = {
-            "tr": "Lütfen aşağıdaki bilgileri ekleyin ve tekrar gönderin:",
-            "ar": "يرجى إضافة المعلومات التالية وإعادة الإرسال:",
-            "en": "Please add the following information and send again:",
+        missing_intros = {
+            "tr": "❌ Aşağıdaki zorunlu alanlar doldurulmadı:",
+            "ar": "❌ لم يتم تعبئة الحقول الإجبارية التالية:",
+            "en": "❌ The following required fields were not filled:",
+        }
+        missing_prompts = {
+            "tr": "📝 Lütfen bu bilgileri mesaj olarak gönderin ve devam edin.",
+            "ar": "📝 يرجى إرسال هذه المعلومات كرسالة نصية للمتابعة.",
+            "en": "📝 Please send this information as a message to continue.",
         }
 
-        # Build breadcrumb to remind supplier of their selected category
+        # Breadcrumb reminder
         cat_name = context.user_data.get("selected_category_name", "")
         sub_name = context.user_data.get("selected_subcategory_name", "")
         cat_label = {"tr": "Kategori", "ar": "الفئة", "en": "Category"}.get(lang, "Category")
@@ -2049,12 +2067,22 @@ async def handle_form_input(
             breadcrumb_parts.append(f"📌 <b>{sub_label}:</b> {sub_name}")
         breadcrumb = "\n".join(breadcrumb_parts)
 
-        missing_text = (
-            (f"{breadcrumb}\n\n" if breadcrumb else "")
-            + f"⚠️ <b>{missing_labels.get(lang, missing_labels['en'])}:</b>\n"
-            + "\n".join(f"  • {m}" for m in missing)
-            + f"\n\n{missing_prompt.get(lang, missing_prompt['en'])}"
+        # Build numbered missing list for clarity
+        numbered_missing = "\n".join(
+            f"  {i+1}. ❗ <b>{m}</b>" for i, m in enumerate(missing)
         )
+
+        lines = []
+        if breadcrumb:
+            lines.append(breadcrumb)
+            lines.append(SEP)
+        lines.append(alert_headers.get(lang, alert_headers["en"]))
+        lines.append(missing_intros.get(lang, missing_intros["en"]))
+        lines.append(numbered_missing)
+        lines.append(SEP)
+        lines.append(missing_prompts.get(lang, missing_prompts["en"]))
+
+        missing_text = "\n".join(lines)
         await update.message.reply_text(missing_text, parse_mode=ParseMode.HTML)
         return FIX_MISSING
 
@@ -2139,16 +2167,22 @@ async def handle_fix_missing(
     missing = _check_missing_required(extracted_data, processed_attrs)
 
     if missing:
-        # Still missing — ask again
-        missing_labels = {
-            "tr": "Hâlâ eksik alanlar var",
-            "ar": "لا تزال هناك حقول ناقصة",
-            "en": "Still missing required fields",
+        # ── Still missing — show persistent prominent alert ──────────────────────────────────────
+        SEP = "━━━━━━━━━━━━━━━━━━━━"
+        alert_headers = {
+            "tr": "🚨 <b>Hâlâ Eksik Alanlar Var!</b>",
+            "ar": "🚨 <b>لا تزال هناك حقول إجبارية ناقصة!</b>",
+            "en": "🚨 <b>Still Missing Required Fields!</b>",
         }
-        missing_prompt = {
-            "tr": "Lütfen eksik bilgileri ekleyin ve tekrar gönderin:",
-            "ar": "يرجى إضافة المعلومات الناقصة وإعادة الإرسال:",
-            "en": "Please add the missing information and send again:",
+        missing_intros = {
+            "tr": "❌ Henüz doldurulmayan zorunlu alanlar:",
+            "ar": "❌ الحقول الإجبارية التي لم تكتمل بعد:",
+            "en": "❌ Required fields still not completed:",
+        }
+        missing_prompts = {
+            "tr": "📝 Sadece eksik bilgileri gönderin, geri kalanı hatırlıyorum.",
+            "ar": "📝 أرسل فقط المعلومات الناقصة، الباقي محفوظ لديّ.",
+            "en": "📝 Just send the missing info — I remember the rest.",
         }
 
         # Breadcrumb reminder
@@ -2163,12 +2197,22 @@ async def handle_fix_missing(
             breadcrumb_parts.append(f"📌 <b>{sub_label}:</b> {sub_name}")
         breadcrumb = "\n".join(breadcrumb_parts)
 
-        missing_text = (
-            (f"{breadcrumb}\n\n" if breadcrumb else "")
-            + f"⚠️ <b>{missing_labels.get(lang, missing_labels['en'])}:</b>\n"
-            + "\n".join(f"  • {m}" for m in missing)
-            + f"\n\n{missing_prompt.get(lang, missing_prompt['en'])}"
+        # Numbered missing list
+        numbered_missing = "\n".join(
+            f"  {i+1}. ❗ <b>{m}</b>" for i, m in enumerate(missing)
         )
+
+        lines = []
+        if breadcrumb:
+            lines.append(breadcrumb)
+            lines.append(SEP)
+        lines.append(alert_headers.get(lang, alert_headers["en"]))
+        lines.append(missing_intros.get(lang, missing_intros["en"]))
+        lines.append(numbered_missing)
+        lines.append(SEP)
+        lines.append(missing_prompts.get(lang, missing_prompts["en"]))
+
+        missing_text = "\n".join(lines)
         await update.message.reply_text(missing_text, parse_mode=ParseMode.HTML)
         return FIX_MISSING
 
