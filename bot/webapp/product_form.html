@@ -1422,11 +1422,12 @@
       setVal('field-code',   PREFILL.product_code);
       setVal('field-notes',  PREFILL.notes);
 
-      // Update char counters for text fields
-      ['field-name', 'field-desc', 'field-notes'].forEach(id => {
-        const el  = document.getElementById(id);
+      // Update char counters for text fields (counter IDs: counter-name, counter-desc, counter-notes)
+      const counterMap = { 'field-name': 'counter-name', 'field-desc': 'counter-desc', 'field-notes': 'counter-notes' };
+      Object.entries(counterMap).forEach(([fieldId, counterId]) => {
+        const el  = document.getElementById(fieldId);
         const max = parseInt(el?.getAttribute('maxlength') || '0');
-        if (el && max) updateCounter('counter-' + id.replace('field-', ''), el.value.length, max);
+        if (el && max) updateCounter(counterId, el.value.length, max);
       });
 
       // ── Post languages checkboxes ─────────────────────────────────────────────────────────
