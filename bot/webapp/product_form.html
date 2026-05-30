@@ -902,6 +902,24 @@
     })();
     const USER_ID     = urlParams.get("user_id")      || "";
 
+    /* ────────────────────────────────────────────────────────
+       PREFILL DATA — decoded from ?prefill= URL param (base64 JSON)
+       Populated when supplier taps ✏️ Edit after reviewing the summary.
+    ──────────────────────────────────────────────────────── */
+    let PREFILL = null;
+    try {
+      const prefillB64 = urlParams.get("prefill");
+      if (prefillB64) {
+        // Decode URL-safe base64 → UTF-8 JSON string → object
+        const jsonStr = decodeURIComponent(escape(atob(prefillB64.replace(/-/g, '+').replace(/_/g, '/'))));
+        PREFILL = JSON.parse(jsonStr);
+        console.log('[TopKap] Prefill data loaded:', Object.keys(PREFILL));
+      }
+    } catch (e) {
+      console.warn('[TopKap] Could not parse prefill param:', e);
+      PREFILL = null;
+    }
+
     /* ──────────────────────────────────────────────────────────
        ATTRIBUTE STATE
        { [attr_id]: { attr, value } }
@@ -1096,6 +1114,7 @@
         });
 
         renderAttributes(attrs);
+        applyPrefill();  // ← restore previous values after controls are built
       } catch (err) {
         console.error("Failed to load attributes:", err);
         hideSkeleton();
@@ -1384,10 +1403,115 @@
       if (err)  err.classList.remove("visible");
     }
 
-    /* ──────────────────────────────────────────────────────────
+     /* ────────────────────────────────────────────────────────
+       PREFILL HYDRATION — fills static fields + dynamic attribute controls
+       Called AFTER renderAttributes() so all controls exist in the DOM.
+    ──────────────────────────────────────────────────────── */
+    function applyPrefill() {
+      if (!PREFILL) return;
+
+      // ── Static base fields ────────────────────────────────────────────────────────────────
+      const setVal = (id, val) => {
+        const el = document.getElementById(id);
+        if (el && val !== undefined && val !== null && val !== '') el.value = val;
+      };
+      setVal('field-name',   PREFILL.name);
+      setVal('field-desc',   PREFILL.description);
+      setVal('field-price',  PREFILL.price);
+      setVal('field-minqty', PREFILL.min_quantity);
+      setVal('field-code',   PREFILL.product_code);
+      setVal('field-notes',  PREFILL.notes);
+
+      // Update char counters for text fields
+      ['field-name', 'field-desc', 'field-notes'].forEach(id => {
+        const el  = document.getElementById(id);
+        const max = parseInt(el?.getAttribute('maxlength') || '0');
+        if (el && max) updateCounter('counter-' + id.replace('field-', ''), el.value.length, max);
+      });
+
+      // ── Post languages checkboxes ─────────────────────────────────────────────────────────
+      if (Array.isArray(PREFILL.post_languages)) {
+        ['ar', 'tr', 'en'].forEach(l => {
+          const cb = document.getElementById('lang-' + l);
+          if (cb) cb.checked = PREFILL.post_languages.includes(l);
+        });
+      }
+
+      // ── Dynamic attribute controls ──────────────────────────────────────────────────────────
+      // shared_attributes: { attr_id: [opt_id, ...] }
+      const shared = PREFILL.shared_attributes || {};
+      for (const [attrId, optIds] of Object.entries(shared)) {
+        const ids = Array.isArray(optIds) ? optIds : [optIds];
+        if (!attrState[attrId]) continue;
+
+        const card = document.getElementById('card-attr-' + attrId);
+        if (!card) continue;
+
+        // color swatches (checkboxes)
+        const checkboxes = card.querySelectorAll(`input[type="checkbox"][data-attr="${attrId}"]`);
+        if (checkboxes.length > 0) {
+          checkboxes.forEach(cb => { cb.checked = ids.includes(cb.value); });
+          attrState[attrId].value = ids;
+          continue;
+        }
+
+        // select dropdown
+        const sel = card.querySelector(`select[data-attr="${attrId}"]`);
+        if (sel) {
+          sel.value = ids[0] || '';
+          attrState[attrId].value = sel.value || null;
+          continue;
+        }
+
+        // multiselect checkboxes
+        const mChecks = card.querySelectorAll(`input[type="checkbox"][name="attr_${attrId}"]`);
+        if (mChecks.length > 0) {
+          mChecks.forEach(cb => { cb.checked = ids.includes(cb.value); });
+          attrState[attrId].value = ids;
+          continue;
+        }
+
+        // numeric / text input
+        const inp = card.querySelector(`input[data-attr="${attrId}"]`);
+        if (inp) {
+          inp.value = ids[0] || '';
+          attrState[attrId].value = inp.value || null;
+        }
+      }
+
+      // selector_attributes: [{ attribute_id, option_id }, ...]
+      const selectors = PREFILL.selector_attributes || [];
+      selectors.forEach(({ attribute_id, option_id }) => {
+        if (!attrState[attribute_id]) return;
+        const card = document.getElementById('card-attr-' + attribute_id);
+        if (!card) return;
+
+        // color swatch
+        const swatch = card.querySelector(`input[type="checkbox"][value="${option_id}"][data-attr="${attribute_id}"]`);
+        if (swatch) { swatch.checked = true; }
+
+        // select dropdown
+        const sel = card.querySelector(`select[data-attr="${attribute_id}"]`);
+        if (sel) { sel.value = option_id; }
+
+        // Update attrState
+        const existing = attrState[attribute_id].value;
+        if (Array.isArray(existing)) {
+          if (!existing.includes(option_id)) existing.push(option_id);
+        } else {
+          attrState[attribute_id].value = option_id;
+        }
+      });
+
+      // Trigger validation so MainButton shows if all required fields are filled
+      validateAndToggleMainButton();
+      console.log('[TopKap] Prefill applied ✔');
+    }
+
+    /* ────────────────────────────────────────────────────────
        SUBMIT HANDLER
-    ────────────────────────────────────────────────────────── */
-    function handleSubmit() {
+    ──────────────────────────────────────────────────────── */
+    function handleSubmit() {) {
       if (!validateAll()) return;
 
       const name     = document.getElementById("field-name").value.trim();
@@ -1499,11 +1623,15 @@
         .replace(/"/g, "&quot;");
     }
 
-    /* ──────────────────────────────────────────────────────────
+       /* ────────────────────────────────────────────────────────
        BOOT
-    ────────────────────────────────────────────────────────── */
+    ──────────────────────────────────────────────────────── */
     // Initially hide MainButton — shown only when basic fields are valid
     if (tg) tg.MainButton.hide();
+
+    // Apply prefill for static fields immediately (before attributes load)
+    // Dynamic attribute controls are prefilled inside loadAttributes() after renderAttributes()
+    if (PREFILL) applyPrefill();
 
     loadAttributes();
   </script>

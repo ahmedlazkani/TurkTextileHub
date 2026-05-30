@@ -2377,16 +2377,87 @@ async def handle_confirm_details(
         return AI_POST_REVIEW
 
     else:  # details_edit
-        # ── Supplier wants to edit → return to FILL_FORM ──────────────────────────────────────
-        edit_prompts = {
-            "tr": "✏️ Ürün bilgilerini yeniden girin:",
-            "ar": "✏️ أعد كتابة تفاصيل المنتج:",
-            "en": "✏️ Please re-enter your product details:",
-        }
-        await query.message.reply_text(
-            edit_prompts.get(lang, edit_prompts["en"]),
-            parse_mode=ParseMode.HTML,
+        # ── Supplier wants to edit → re-open form with prefill if source was webapp ────────────────
+        from telegram import WebAppInfo
+        import json, base64
+
+        product_details = context.user_data.get("product_details", {})
+        source = product_details.get("_source", "")
+
+        # Detect Railway domain (same logic as _load_attributes_and_ask_form)
+        _raw_static = os.getenv("RAILWAY_STATIC_URL", "")
+        _static_domain = _raw_static.replace("https://", "").replace("http://", "").rstrip("/")
+        RAILWAY_DOMAIN = (
+            os.getenv("RAILWAY_DOMAIN")
+            or os.getenv("RAILWAY_PUBLIC_DOMAIN")
+            or _static_domain
+            or ""
         )
+
+        category_id = context.user_data.get("selected_subcategory", "")
+        user_id_str = str(query.from_user.id)
+
+        # If data came from the webapp form AND we have a Railway domain → re-open form with prefill
+        if source in ("webapp", "webapp_post") and RAILWAY_DOMAIN and category_id:
+            # Build prefill JSON (only the fields the form knows about)
+            prefill_data = {
+                "name":                product_details.get("name", ""),
+                "description":         product_details.get("description", ""),
+                "price":               str(product_details.get("price", "")),
+                "min_quantity":        product_details.get("min_quantity", 1),
+                "stock_count":         product_details.get("stock_count", 500),
+                "product_code":        product_details.get("product_code", ""),
+                "notes":               product_details.get("notes", ""),
+                "post_languages":      product_details.get("post_languages", ["ar"]),
+                "shared_attributes":   product_details.get("shared_attributes", {}),
+                "selector_attributes": product_details.get("selector_attributes", []),
+            }
+            # Encode as URL-safe base64 to pass in query param
+            prefill_b64 = base64.urlsafe_b64encode(
+                json.dumps(prefill_data, ensure_ascii=False).encode("utf-8")
+            ).decode("ascii")
+
+            webapp_url = (
+                f"https://{RAILWAY_DOMAIN}/webapp/product-form"
+                f"?category_id={category_id}"
+                f"&lang={lang}"
+                f"&user_id={user_id_str}"
+                f"&prefill={prefill_b64}"
+            )
+
+            btn_labels = {
+                "ar": ("📝 فتح الفورم للتعديل",   "✏️ الإدخال اليدوي"),
+                "tr": ("📝 Formu Düzenle",          "✏️ Manuel Giriş"),
+                "en": ("📝 Edit in Form",            "✏️ Manual Entry"),
+            }
+            webapp_label, manual_label = btn_labels.get(lang, btn_labels["en"])
+
+            edit_headers = {
+                "ar": "✏️ <b>تعديل بيانات المنتج</b>\nاضغط الزر لفتح الفورم مع بياناتك السابقة.",
+                "tr": "✏️ <b>Ürün Bilgilerini Düzenle</b>\nÖnceki verilerinizle formu açmak için butona basın.",
+                "en": "✏️ <b>Edit Product Details</b>\nTap the button to reopen the form with your previous data.",
+            }
+
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton(webapp_label, web_app=WebAppInfo(url=webapp_url))],
+                [InlineKeyboardButton(manual_label, callback_data="form_manual_entry")],
+            ])
+            await query.message.reply_text(
+                edit_headers.get(lang, edit_headers["en"]),
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML,
+            )
+        else:
+            # Fallback: no Railway domain or data came from manual text entry
+            edit_prompts = {
+                "tr": "✏️ Ürün bilgilerini yeniden girin:",
+                "ar": "✏️ أعد كتابة تفاصيل المنتج:",
+                "en": "✏️ Please re-enter your product details:",
+            }
+            await query.message.reply_text(
+                edit_prompts.get(lang, edit_prompts["en"]),
+                parse_mode=ParseMode.HTML,
+            )
         return FILL_FORM
 
 
