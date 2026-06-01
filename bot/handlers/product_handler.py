@@ -1119,6 +1119,29 @@ def _render_color_value(value: str) -> str:
     return emoji
 
 
+
+def _deduplicate_name(name: str) -> str:
+    """
+    Removes duplicated words from option names returned by KAYISOFT API.
+    KAYISOFT sometimes returns names like 'XS XS', 'M M', 'L L', 'XL XL'.
+    This function detects and removes the duplication.
+    Examples:
+        'XS XS'  → 'XS'
+        'M M'    → 'M'
+        'XL XL'  → 'XL'
+        'Satin Satin' → 'Satin'
+        'Navy Blue'  → 'Navy Blue'  (not duplicated, unchanged)
+    """
+    if not name:
+        return name
+    parts = name.strip().split()
+    if len(parts) >= 2:
+        half = len(parts) // 2
+        if len(parts) % 2 == 0 and parts[:half] == parts[half:]:
+            return " ".join(parts[:half])
+    return name
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # AI Extraction Summary Builder
 # Shows supplier a clean summary of what the AI understood
@@ -1292,6 +1315,7 @@ def _build_extraction_summary(
                             display_val = lbl.strip() if lbl.strip() else raw_name
                         else:
                             display_val = raw_name
+                        display_val = _deduplicate_name(display_val)
                         break
                 # Strip any remaining hex from display_val
                 if "|" in display_val:
@@ -3186,8 +3210,13 @@ async def handle_final_publish(
         )
         # ── Build human-readable attributes list for DeepSeek post ───────────────────────
         # Build a lookup: attr_id → attr dict (for name + options resolution)
-        _attr_map_pub = {a.get("id", ""): a for a in raw_attributes if a.get("id")}
-        _attrs_list_pub = []
+        _attr_map_pub     = {a.get("id", ""): a for a in raw_attributes if a.get("id")}
+        _attr_key_map_pub = {a.get("key", ""): a for a in raw_attributes if a.get("key")}
+        _attrs_list_pub   = []
+
+        def _pub_get_attr(aid: str) -> dict:
+            """Lookup attr by UUID or key, returns {} if not found."""
+            return _attr_map_pub.get(aid) or _attr_key_map_pub.get(aid) or {}
 
         # Group selector_attrs by attribute_id (e.g. all sizes together, all colors together)
         import re as _re_pub
@@ -3199,8 +3228,8 @@ async def handle_final_publish(
             if not _aid:
                 continue
             if _aid not in _sel_grouped_pub:
-                _a = _attr_map_pub.get(_aid, {})
-                _sel_grouped_pub[_aid] = {"name": _a.get("name") or _a.get("key") or _aid, "attr": _a, "vals": []}
+                _a = _pub_get_attr(_aid)
+                _sel_grouped_pub[_aid] = {"name": _deduplicate_name(_a.get("name") or _a.get("key") or _aid), "attr": _a, "vals": []}
             _sel_grouped_pub[_aid]["vals"].append(_oid)
 
         for _aid, _grp in _sel_grouped_pub.items():
@@ -3221,6 +3250,7 @@ async def handle_final_publish(
                             _display = _lbl.strip() if _lbl.strip() else _raw_n
                         else:
                             _display = _raw_n
+                        _display = _deduplicate_name(_display)
                         break
                 # Strip any remaining hex from display
                 if "|" in _display:
@@ -3235,8 +3265,8 @@ async def handle_final_publish(
 
         # Add shared attributes (material, pattern, etc.)
         for _aid, _opt_ids in ai_shared_attrs.items():
-            _a = _attr_map_pub.get(_aid, {})
-            _aname = _a.get("name") or _a.get("key") or _aid
+            _a = _pub_get_attr(_aid)
+            _aname = _deduplicate_name(_a.get("name") or _a.get("key") or _aid)
             _rendered = []
             for _oid in (_opt_ids if isinstance(_opt_ids, list) else [_opt_ids]):
                 for _opt in _a.get("options", []):
@@ -3245,7 +3275,7 @@ async def handle_final_publish(
                         if "|" in _raw_n:
                             _, _raw_n = _raw_n.split("|", 1)
                             _raw_n = _raw_n.strip()
-                        _rendered.append(_raw_n)
+                        _rendered.append(_deduplicate_name(_raw_n))
                         break
                 else:
                     _rendered.append(str(_oid))
@@ -3749,6 +3779,9 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
         # If display is still a raw hex code, clear it (will show emoji only)
         if _re.match(r'^#?[0-9A-Fa-f]{6,8}$', display.strip()):
             display = ""
+
+        # Remove duplicated words from API (e.g. 'XS XS' → 'XS', 'Satin Satin' → 'Satin')
+        display = _deduplicate_name(display)
 
         return display, hex_val
 
