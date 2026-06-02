@@ -3111,24 +3111,62 @@ async def handle_final_publish(
         "🔍 id_to_key map has %d entries: %s",
         len(id_to_key), str(id_to_key)[:300]
     )
+    import re as _re_uuid
+    _UUID_RE = _re_uuid.compile(
+        r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+        _re_uuid.I
+    )
+
+    # Build a lookup: {attr_id → attr_obj} so we can check ui_type per attribute
+    id_to_attr = {attr.get("id", ""): attr for attr in raw_attributes}
+
     shared_attributes = {}
     for attr_id, option_ids in ai_shared_attrs.items():
         # Convert UUID key → string key using id_to_key map
         attr_key = id_to_key.get(attr_id, attr_id)  # fallback to UUID if key not found
-        # Keep option_ids as UUIDs — KAYISOFT requires UUID list, NOT text values
+
         if not isinstance(option_ids, list):
             option_ids = [option_ids] if option_ids else []
+
         # Filter out empty values
         clean_ids = [oid for oid in option_ids if oid]
-        logger.info(
-            "🔑 attr_id=%s → attr_key=%s | option_ids=%s",
-            attr_id[:20] if len(attr_id) > 20 else attr_id,
-            attr_key,
-            str(clean_ids)[:80]
-        )
-        if clean_ids:
-            shared_attributes[attr_key] = clean_ids
-    logger.info("📋 shared_attributes (key+UUID-based): %s", str(shared_attributes)[:500])
+
+        if not clean_ids:
+            continue
+
+        # ── Determine how to send the value to KAYISOFT API ──────────────────────
+        # KAYISOFT has two types of shared attributes:
+        #   1. Option-based (select/multiselect/color): value = [uuid, uuid, ...]
+        #   2. String-based (text/numeric/bool):        value = "plain string"
+        #
+        # We detect string-based by checking:
+        #   a) The attribute has no options in raw_attributes (ui_type=text/numeric)
+        #   b) OR the values themselves are NOT UUIDs (plain text entered by user)
+        attr_obj   = id_to_attr.get(attr_id, {})
+        has_opts   = bool(attr_obj.get("options"))
+        all_uuids  = all(_UUID_RE.match(str(v)) for v in clean_ids)
+
+        if has_opts and all_uuids:
+            # Option-based attribute: send as list of UUIDs
+            final_value = clean_ids
+            logger.info(
+                "🔑 attr_id=%s → attr_key=%s | OPTION-BASED | value=%s",
+                attr_id[:20] if len(attr_id) > 20 else attr_id,
+                attr_key, str(final_value)[:80]
+            )
+        else:
+            # String-based attribute: send as plain string
+            # Join multiple values with comma if somehow multiple were provided
+            final_value = ", ".join(str(v) for v in clean_ids)
+            logger.info(
+                "🔑 attr_id=%s → attr_key=%s | STRING-BASED | value=%r",
+                attr_id[:20] if len(attr_id) > 20 else attr_id,
+                attr_key, final_value
+            )
+
+        shared_attributes[attr_key] = final_value
+
+    logger.info("📋 shared_attributes (smart-typed): %s", str(shared_attributes)[:500])
 
     # Build selector_attributes: [{attribute_id, option_id}] — variant-defining
     # NOTE: selector_attributes in variants also need key-based format per PDF spec
