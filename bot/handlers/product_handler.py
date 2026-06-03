@@ -2301,33 +2301,56 @@ async def handle_confirm_details(
         languages = product_details.get("post_languages") or ["ar", "tr"]
 
         # Build attributes list for DeepSeek
+        # NOTE: raw_attributes is a LIST; build a dict keyed by id for fast lookup
         attrs_list = []
-        all_attrs = context.user_data.get("attributes", {})
+        raw_attrs_list = context.user_data.get("raw_attributes", [])
+        all_attrs = {a.get("id"): a for a in raw_attrs_list if a.get("id")}
+
         shared_attrs = product_details.get("shared_attributes", {})
         for attr_id, option_ids in shared_attrs.items():
             attr_info = all_attrs.get(attr_id, {})
-            attr_name = attr_info.get("name", attr_id)
+            attr_name = _deduplicate_name(attr_info.get("name", "") or attr_id)
+            # Deduplicate option_ids
+            seen_oids = set()
             option_names = []
             for opt_id in (option_ids if isinstance(option_ids, list) else [option_ids]):
+                if opt_id in seen_oids:
+                    continue
+                seen_oids.add(opt_id)
                 for opt in attr_info.get("options", []):
                     if opt.get("id") == opt_id:
-                        option_names.append(opt.get("name", opt_id))
+                        option_names.append(_deduplicate_name(opt.get("name", "") or opt_id))
                         break
+                else:
+                    option_names.append(opt_id[:8])
             if option_names:
                 attrs_list.append({"name": attr_name, "value": ", ".join(option_names)})
 
         selector_attrs = product_details.get("selector_attributes", [])
+        # Group selector_attrs by attribute_id to avoid one-line-per-option repetition
+        sel_grouped: dict = {}
         for sel in selector_attrs:
             attr_id = sel.get("attribute_id", "")
             opt_id  = sel.get("option_id", "")
-            attr_info = all_attrs.get(attr_id, {})
-            attr_name = attr_info.get("name", attr_id)
-            opt_name  = opt_id
-            for opt in attr_info.get("options", []):
-                if opt.get("id") == opt_id:
-                    opt_name = opt.get("name", opt_id)
-                    break
-            attrs_list.append({"name": attr_name, "value": opt_name})
+            if not attr_id:
+                continue
+            if attr_id not in sel_grouped:
+                sel_grouped[attr_id] = {"attr_info": all_attrs.get(attr_id, {}), "opt_ids": [], "seen": set()}
+            if opt_id and opt_id not in sel_grouped[attr_id]["seen"]:
+                sel_grouped[attr_id]["seen"].add(opt_id)
+                sel_grouped[attr_id]["opt_ids"].append(opt_id)
+        for attr_id, grp in sel_grouped.items():
+            attr_info = grp["attr_info"]
+            attr_name = _deduplicate_name(attr_info.get("name", "") or attr_id)
+            opt_names = []
+            for opt_id in grp["opt_ids"]:
+                for opt in attr_info.get("options", []):
+                    if opt.get("id") == opt_id:
+                        opt_names.append(_deduplicate_name(opt.get("name", "") or opt_id))
+                        break
+                else:
+                    opt_names.append(opt_id[:8])
+            attrs_list.append({"name": attr_name, "value": ", ".join(opt_names)})
 
         post_data = {
             "name":         product_details.get("name", ""),
@@ -2527,19 +2550,53 @@ async def handle_ai_post_review(
         )
 
         # Build post_data again
+        # NOTE: raw_attributes is a LIST; build a dict keyed by id for fast lookup
         attrs_list = []
-        all_attrs = context.user_data.get("attributes", {})
+        raw_attrs_list = context.user_data.get("raw_attributes", [])
+        all_attrs = {a.get("id"): a for a in raw_attrs_list if a.get("id")}
+
         for attr_id, option_ids in product_details.get("shared_attributes", {}).items():
             attr_info = all_attrs.get(attr_id, {})
-            attr_name = attr_info.get("name", attr_id)
+            attr_name = _deduplicate_name(attr_info.get("name", "") or attr_id)
+            seen_oids = set()
             option_names = []
             for opt_id in (option_ids if isinstance(option_ids, list) else [option_ids]):
+                if opt_id in seen_oids:
+                    continue
+                seen_oids.add(opt_id)
                 for opt in attr_info.get("options", []):
                     if opt.get("id") == opt_id:
-                        option_names.append(opt.get("name", opt_id))
+                        option_names.append(_deduplicate_name(opt.get("name", "") or opt_id))
                         break
+                else:
+                    option_names.append(opt_id[:8])
             if option_names:
                 attrs_list.append({"name": attr_name, "value": ", ".join(option_names)})
+
+        # Also add selector_attrs grouped by attribute
+        sel_grouped_regen: dict = {}
+        for sel in product_details.get("selector_attributes", []):
+            a_id = sel.get("attribute_id", "")
+            o_id = sel.get("option_id", "")
+            if not a_id:
+                continue
+            if a_id not in sel_grouped_regen:
+                sel_grouped_regen[a_id] = {"attr_info": all_attrs.get(a_id, {}), "opt_ids": [], "seen": set()}
+            if o_id and o_id not in sel_grouped_regen[a_id]["seen"]:
+                sel_grouped_regen[a_id]["seen"].add(o_id)
+                sel_grouped_regen[a_id]["opt_ids"].append(o_id)
+        for a_id, grp in sel_grouped_regen.items():
+            a_info = grp["attr_info"]
+            a_name = _deduplicate_name(a_info.get("name", "") or a_id)
+            o_names = []
+            for o_id in grp["opt_ids"]:
+                for opt in a_info.get("options", []):
+                    if opt.get("id") == o_id:
+                        o_names.append(_deduplicate_name(opt.get("name", "") or o_id))
+                        break
+                else:
+                    o_names.append(o_id[:8])
+            attrs_list.append({"name": a_name, "value": ", ".join(o_names)})
 
         post_data = {
             "name":         product_details.get("name", ""),
@@ -4114,6 +4171,12 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
 
     raw_attributes = context.user_data.get("raw_attributes", [])
     attr_map       = {a.get("id"): a for a in raw_attributes if a.get("id")}
+    # Also build a key-based map as fallback (WebApp may send key instead of UUID)
+    attr_key_map   = {a.get("key"): a for a in raw_attributes if a.get("key")}
+
+    def _resolve_attr(attr_id: str) -> dict:
+        """Find attribute by UUID first, then by key string."""
+        return attr_map.get(attr_id) or attr_key_map.get(attr_id) or {}
 
     cat_name = context.user_data.get("selected_category_name", "")
     sub_name = context.user_data.get("selected_subcategory_name", "")
@@ -4197,8 +4260,8 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
 
         # ── Shared attributes ─────────────────────────────────────────────────────
         for attr_id, option_ids in shared_attrs.items():
-            attr      = attr_map.get(attr_id, {})
-            attr_name = _deduplicate_name(attr.get("name", attr_id))
+            attr      = _resolve_attr(attr_id)
+            attr_name = _deduplicate_name(attr.get("name", "") or attr_id)
             rendered  = []
             # Deduplicate option_ids while preserving order
             seen_opt_ids = set()
@@ -4218,7 +4281,8 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
                             rendered.append(emoji)
                         break
                 else:
-                    rendered.append(str(opt_id)[:8])
+                    # opt_id may itself be the option name (text-type attrs)
+                    rendered.append(_deduplicate_name(str(opt_id)))
             lines.append(f"  • {attr_name}: {', '.join(rendered)}")
 
         # ── Selector attributes — GROUP by attribute_id (one line per attr) ──
@@ -4231,7 +4295,7 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
             if not a_id:
                 continue
             if a_id not in sel_grouped:
-                a = attr_map.get(a_id, {})
+                a = _resolve_attr(a_id)
                 sel_grouped[a_id] = {
                     "name": _deduplicate_name(a.get("name") or a_id),
                     "attr": a,
@@ -4258,7 +4322,8 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
                             rendered.append(emoji)
                         break
                 else:
-                    rendered.append(o_id[:8])
+                    # o_id may itself be the option name (text-type attrs)
+                    rendered.append(_deduplicate_name(str(o_id)))
             lines.append(f"  🎨 {attr_name}: {', '.join(rendered)}")
 
     return "\n".join(lines)
