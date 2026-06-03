@@ -1110,6 +1110,13 @@
               const raw = opt.value || '';
               opt.label = raw.includes('|') ? raw.split('|').pop().trim() : raw;
             }
+            // Deduplicate repeated words in label (e.g. 'نسائي نسائي' → 'نسائي')
+            if (opt.label) {
+              const words = opt.label.split(' ');
+              const seen = [];
+              words.forEach(w => { if (w && !seen.includes(w)) seen.push(w); });
+              opt.label = seen.join(' ');
+            }
           });
         });
 

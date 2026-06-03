@@ -2867,11 +2867,41 @@ async def _ask_color_photos(
     current = index + 1
     total   = len(colors)
 
+    # ── Hardcoded fallbacks (used if translation file not yet loaded) ──
+    _FALLBACK_ASK = {
+        "ar": "🎨 اللون {current}/{total}: <b>{color_name}</b>\n━━━━━━━━━━━━━━━━━━━━\n📸 أرسل صور هذا اللون.\n<i>من 1 إلى 5 صور لكل لون.</i>",
+        "tr": "🎨 Renk {current}/{total}: <b>{color_name}</b>\n━━━━━━━━━━━━━━━━━━━━\n📸 Bu renk için fotoğraf gönderin.\n<i>En az 1, en fazla 5 fotoğraf yükleyebilirsiniz.</i>",
+        "en": "🎨 Color {current}/{total}: <b>{color_name}</b>\n━━━━━━━━━━━━━━━━━━━━\n📸 Send photos for this color.\n<i>1 to 5 photos per color.</i>",
+    }
+    _FALLBACK_MULTI = {
+        "ar": "🌈 <b>متعدد الألوان</b> — أرسل جميع صور المنتج\n━━━━━━━━━━━━━━━━━━━━\n📸 من 1 إلى 5 صور.",
+        "tr": "🌈 <b>Çok Renkli</b> ürün için tüm fotoğrafları gönderin\n━━━━━━━━━━━━━━━━━━━━\n📸 En fazla 5 fotoğraf yükleyebilirsiniz.",
+        "en": "🌈 <b>Multi-Color</b> product — send all product photos\n━━━━━━━━━━━━━━━━━━━━\n📸 1 to 5 photos.",
+    }
+    _FALLBACK_DONE = {
+        "ar": "✅ تم — انتقل لللون التالي",
+        "tr": "✅ Tamam — Sonraki Renge Geç",
+        "en": "✅ Done — Next Color",
+    }
+    _FALLBACK_SKIP = {
+        "ar": "⏭️ تخطي هذا اللون",
+        "tr": "⏭️ Bu Rengi Atla",
+        "en": "⏭️ Skip This Color",
+    }
+
+    def _gs(key: str, fallback_dict: dict) -> str:
+        """get_string with hardcoded fallback."""
+        val = get_string(lang, key)
+        # If get_string returned the key itself (not found), use hardcoded fallback
+        if val == key:
+            return fallback_dict.get(lang, fallback_dict["en"])
+        return val
+
     if color["is_multi"]:
         # Multi-color: ask for all photos at once
-        text = get_string(lang, "color_upload_multicolor_ask")
+        text = _gs("color_upload_multicolor_ask", _FALLBACK_MULTI)
     else:
-        text = get_string(lang, "color_upload_ask").format(
+        text = _gs("color_upload_ask", _FALLBACK_ASK).format(
             current=current,
             total=total,
             color_name=color["name"],
@@ -2879,11 +2909,11 @@ async def _ask_color_photos(
 
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton(
-            get_string(lang, "color_upload_done_btn"),
+            _gs("color_upload_done_btn", _FALLBACK_DONE),
             callback_data="color_done",
         ),
         InlineKeyboardButton(
-            get_string(lang, "color_upload_skip_btn"),
+            _gs("color_upload_skip_btn", _FALLBACK_SKIP),
             callback_data="color_skip",
         ),
     ]])
@@ -2959,17 +2989,36 @@ async def handle_color_image_upload(
     prev_msg_id  = context.user_data.get("last_color_msg_id")
     prev_chat_id = context.user_data.get("last_color_chat_id")
 
-    status_text = get_string(lang, "color_upload_added").format(
-        color_name=color["name"],
-        count=new_count,
-    )
+    # Hardcoded fallbacks for color_upload messages
+    _ADDED_FALLBACK = {
+        "ar": "✅ <b>{color_name}</b> — {count}/5 صورة مضافة",
+        "tr": "✅ <b>{color_name}</b> — {count}/5 fotoğraf eklendi",
+        "en": "✅ <b>{color_name}</b> — {count}/5 photo(s) added",
+    }
+    _DONE_FALLBACK = {
+        "ar": "✅ تم — انتقل لللون التالي",
+        "tr": "✅ Tamam — Sonraki Renge Geç",
+        "en": "✅ Done — Next Color",
+    }
+    _SKIP_FALLBACK = {
+        "ar": "⏭️ تخطي هذا اللون",
+        "tr": "⏭️ Bu Rengi Atla",
+        "en": "⏭️ Skip This Color",
+    }
+
+    def _gs2(key: str, fb: dict) -> str:
+        v = get_string(lang, key)
+        return fb.get(lang, fb["en"]) if v == key else v
+
+    added_raw = _gs2("color_upload_added", _ADDED_FALLBACK)
+    status_text = added_raw.format(color_name=color["name"], count=new_count)
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton(
-            get_string(lang, "color_upload_done_btn"),
+            _gs2("color_upload_done_btn", _DONE_FALLBACK),
             callback_data="color_done",
         ),
         InlineKeyboardButton(
-            get_string(lang, "color_upload_skip_btn"),
+            _gs2("color_upload_skip_btn", _SKIP_FALLBACK),
             callback_data="color_skip",
         ),
     ]])
