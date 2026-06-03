@@ -60,6 +60,12 @@ def get_string(lang: str, key: str) -> str:
     IMPORTANT: Do NOT fall back to Turkish (tr) — a user who chose Arabic
     must never see Turkish text just because a key is missing in Arabic.
     """
+    global _translations
+    # Guard: if translations are empty (e.g. after a Railway cold-start edge case),
+    # reload them on-the-fly so the bot never shows raw key names to users.
+    if not _translations or not any(_translations.values()):
+        _translations = load_translations()
+
     if lang in _translations and key in _translations[lang]:
         return _translations[lang][key]
 

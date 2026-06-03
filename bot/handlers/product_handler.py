@@ -2658,43 +2658,91 @@ MULTI_COLOR_NAMES = {"çok renkli", "multicolor", "multi-color", "multi color", 
 MAX_PHOTOS_PER_COLOR = 5
 
 
+# Keywords that identify a color attribute by name
+_COLOR_ATTR_KEYWORDS = {"renk", "color", "colour", "لون", "رنگ"}
+
+
 def _get_color_options(context) -> list:
     """
     Extracts the list of selected color options from user_data.
     Returns a list of dicts: [{"id": uuid, "name": str, "hex": str, "is_multi": bool}]
     Returns empty list if no color attribute found.
+
+    Detection priority:
+      1. is_primary_variant_attribute=True + is_variant_selector=True
+      2. Attribute name contains a color keyword (renk / color / لون)
+      3. Selector attribute with the most hex-value options (pipe-separated)
     """
     product_details = context.user_data.get("product_details", {})
     raw_attributes  = context.user_data.get("raw_attributes", [])
     selector_attrs  = product_details.get("selector_attributes", [])
 
-    # Find the primary color attribute from raw_attributes
-    color_attr_id = None
-    color_options_map = {}  # {option_id: {name, hex}}
+    # Build set of attribute_ids actually used in selector_attributes
+    used_selector_ids = {sel.get("attribute_id") for sel in selector_attrs if sel.get("attribute_id")}
+
+    def _build_options_map(attr: dict) -> dict:
+        """Build {option_id: {name, hex}} for an attribute."""
+        omap = {}
+        for opt in attr.get("options", []):
+            raw_val  = opt.get("value", "")
+            parts    = raw_val.split("|") if raw_val else []
+            hex_val  = parts[0].strip() if parts else ""
+            name_val = parts[1].strip() if len(parts) > 1 else opt.get("name", "")
+            name_val = _deduplicate_name(name_val)
+            omap[opt.get("id", "")] = {"name": name_val, "hex": hex_val}
+        return omap
+
+    color_attr_id    = None
+    color_options_map = {}
+
+    # ── Priority 1: explicit primary variant attribute ────────────────────────
     for attr in raw_attributes:
         if attr.get("is_primary_variant_attribute") and attr.get("is_variant_selector"):
-            color_attr_id = attr.get("id")
-            for opt in attr.get("options", []):
-                raw_val = opt.get("value", "")
-                parts   = raw_val.split("|") if raw_val else []
-                hex_val = parts[0].strip() if parts else ""
-                name_val = parts[1].strip() if len(parts) > 1 else opt.get("name", "")
-                name_val = _deduplicate_name(name_val)
-                color_options_map[opt.get("id", "")] = {
-                    "name": name_val,
-                    "hex":  hex_val,
-                }
+            color_attr_id     = attr.get("id")
+            color_options_map = _build_options_map(attr)
             break
+
+    # ── Priority 2: selector attribute whose name contains a color keyword ────
+    if not color_attr_id:
+        for attr in raw_attributes:
+            if attr.get("id") not in used_selector_ids:
+                continue
+            attr_name_lower = (attr.get("name") or "").lower()
+            if any(kw in attr_name_lower for kw in _COLOR_ATTR_KEYWORDS):
+                color_attr_id     = attr.get("id")
+                color_options_map = _build_options_map(attr)
+                break
+
+    # ── Priority 3: selector attribute with the most hex-value options ────────
+    if not color_attr_id:
+        best_attr = None
+        best_hex_count = 0
+        for attr in raw_attributes:
+            if attr.get("id") not in used_selector_ids:
+                continue
+            hex_count = sum(
+                1 for opt in attr.get("options", [])
+                if "|" in (opt.get("value") or "")
+            )
+            if hex_count > best_hex_count:
+                best_hex_count = hex_count
+                best_attr      = attr
+        if best_attr and best_hex_count > 0:
+            color_attr_id     = best_attr.get("id")
+            color_options_map = _build_options_map(best_attr)
 
     if not color_attr_id:
         return []
 
-    # Collect selected color option IDs from selector_attributes
-    selected_color_ids = [
-        sel["option_id"]
-        for sel in selector_attrs
-        if sel.get("attribute_id") == color_attr_id and sel.get("option_id")
-    ]
+    # Collect selected color option IDs (deduplicated, preserving order)
+    seen_ids = set()
+    selected_color_ids = []
+    for sel in selector_attrs:
+        if sel.get("attribute_id") == color_attr_id and sel.get("option_id"):
+            oid = sel["option_id"]
+            if oid not in seen_ids:
+                seen_ids.add(oid)
+                selected_color_ids.append(oid)
 
     result = []
     for oid in selected_color_ids:
@@ -4147,12 +4195,19 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
         }
         lines.append(attr_header.get(lang, attr_header["en"]))
 
-        # ── Shared attributes ─────────────────────────────────────────────────
+        # ── Shared attributes ─────────────────────────────────────────────────────
         for attr_id, option_ids in shared_attrs.items():
             attr      = attr_map.get(attr_id, {})
-            attr_name = attr.get("name", attr_id)
+            attr_name = _deduplicate_name(attr.get("name", attr_id))
             rendered  = []
-            for opt_id in (option_ids if isinstance(option_ids, list) else [option_ids]):
+            # Deduplicate option_ids while preserving order
+            seen_opt_ids = set()
+            deduped_ids  = []
+            for oid in (option_ids if isinstance(option_ids, list) else [option_ids]):
+                if oid not in seen_opt_ids:
+                    seen_opt_ids.add(oid)
+                    deduped_ids.append(oid)
+            for opt_id in deduped_ids:
                 for opt in attr.get("options", []):
                     if opt.get("id") == opt_id:
                         display, hex_val = _clean_option_display(opt, opt_id)
@@ -4169,7 +4224,7 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
         # ── Selector attributes — GROUP by attribute_id (one line per attr) ──
         # Before: 🎨 Beden: M / 🎨 Beden: L / 🎨 Beden: XL  (3 lines)
         # After:  🎨 Beden: M, L, XL                          (1 line)
-        sel_grouped: dict = _OD()  # attr_id → {"name": str, "attr": dict, "values": list}
+        sel_grouped: dict = _OD()  # attr_id → {"name": str, "attr": dict, "values": list, "seen": set}
         for sel in selector_attrs:
             a_id = sel.get("attribute_id", "")
             o_id = sel.get("option_id", "")
@@ -4177,8 +4232,16 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
                 continue
             if a_id not in sel_grouped:
                 a = attr_map.get(a_id, {})
-                sel_grouped[a_id] = {"name": a.get("name") or a_id, "attr": a, "values": []}
-            sel_grouped[a_id]["values"].append(o_id)
+                sel_grouped[a_id] = {
+                    "name": _deduplicate_name(a.get("name") or a_id),
+                    "attr": a,
+                    "values": [],
+                    "seen": set(),
+                }
+            # Deduplicate option_ids
+            if o_id and o_id not in sel_grouped[a_id]["seen"]:
+                sel_grouped[a_id]["seen"].add(o_id)
+                sel_grouped[a_id]["values"].append(o_id)
 
         for a_id, grp in sel_grouped.items():
             attr      = grp["attr"]
