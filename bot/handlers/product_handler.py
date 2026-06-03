@@ -160,6 +160,7 @@ AI_POST_REVIEW     = 9   # Waiting for supplier to approve DeepSeek-generated ch
 UPLOAD_IMAGES      = 5   # Waiting for image uploads
 CONFIRM_VARIANTS   = 6   # Waiting for variant preview confirmation
 CONFIRM_PUBLISH    = 7   # Waiting for final publish confirmation
+COLOR_UPLOAD       = 10  # Waiting for per-color image uploads (color-by-color flow)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2507,18 +2508,8 @@ async def handle_ai_post_review(
     await query.answer()
 
     if query.data == "post_approve":
-        # ── Approved → proceed to image upload ──────────────────────────────
-        progress = _progress_bar(4)
-        upload_prompts = {
-            "tr": f"{progress}\n\n📸 <b>Adım 4 — Ürün Fotoğrafları</b>\n\nÜrün fotoğraflarınızı gönderin.\nKameradan çekebilir veya galerinizden seçebilirsiniz.",
-            "ar": f"{progress}\n\n📸 <b>الخطوة 4 — صور المنتج</b>\n\nأرسل صور منتجك الآن.\nيمكنك التصوير من الكاميرا أو الاختيار من المعرض.",
-            "en": f"{progress}\n\n📸 <b>Step 4 — Product Images</b>\n\nSend your product photos now.\nYou can take a photo from your camera or choose from your gallery.",
-        }
-        await query.message.reply_text(
-            upload_prompts.get(lang, upload_prompts["en"]),
-            parse_mode=ParseMode.HTML,
-        )
-        return UPLOAD_IMAGES
+        # ── Approved → start color-by-color upload flow ─────────────────────────────────
+        return await _start_color_upload(update, context, from_query=True)
 
     elif query.data == "post_regenerate":
         # ── Regenerate → call DeepSeek again ────────────────────────────────
@@ -2657,6 +2648,331 @@ async def handle_ai_post_manual_edit(
         parse_mode=ParseMode.HTML,
     )
     return AI_POST_REVIEW
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 4.5 — Color-by-Color Image Upload
+# ══════════════════════════════════════════════════════════════════════════════
+
+MULTI_COLOR_NAMES = {"çok renkli", "multicolor", "multi-color", "multi color", "متعدد الألوان", "çokrenkli"}
+MAX_PHOTOS_PER_COLOR = 5
+
+
+def _get_color_options(context) -> list:
+    """
+    Extracts the list of selected color options from user_data.
+    Returns a list of dicts: [{"id": uuid, "name": str, "hex": str, "is_multi": bool}]
+    Returns empty list if no color attribute found.
+    """
+    product_details = context.user_data.get("product_details", {})
+    raw_attributes  = context.user_data.get("raw_attributes", [])
+    selector_attrs  = product_details.get("selector_attributes", [])
+
+    # Find the primary color attribute from raw_attributes
+    color_attr_id = None
+    color_options_map = {}  # {option_id: {name, hex}}
+    for attr in raw_attributes:
+        if attr.get("is_primary_variant_attribute") and attr.get("is_variant_selector"):
+            color_attr_id = attr.get("id")
+            for opt in attr.get("options", []):
+                raw_val = opt.get("value", "")
+                parts   = raw_val.split("|") if raw_val else []
+                hex_val = parts[0].strip() if parts else ""
+                name_val = parts[1].strip() if len(parts) > 1 else opt.get("name", "")
+                name_val = _deduplicate_name(name_val)
+                color_options_map[opt.get("id", "")] = {
+                    "name": name_val,
+                    "hex":  hex_val,
+                }
+            break
+
+    if not color_attr_id:
+        return []
+
+    # Collect selected color option IDs from selector_attributes
+    selected_color_ids = [
+        sel["option_id"]
+        for sel in selector_attrs
+        if sel.get("attribute_id") == color_attr_id and sel.get("option_id")
+    ]
+
+    result = []
+    for oid in selected_color_ids:
+        info = color_options_map.get(oid, {})
+        name = info.get("name", oid)
+        is_multi = name.lower().strip() in MULTI_COLOR_NAMES
+        result.append({"id": oid, "name": name, "hex": info.get("hex", ""), "is_multi": is_multi})
+
+    return result
+
+
+async def _start_color_upload(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    from_query: bool = False,
+) -> int:
+    """
+    Initialises the color-by-color upload flow.
+    Called from handle_ai_post_review when supplier presses ✅ Approve.
+    Returns COLOR_UPLOAD state (or UPLOAD_IMAGES if no colors found).
+    """
+    user    = update.effective_user
+    user_id = str(user.id)
+    lang    = context.user_data.get("lang") or get_user_lang(user_id, telegram_language_code=user.language_code or "")
+
+    colors = _get_color_options(context)
+
+    if not colors:
+        # No color attribute → fall back to generic image upload
+        progress = _progress_bar(4)
+        upload_prompts = {
+            "tr": f"{progress}\n\n📸 <b>Adım 4 — Ürün Fotoğrafları</b>\n\nÜrün fotoğraflarınızı gönderin.",
+            "ar": f"{progress}\n\n📸 <b>الخطوة 4 — صور المنتج</b>\n\nأرسل صور منتجك الآن.",
+            "en": f"{progress}\n\n📸 <b>Step 4 — Product Images</b>\n\nSend your product photos now.",
+        }
+        msg = update.callback_query.message if from_query else update.message
+        await msg.reply_text(
+            upload_prompts.get(lang, upload_prompts["en"]),
+            parse_mode=ParseMode.HTML,
+        )
+        return UPLOAD_IMAGES
+
+    # Initialise color upload state
+    context.user_data["color_upload_list"]  = colors
+    context.user_data["color_upload_index"] = 0
+    context.user_data["color_images_map"]   = {}   # {color_option_id: [file_id, ...]}
+
+    msg = update.callback_query.message if from_query else update.message
+    await _ask_color_photos(msg, context, lang, colors, 0)
+    return COLOR_UPLOAD
+
+
+async def _ask_color_photos(
+    message,
+    context,
+    lang: str,
+    colors: list,
+    index: int,
+) -> None:
+    """
+    Sends the prompt asking for photos of the current color.
+    Builds the keyboard: [✅ Done — Next Color] [⏭️ Skip]
+    """
+    color   = colors[index]
+    current = index + 1
+    total   = len(colors)
+
+    if color["is_multi"]:
+        # Multi-color: ask for all photos at once
+        text = get_string(lang, "color_upload_multicolor_ask")
+    else:
+        text = get_string(lang, "color_upload_ask").format(
+            current=current,
+            total=total,
+            color_name=color["name"],
+        )
+
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton(
+            get_string(lang, "color_upload_done_btn"),
+            callback_data="color_done",
+        ),
+        InlineKeyboardButton(
+            get_string(lang, "color_upload_skip_btn"),
+            callback_data="color_skip",
+        ),
+    ]])
+
+    sent = await message.reply_text(
+        text,
+        reply_markup=keyboard,
+        parse_mode=ParseMode.HTML,
+    )
+    context.user_data["last_color_msg_id"]  = sent.message_id
+    context.user_data["last_color_chat_id"] = sent.chat_id
+
+
+async def handle_color_image_upload(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> int:
+    """
+    STATE: COLOR_UPLOAD
+    Receives photos for the current color.
+    """
+    user    = update.effective_user
+    user_id = str(user.id)
+    lang    = context.user_data.get("lang") or get_user_lang(user_id, telegram_language_code=user.language_code or "")
+
+    colors = context.user_data.get("color_upload_list", [])
+    index  = context.user_data.get("color_upload_index", 0)
+    if not colors or index >= len(colors):
+        return COLOR_UPLOAD
+
+    color = colors[index]
+    color_id = color["id"]
+
+    # Accept photo or document-as-image
+    photo_file_id = None
+    if update.message.photo:
+        photo_file_id = update.message.photo[-1].file_id
+    elif update.message.document and update.message.document.mime_type and \
+            update.message.document.mime_type.startswith("image/"):
+        photo_file_id = update.message.document.file_id
+
+    if not photo_file_id:
+        return COLOR_UPLOAD
+
+    # Initialise map entry
+    if color_id not in context.user_data["color_images_map"]:
+        context.user_data["color_images_map"][color_id] = []
+
+    current_count = len(context.user_data["color_images_map"][color_id])
+
+    # Enforce max 5 photos per color
+    if current_count >= MAX_PHOTOS_PER_COLOR:
+        await update.message.reply_text(
+            get_string(lang, "color_upload_max").format(color_name=color["name"]),
+            parse_mode=ParseMode.HTML,
+        )
+        return COLOR_UPLOAD
+
+    # Deduplicate
+    img_hash = hashlib.sha256(photo_file_id.encode()).hexdigest()[:16]
+    if "image_hashes" not in context.user_data:
+        context.user_data["image_hashes"] = set()
+    if img_hash in context.user_data["image_hashes"]:
+        dup_msg = {"ar": "⚠️ هذه الصورة مضافة مسبقاً.", "tr": "⚠️ Bu fotoğraf zaten eklendi.", "en": "⚠️ Already added."}
+        await update.message.reply_text(dup_msg.get(lang, dup_msg["en"]))
+        return COLOR_UPLOAD
+    context.user_data["image_hashes"].add(img_hash)
+    context.user_data["color_images_map"][color_id].append(photo_file_id)
+
+    new_count = len(context.user_data["color_images_map"][color_id])
+
+    # Update the keyboard message to reflect new count
+    prev_msg_id  = context.user_data.get("last_color_msg_id")
+    prev_chat_id = context.user_data.get("last_color_chat_id")
+
+    status_text = get_string(lang, "color_upload_added").format(
+        color_name=color["name"],
+        count=new_count,
+    )
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton(
+            get_string(lang, "color_upload_done_btn"),
+            callback_data="color_done",
+        ),
+        InlineKeyboardButton(
+            get_string(lang, "color_upload_skip_btn"),
+            callback_data="color_skip",
+        ),
+    ]])
+
+    if prev_msg_id and prev_chat_id:
+        try:
+            await context.bot.edit_message_text(
+                chat_id=prev_chat_id,
+                message_id=prev_msg_id,
+                text=status_text,
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            sent = await update.message.reply_text(
+                status_text, reply_markup=keyboard, parse_mode=ParseMode.HTML
+            )
+            context.user_data["last_color_msg_id"]  = sent.message_id
+            context.user_data["last_color_chat_id"] = sent.chat_id
+    else:
+        sent = await update.message.reply_text(
+            status_text, reply_markup=keyboard, parse_mode=ParseMode.HTML
+        )
+        context.user_data["last_color_msg_id"]  = sent.message_id
+        context.user_data["last_color_chat_id"] = sent.chat_id
+
+    return COLOR_UPLOAD
+
+
+async def handle_color_action(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> int:
+    """
+    STATE: COLOR_UPLOAD — handles ✅ Done and ⏭️ Skip buttons.
+    """
+    query   = update.callback_query
+    await query.answer()
+
+    user_id = str(query.from_user.id)
+    lang    = context.user_data.get("lang") or get_user_lang(user_id, telegram_language_code=query.from_user.language_code or "")
+
+    colors = context.user_data.get("color_upload_list", [])
+    index  = context.user_data.get("color_upload_index", 0)
+    if not colors or index >= len(colors):
+        return COLOR_UPLOAD
+
+    color    = colors[index]
+    color_id = color["id"]
+    action   = query.data  # "color_done" or "color_skip"
+
+    if action == "color_done":
+        # Check if at least one photo was uploaded
+        uploaded = context.user_data.get("color_images_map", {}).get(color_id, [])
+        if not uploaded:
+            # Warn supplier and stay in COLOR_UPLOAD
+            await query.answer(
+                get_string(lang, "color_upload_no_photo_warning").format(color_name=color["name"]),
+                show_alert=True,
+            )
+            return COLOR_UPLOAD
+
+    elif action == "color_skip":
+        # Notify supplier they can upload later
+        await query.edit_message_text(
+            get_string(lang, "color_upload_skip_notice").format(color_name=color["name"]),
+            parse_mode=ParseMode.HTML,
+        )
+
+    # Advance to next color
+    next_index = index + 1
+    context.user_data["color_upload_index"] = next_index
+
+    if next_index < len(colors):
+        # Ask for next color
+        await _ask_color_photos(query.message, context, lang, colors, next_index)
+        return COLOR_UPLOAD
+    else:
+        # All colors done → flatten color_images_map into images list for pipeline
+        color_images_map = context.user_data.get("color_images_map", {})
+        all_images = []
+        for c in colors:
+            all_images.extend(color_images_map.get(c["id"], []))
+        context.user_data["images"] = all_images
+        context.user_data["color_images_map_final"] = color_images_map  # keep for _build_variants
+
+        # Show completion message then proceed to variant preview
+        done_msg = {
+            "ar": f"✅ <b>تم رفع جميع الصور!</b>\n\nإجمالي الصور: {len(all_images)} صورة",
+            "tr": f"✅ <b>Tüm fotoğraflar yüklendi!</b>\n\nToplam fotoğraf: {len(all_images)}",
+            "en": f"✅ <b>All photos uploaded!</b>\n\nTotal: {len(all_images)} photo(s)",
+        }
+        confirm_keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton(
+                get_string(lang, "btn_confirm_publish"),
+                callback_data="confirm_yes",
+            ),
+            InlineKeyboardButton(
+                get_string(lang, "btn_cancel"),
+                callback_data="confirm_no",
+            ),
+        ]])
+        await query.edit_message_text(
+            done_msg.get(lang, done_msg["en"]),
+            reply_markup=confirm_keyboard,
+            parse_mode=ParseMode.HTML,
+        )
+        return CONFIRM_VARIANTS
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -4037,6 +4353,17 @@ def get_product_conv_handler() -> ConversationHandler:
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
                     handle_ai_post_manual_edit,
+                ),
+            ],
+            COLOR_UPLOAD: [
+                # Accept photos for current color
+                MessageHandler(filters.PHOTO, handle_color_image_upload),
+                # Accept photos sent as documents (high-res)
+                MessageHandler(filters.Document.IMAGE, handle_color_image_upload),
+                # Done / Skip buttons
+                CallbackQueryHandler(
+                    handle_color_action,
+                    pattern=r"^color_(done|skip)$",
                 ),
             ],
             UPLOAD_IMAGES: [
