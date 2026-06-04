@@ -97,11 +97,31 @@
       background:    var(--tg-secondary);
       border-radius: var(--radius-md);
       padding:       12px 14px;
-      transition:    box-shadow var(--transition);
+      border:        2px solid transparent;
+      transition:    box-shadow var(--transition), border-color var(--transition), background var(--transition);
     }
 
-    .field-card:focus-within {
+    /* ── Required field: red border + light red tint ── */
+    .field-card.is-required {
+      border-color:  #e53e3e;
+      background:    rgba(229, 62, 62, 0.04);
+    }
+
+    /* ── Required field filled → green active ── */
+    .field-card.is-required.is-filled {
+      border-color:  var(--success);
+      background:    rgba(56, 161, 105, 0.05);
+    }
+
+    /* ── Focus ring on any field ── */
+    .field-card:focus-within:not(.is-required) {
       box-shadow: 0 0 0 2px var(--tg-btn);
+    }
+    .field-card.is-required:focus-within:not(.is-filled) {
+      box-shadow: 0 0 0 3px rgba(229, 62, 62, 0.3);
+    }
+    .field-card.is-required.is-filled:focus-within {
+      box-shadow: 0 0 0 3px rgba(56, 161, 105, 0.3);
     }
 
     .field-label {
@@ -120,8 +140,21 @@
 
     .required-star {
       color:       var(--error);
-      font-size:   0.9em;
-      font-weight: 700;
+      font-size:   1.15em;
+      font-weight: 900;
+      line-height: 1;
+      margin-inline-start: 1px;
+      /* Pulse animation to draw attention */
+      animation:   req-pulse 2s ease-in-out 3;
+    }
+    /* Stop pulsing once field is filled */
+    .is-filled .required-star {
+      animation: none;
+      color: var(--success);
+    }
+    @keyframes req-pulse {
+      0%, 100% { transform: scale(1);   opacity: 1; }
+      50%       { transform: scale(1.4); opacity: 0.7; }
     }
 
     .variant-badge {
@@ -1144,7 +1177,13 @@
 
       const container = document.getElementById("attrs-container");
 
-      attrs.forEach(attr => {
+      // ── Sort: required fields first, then optional (preserving relative order) ──
+      const sortedAttrs = [
+        ...attrs.filter(a => !!a.required),
+        ...attrs.filter(a => !a.required)
+      ];
+
+      sortedAttrs.forEach(attr => {
         const attrId  = attr.id;
         // Normalize ui_type from KAYISOFT API to internal render types.
         // KAYISOFT ui_type values observed:
@@ -1183,7 +1222,7 @@
 
         // Build card
         const card = document.createElement("div");
-        card.className = "field-card";
+        card.className = isReq ? "field-card is-required" : "field-card";
         card.id        = `card-attr-${attrId}`;
 
         // Label row
@@ -1353,6 +1392,7 @@
                 .map(c => c.value);
               attrState[attrId].value = checked;
               clearAttrError(attrId);
+              markFilledState(attrId, checked.length > 0);
               validateAndToggleMainButton();
             });
           });
@@ -1362,6 +1402,7 @@
           sel.addEventListener("change", function() {
             attrState[attrId].value = this.value || null;
             clearAttrError(attrId);
+            markFilledState(attrId, !!this.value);
             validateAndToggleMainButton();
           });
 
@@ -1373,6 +1414,7 @@
                 .map(c => c.value);
               attrState[attrId].value = checked;
               clearAttrError(attrId);
+              markFilledState(attrId, checked.length > 0);
               validateAndToggleMainButton();
             });
           });
@@ -1381,18 +1423,18 @@
           const inp = card.querySelector(`input[data-attr="${attrId}"]`);
           inp.addEventListener("input", function() {
             const v = this.value.trim();
-            // Store as number if valid, else null
             attrState[attrId].value = v !== "" && !isNaN(v) ? Number(v) : null;
             clearAttrError(attrId);
+            markFilledState(attrId, v !== "" && !isNaN(v));
             validateAndToggleMainButton();
           });
 
         } else if (uiType === "bool") {
           card.querySelectorAll(`input[name="attr_${attrId}"]`).forEach(rb => {
             rb.addEventListener("change", function() {
-              // Store as actual boolean
               attrState[attrId].value = this.value === "true";
               clearAttrError(attrId);
+              markFilledState(attrId, true);
               validateAndToggleMainButton();
             });
           });
@@ -1401,12 +1443,21 @@
           // string / text
           const inp = card.querySelector(`input[data-attr="${attrId}"]`);
           inp.addEventListener("input", function() {
-            attrState[attrId].value = this.value.trim() || null;
+            const v = this.value.trim();
+            attrState[attrId].value = v || null;
             clearAttrError(attrId);
+            markFilledState(attrId, !!v);
             validateAndToggleMainButton();
           });
         }
       });
+    }
+
+    /* ── Toggle is-filled on required cards ── */
+    function markFilledState(attrId, isFilled) {
+      const card = document.getElementById(`card-attr-${attrId}`);
+      if (!card || !card.classList.contains('is-required')) return;
+      card.classList.toggle('is-filled', isFilled);
     }
 
     function clearAttrError(attrId) {
