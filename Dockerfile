@@ -1,7 +1,7 @@
 FROM python:3.11-slim
 
-# Force full rebuild — v6.0 — 2026-05-21 (FastAPI-first architecture)
-LABEL version="6.0" maintainer="TopKap" build_date="2026-05-21"
+# Force full rebuild — v6.5 — 2026-06-04 (color-upload flow + dedup fixes)
+LABEL version="6.5" maintainer="TopKap" build_date="2026-06-04"
 
 WORKDIR /app
 
