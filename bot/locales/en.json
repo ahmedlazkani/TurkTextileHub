@@ -44,5 +44,16 @@
 
   "btn_confirm_publish": "✅ Publish",
   "btn_add_more_images": "📸 Add More Photos ({count} uploaded)",
-  "btn_cancel": "❌ Cancel"
+  "btn_cancel": "❌ Cancel",
+
+  "color_upload_progress": "🎨 Color {current}/{total}: <b>{color_name}</b>",
+  "color_upload_ask": "🎨 Color {current}/{total}: <b>{color_name}</b>\n━━━━━━━━━━━━━━━━━━━━\n📸 Send photos for this color.\n<i>1 to 5 photos per color.</i>",
+  "color_upload_added": "✅ <b>{color_name}</b> — {count}/5 photo(s) added",
+  "color_upload_max": "⚠️ Maximum 5 photos allowed for <b>{color_name}</b>.\nContact support if you need more.",
+  "color_upload_done_btn": "✅ Done — Next Color",
+  "color_upload_skip_btn": "⏭️ Skip This Color",
+  "color_upload_skip_notice": "⏭️ <b>{color_name}</b> skipped.\n\n📱 You can upload photos later anytime from the TopKap app.",
+  "color_upload_no_photo_warning": "⚠️ No photos uploaded for <b>{color_name}</b> yet.\n\n📊 Photos help buyers filter by color and increase your sales.\nUpload at least 1 photo or skip this color.",
+  "color_upload_multicolor_ask": "🌈 <b>Multi-Color</b> product — send all product photos\n━━━━━━━━━━━━━━━━━━━━\n📸 1 to 5 photos.",
+  "color_upload_all_done": "✅ All color photos uploaded successfully!"
 }

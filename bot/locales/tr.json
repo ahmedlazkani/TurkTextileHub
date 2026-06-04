@@ -42,5 +42,16 @@
 
   "btn_confirm_publish": "✅ Yayınla",
   "btn_add_more_images": "📸 Daha Fazla Fotoğraf Ekle ({count} yüklendi)",
-  "btn_cancel": "❌ İptal"
+  "btn_cancel": "❌ İptal",
+
+  "color_upload_progress": "🎨 Renk {current}/{total}: <b>{color_name}</b>",
+  "color_upload_ask": "🎨 Renk {current}/{total}: <b>{color_name}</b>\n━━━━━━━━━━━━━━━━━━━━\n📸 Bu renk için fotoğraf gönderin.\n<i>En az 1, en fazla 5 fotoğraf yükleyebilirsiniz.</i>",
+  "color_upload_added": "✅ <b>{color_name}</b> — {count}/5 fotoğraf eklendi",
+  "color_upload_max": "⚠️ <b>{color_name}</b> rengi için maksimum 5 fotoğraf yüklenebilir.\nDaha fazla eklemek istiyorsanız lütfen destek ekibiyle iletişime geçin.",
+  "color_upload_done_btn": "✅ Tamam — Sonraki Renge Geç",
+  "color_upload_skip_btn": "⏭️ Bu Rengi Atla",
+  "color_upload_skip_notice": "⏭️ <b>{color_name}</b> rengi atlandı.\n\n📱 Fotoğrafları daha sonra TopKap uygulamasından istediğiniz zaman yükleyebilirsiniz.",
+  "color_upload_no_photo_warning": "⚠️ <b>{color_name}</b> için henüz fotoğraf yüklemediniz.\n\n📊 Fotoğraf yüklemek, alıcıların renk bazlı filtreleme yapmasını sağlar ve satışlarınızı artırır.\nEn az 1 fotoğraf yükleyin veya bu rengi atlayın.",
+  "color_upload_multicolor_ask": "🌈 <b>Çok Renkli</b> ürün için tüm fotoğrafları gönderin\n━━━━━━━━━━━━━━━━━━━━\n📸 En fazla 5 fotoğraf yükleyebilirsiniz.",
+  "color_upload_all_done": "✅ Tüm renkler için fotoğraf yükleme tamamlandı!"
 }

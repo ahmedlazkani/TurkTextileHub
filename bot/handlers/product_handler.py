@@ -2331,7 +2331,7 @@ async def handle_confirm_details(
                         option_names.append(_deduplicate_name(opt.get("name", "") or opt_id))
                         break
                 else:
-                    option_names.append(opt_id[:8])
+                    option_names.append(_deduplicate_name(str(opt_id)))
             if option_names:
                 attrs_list.append({"name": attr_name, "value": ", ".join(option_names)})
 
@@ -2358,7 +2358,7 @@ async def handle_confirm_details(
                         opt_names.append(_deduplicate_name(opt.get("name", "") or opt_id))
                         break
                 else:
-                    opt_names.append(opt_id[:8])
+                    opt_names.append(_deduplicate_name(str(opt_id)))
             attrs_list.append({"name": attr_name, "value": ", ".join(opt_names)})
 
         post_data = {
@@ -2578,7 +2578,7 @@ async def handle_ai_post_review(
                         option_names.append(_deduplicate_name(opt.get("name", "") or opt_id))
                         break
                 else:
-                    option_names.append(opt_id[:8])
+                    option_names.append(_deduplicate_name(str(opt_id)))
             if option_names:
                 attrs_list.append({"name": attr_name, "value": ", ".join(option_names)})
 
@@ -2887,10 +2887,13 @@ async def _ask_color_photos(
         "tr": "🌈 <b>Çok Renkli</b> ürün için tüm fotoğrafları gönderin\n━━━━━━━━━━━━━━━━━━━━\n📸 En fazla 5 fotoğraf yükleyebilirsiniz.",
         "en": "🌈 <b>Multi-Color</b> product — send all product photos\n━━━━━━━━━━━━━━━━━━━━\n📸 1 to 5 photos.",
     }
+    # Build done button text with next color name if available
+    next_index = index + 1
+    _next_color_name = colors[next_index]["name"] if next_index < len(colors) else None
     _FALLBACK_DONE = {
-        "ar": "✅ تم — انتقل لللون التالي",
-        "tr": "✅ Tamam — Sonraki Renge Geç",
-        "en": "✅ Done — Next Color",
+        "ar": f"✅ تم — انتقل لـ {_next_color_name}" if _next_color_name else "✅ تم — نشر المنتج",
+        "tr": f"✅ Tamam — {_next_color_name} Rengine Geç" if _next_color_name else "✅ Tamam — Ürünü Yayınla",
+        "en": f"✅ Done — Next: {_next_color_name}" if _next_color_name else "✅ Done — Publish",
     }
     _FALLBACK_SKIP = {
         "ar": "⏭️ تخطي هذا اللون",
@@ -3004,10 +3007,13 @@ async def handle_color_image_upload(
         "tr": "✅ <b>{color_name}</b> — {count}/5 fotoğraf eklendi",
         "en": "✅ <b>{color_name}</b> — {count}/5 photo(s) added",
     }
+    # Build done button text with next color name if available
+    _next_idx = index + 1
+    _next_cn = colors[_next_idx]["name"] if _next_idx < len(colors) else None
     _DONE_FALLBACK = {
-        "ar": "✅ تم — انتقل لللون التالي",
-        "tr": "✅ Tamam — Sonraki Renge Geç",
-        "en": "✅ Done — Next Color",
+        "ar": f"✅ تم — انتقل لـ {_next_cn}" if _next_cn else "✅ تم — نشر المنتج",
+        "tr": f"✅ Tamam — {_next_cn} Rengine Geç" if _next_cn else "✅ Tamam — Ürünü Yayınla",
+        "en": f"✅ Done — Next: {_next_cn}" if _next_cn else "✅ Done — Publish",
     }
     _SKIP_FALLBACK = {
         "ar": "⏭️ تخطي هذا اللون",

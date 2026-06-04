@@ -44,5 +44,16 @@
 
   "btn_confirm_publish": "✅ نشر",
   "btn_add_more_images": "📸 إضافة المزيد من الصور ({count} مرفوعة)",
-  "btn_cancel": "❌ إلغاء"
+  "btn_cancel": "❌ إلغاء",
+
+  "color_upload_progress": "🎨 اللون {current}/{total}: <b>{color_name}</b>",
+  "color_upload_ask": "🎨 اللون {current}/{total}: <b>{color_name}</b>\n━━━━━━━━━━━━━━━━━━━━\n📸 أرسل صور هذا اللون.\n<i>من 1 إلى 5 صور لكل لون.</i>",
+  "color_upload_added": "✅ <b>{color_name}</b> — {count}/5 صورة مضافة",
+  "color_upload_max": "⚠️ الحد الأقصى للون <b>{color_name}</b> هو 5 صور.\nللمزيد تواصل مع فريق الدعم الفني.",
+  "color_upload_done_btn": "✅ تم — انتقل لللون التالي",
+  "color_upload_skip_btn": "⏭️ تخطي هذا اللون",
+  "color_upload_skip_notice": "⏭️ تم تخطي لون <b>{color_name}</b>.\n\n📱 يمكنك رفع الصور لاحقاً من تطبيق TopKap في أي وقت.",
+  "color_upload_no_photo_warning": "⚠️ لم ترفع أي صورة للون <b>{color_name}</b>.\n\n📊 رفع الصور يساعد المشترين على البحث باللون ويزيد مبيعاتك.\nارفع صورة واحدة على الأقل أو تخطّ هذا اللون.",
+  "color_upload_multicolor_ask": "🌈 <b>متعدد الألوان</b> — أرسل جميع صور المنتج\n━━━━━━━━━━━━━━━━━━━━\n📸 من 1 إلى 5 صور.",
+  "color_upload_all_done": "✅ تم رفع صور جميع الألوان بنجاح!"
 }

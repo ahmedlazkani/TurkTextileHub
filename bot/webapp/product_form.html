@@ -1139,6 +1139,13 @@
               opt.id = opt.uuid || opt.option_id || opt.key || opt.value || '';
               console.warn('[TopKap] opt.id was missing for attr', attr.key, '— using fallback:', opt.id);
             }
+            // Deduplicate repeated words in opt.id (e.g. 'نسائي نسائي' → 'نسائي')
+            if (opt.id) {
+              const idWords = opt.id.split(' ');
+              const idSeen = [];
+              idWords.forEach(w => { if (w && !idSeen.includes(w)) idSeen.push(w); });
+              opt.id = idSeen.join(' ');
+            }
             if (!opt.label) {
               const raw = opt.value || '';
               opt.label = raw.includes('|') ? raw.split('|').pop().trim() : raw;
