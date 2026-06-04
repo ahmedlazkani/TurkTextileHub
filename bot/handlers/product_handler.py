@@ -1233,16 +1233,21 @@ def _build_extraction_summary(
         lines.append(attr_header.get(lang, attr_header["en"]))
 
         for attr_id, option_ids in shared_attrs.items():
-            attr = attr_map.get(attr_id, {})
-            attr_name = attr.get("name", attr_id)
+            attr = attr_map.get(attr_id) or attr_key_map.get(attr_id, {})
+            attr_name = _deduplicate_name(attr.get("name") or attr.get("key") or attr_id)
+            # Deduplicate option_ids to avoid showing same option twice
+            seen_opt_ids: list = []
+            for oid in (option_ids if isinstance(option_ids, list) else [option_ids]):
+                if oid not in seen_opt_ids:
+                    seen_opt_ids.append(oid)
             option_values = []
-            for opt_id in (option_ids if isinstance(option_ids, list) else [option_ids]):
+            for opt_id in seen_opt_ids:
                 for opt in attr.get("options", []):
                     if opt.get("id") == opt_id:
                         # Prefer label/name over value (which may be a raw hex code)
                         # label = human-readable color name (e.g. "Bej", "بيج")
                         # value = raw hex code (e.g. "#FFF5F5DC") — used for API, not display
-                        display = (
+                        display = _deduplicate_name(
                             opt.get("label")
                             or opt.get("name")
                             or opt.get("value", opt_id)
@@ -1250,7 +1255,8 @@ def _build_extraction_summary(
                         option_values.append((display, opt.get("value", "")))
                         break
                 else:
-                    option_values.append((str(opt_id), ""))
+                    # opt_id not found in options list — apply dedup directly
+                    option_values.append((_deduplicate_name(str(opt_id)), ""))
             # ── Color rendering: show emoji + human label (never raw hex) ──────────────
             # Handle "#RRGGBBAA|label" format from API (pipe-separated hex|name)
             rendered_values = []
@@ -1289,9 +1295,12 @@ def _build_extraction_summary(
                 continue
             if attr_id not in sel_grouped:
                 attr      = attr_map.get(attr_id) or attr_key_map.get(attr_id, {})
-                attr_name = attr.get("name") or attr.get("key") or attr_id
-                sel_grouped[attr_id] = {"name": attr_name, "attr": attr, "values": []}
-            sel_grouped[attr_id]["values"].append(option_id)
+                attr_name = _deduplicate_name(attr.get("name") or attr.get("key") or attr_id)
+                sel_grouped[attr_id] = {"name": attr_name, "attr": attr, "values": [], "seen_opts": set()}
+            # Deduplicate option_ids
+            if option_id not in sel_grouped[attr_id]["seen_opts"]:
+                sel_grouped[attr_id]["seen_opts"].add(option_id)
+                sel_grouped[attr_id]["values"].append(option_id)
 
         for attr_id, grp in sel_grouped.items():
             attr      = grp["attr"]
@@ -3075,58 +3084,127 @@ async def handle_color_action(
         uploaded = context.user_data.get("color_images_map", {}).get(color_id, [])
         if not uploaded:
             # Warn supplier and stay in COLOR_UPLOAD
+            _no_photo_warn = {
+                "ar": f"⚠️ لم ترفع أي صورة للون <b>{color['name']}</b>.\n\nارفع صورة واحدة على الأقل أو تخطّ هذا اللون.",
+                "tr": f"⚠️ <b>{color['name']}</b> rengi için hiç fotoğraf yüklemediniz.\n\nEn az 1 fotoğraf yükleyin veya bu rengi atlayın.",
+                "en": f"⚠️ No photos uploaded for <b>{color['name']}</b>.\n\nUpload at least 1 photo or skip this color.",
+            }
             await query.answer(
-                get_string(lang, "color_upload_no_photo_warning").format(color_name=color["name"]),
+                _no_photo_warn.get(lang, _no_photo_warn["en"]).replace("<b>", "").replace("</b>", ""),
                 show_alert=True,
             )
             return COLOR_UPLOAD
+        # color_done: do NOT edit the current message — leave it showing
+        # "✅ ColorName — N/5 صورة مضافة" so photos appear above it correctly.
 
     elif action == "color_skip":
-        # Notify supplier they can upload later
-        await query.edit_message_text(
-            get_string(lang, "color_upload_skip_notice").format(color_name=color["name"]),
-            parse_mode=ParseMode.HTML,
-        )
+        # Edit current message to show skip notice (no photos were added)
+        _skip_notice = {
+            "ar": f"⏭️ تم تخطي لون <b>{color['name']}</b>.\n\n📱 يمكنك رفع الصور لاحقاً من تطبيق TopKap.",
+            "tr": f"⏭️ <b>{color['name']}</b> rengi atlandı.\n\n📱 Fotoğrafları daha sonra TopKap uygulamasından yükleyebilirsiniz.",
+            "en": f"⏭️ <b>{color['name']}</b> skipped.\n\n📱 You can upload photos later from the TopKap app.",
+        }
+        try:
+            await query.edit_message_text(
+                _skip_notice.get(lang, _skip_notice["en"]),
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            pass
 
     # Advance to next color
     next_index = index + 1
     context.user_data["color_upload_index"] = next_index
 
     if next_index < len(colors):
-        # Ask for next color
+        # Send next color prompt as a NEW message (so photos appear above it correctly)
         await _ask_color_photos(query.message, context, lang, colors, next_index)
         return COLOR_UPLOAD
+
     else:
-        # All colors done → flatten color_images_map into images list for pipeline
+        # ── All colors done ──────────────────────────────────────────────────────
         color_images_map = context.user_data.get("color_images_map", {})
         all_images = []
         for c in colors:
             all_images.extend(color_images_map.get(c["id"], []))
         context.user_data["images"] = all_images
-        context.user_data["color_images_map_final"] = color_images_map  # keep for _build_variants
+        context.user_data["color_images_map_final"] = color_images_map
 
-        # Show completion message then proceed to variant preview
-        done_msg = {
-            "ar": f"✅ <b>تم رفع جميع الصور!</b>\n\nإجمالي الصور: {len(all_images)} صورة",
-            "tr": f"✅ <b>Tüm fotoğraflar yüklendi!</b>\n\nToplam fotoğraf: {len(all_images)}",
-            "en": f"✅ <b>All photos uploaded!</b>\n\nTotal: {len(all_images)} photo(s)",
+        # Step 1: Send summary message (new message, not edit)
+        total_photos = len(all_images)
+        summary_msg = {
+            "ar": f"✅ <b>تم رفع جميع الصور!</b>\n\n📸 إجمالي الصور: <b>{total_photos}</b> صورة",
+            "tr": f"✅ <b>Tüm fotoğraflar yüklendi!</b>\n\n📸 Toplam fotoğraf: <b>{total_photos}</b>",
+            "en": f"✅ <b>All photos uploaded!</b>\n\n📸 Total photos: <b>{total_photos}</b>",
         }
+        await query.message.reply_text(
+            summary_msg.get(lang, summary_msg["en"]),
+            parse_mode=ParseMode.HTML,
+        )
+
+        # Step 2: Build variant preview and send as a NEW message with confirm buttons
+        product_details = context.user_data.get("product_details", {})
+        processed_attrs = context.user_data.get("processed_attributes", {})
+        raw_attributes  = context.user_data.get("raw_attributes", [])
+        attr_map_prev   = processed_attrs.get("all_by_id", {})
+
+        price_raw   = product_details.get("price", "0")
+        price_float = _parse_price(price_raw)
+        min_quantity = int(product_details.get("min_quantity", product_details.get("min_order", 1)))
+        stock_count  = int(product_details.get("stock_count", product_details.get("stock", 100)))
+
+        id_to_key_prev = {}
+        for attr in raw_attributes:
+            a_id  = attr.get("id", "")
+            a_key = attr.get("key", "")
+            if a_id and a_key:
+                id_to_key_prev[a_id] = a_key
+
+        ai_selector_attrs = product_details.get("selector_attributes", [])
+        preview_variants  = _build_variants(
+            product_name        = product_details.get("name", ""),
+            description         = product_details.get("description", ""),
+            price_float         = price_float,
+            stock_count         = stock_count,
+            min_quantity        = min_quantity,
+            lang                = lang,
+            uploaded_file_names = [],
+            ai_selector_attrs   = ai_selector_attrs,
+            raw_attributes      = raw_attributes,
+            id_to_key           = id_to_key_prev,
+        )
+        context.user_data["preview_variants"] = preview_variants
+
+        preview_text = _build_variants_preview(lang, preview_variants, attr_map_prev)
+
+        _btn_confirm = {
+            "ar": "✅ تأكيد ونشر",
+            "tr": "✅ Onayla ve Yayınla",
+            "en": "✅ Confirm & Publish",
+        }
+        _btn_cancel = {
+            "ar": "❌ إلغاء",
+            "tr": "❌ İptal",
+            "en": "❌ Cancel",
+        }
+        _btn_confirm_text = get_string(lang, "btn_confirm_publish")
+        if _btn_confirm_text == "btn_confirm_publish":
+            _btn_confirm_text = _btn_confirm.get(lang, _btn_confirm["en"])
+        _btn_cancel_text = get_string(lang, "btn_cancel")
+        if _btn_cancel_text == "btn_cancel":
+            _btn_cancel_text = _btn_cancel.get(lang, _btn_cancel["en"])
+
         confirm_keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton(
-                get_string(lang, "btn_confirm_publish"),
-                callback_data="confirm_yes",
-            ),
-            InlineKeyboardButton(
-                get_string(lang, "btn_cancel"),
-                callback_data="confirm_no",
-            ),
+            InlineKeyboardButton(_btn_confirm_text, callback_data="publish_yes"),
+            InlineKeyboardButton(_btn_cancel_text,  callback_data="publish_no"),
         ]])
-        await query.edit_message_text(
-            done_msg.get(lang, done_msg["en"]),
+
+        await query.message.reply_text(
+            preview_text,
             reply_markup=confirm_keyboard,
             parse_mode=ParseMode.HTML,
         )
-        return CONFIRM_VARIANTS
+        return CONFIRM_PUBLISH
 
 
 # ══════════════════════════════════════════════════════════════════════════════
