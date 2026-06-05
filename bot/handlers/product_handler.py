@@ -3038,27 +3038,22 @@ async def handle_color_image_upload(
         ),
     ]])
 
+    # Delete the old prompt message so the new status appears BELOW the photo
     if prev_msg_id and prev_chat_id:
         try:
-            await context.bot.edit_message_text(
+            await context.bot.delete_message(
                 chat_id=prev_chat_id,
                 message_id=prev_msg_id,
-                text=status_text,
-                reply_markup=keyboard,
-                parse_mode=ParseMode.HTML,
             )
         except Exception:
-            sent = await update.message.reply_text(
-                status_text, reply_markup=keyboard, parse_mode=ParseMode.HTML
-            )
-            context.user_data["last_color_msg_id"]  = sent.message_id
-            context.user_data["last_color_chat_id"] = sent.chat_id
-    else:
-        sent = await update.message.reply_text(
-            status_text, reply_markup=keyboard, parse_mode=ParseMode.HTML
-        )
-        context.user_data["last_color_msg_id"]  = sent.message_id
-        context.user_data["last_color_chat_id"] = sent.chat_id
+            pass  # Already deleted or not found — ignore
+
+    # Send new status message AFTER the photo (Telegram places it below)
+    sent = await update.message.reply_text(
+        status_text, reply_markup=keyboard, parse_mode=ParseMode.HTML
+    )
+    context.user_data["last_color_msg_id"]  = sent.message_id
+    context.user_data["last_color_chat_id"] = sent.chat_id
 
     return COLOR_UPLOAD
 
