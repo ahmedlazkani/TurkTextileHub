@@ -574,9 +574,8 @@
        FORM BODY
   ══════════════════════════════════════════════════════════ -->
   <div class="form-body" id="form-body">
-
-    <!-- ─── 1. اسم المنتج ─────────────────────────────────── -->
-    <div class="field-card" id="card-name">
+    <!-- ─── 1. اسم المنتج ───────────────────────────────────────── -->
+    <div class="field-card is-required" id="card-name">
       <div class="field-label">
         <span class="icon">🏷️</span>
         اسم المنتج
@@ -595,10 +594,11 @@
     </div>
 
     <!-- ─── 2. الوصف ───────────────────────────────────────── -->
-    <div class="field-card" id="card-desc">
+    <div class="field-card is-required" id="card-desc">
       <div class="field-label">
         <span class="icon">📝</span>
         الوصف
+        <span class="required-star">*</span>
       </div>
       <textarea
         id="field-desc"
@@ -607,10 +607,11 @@
         rows="3"
       ></textarea>
       <div class="char-counter" id="counter-desc">0 / 1000</div>
+      <div class="field-error" id="error-desc">يجب كتابة وصف المنتج</div>
     </div>
 
     <!-- ─── 3. السعر ───────────────────────────────────────── -->
-    <div class="field-card" id="card-price">
+    <div class="field-card is-required" id="card-price">
       <div class="field-label">
         <span class="icon">💰</span>
         السعر (₺ ليرة تركية)
@@ -627,23 +628,8 @@
       <div class="field-error" id="error-price">يجب أن يكون السعر أكبر من 0</div>
     </div>
 
-    <!-- ─── 4. الحد الأدنى للطلب ─────────────────────────── -->
-    <div class="field-card" id="card-minqty">
-      <div class="field-label">
-        <span class="icon">📦</span>
-        الحد الأدنى للطلب
-        <span class="required-star">*</span>
-      </div>
-      <input
-        type="number"
-        id="field-minqty"
-        placeholder="مثال: 300"
-        min="1"
-        step="1"
-        inputmode="numeric"
-      />
-      <div class="field-error" id="error-minqty">يجب أن يكون الحد الأدنى 1 على الأقل</div>
-    </div>
+    <!-- ─── 4. الحد الأدنى للطلب (مخفي — يُرسل 1 افتراضياً، يُعبأ من التطبيق) ─── -->
+    <input type="hidden" id="field-minqty" value="1" />
 
     <!-- ─── 5. المخزون (مخفي — يُرسل 500 افتراضياً) ─────────────────────────── -->
     <!-- Stock field is intentionally hidden from the supplier form.
@@ -700,29 +686,11 @@
       <div class="char-counter" id="counter-notes">0 / 500</div>
     </div>
 
-    <!-- ─── 9. لغات البوست ────────────────────────────── -->
-    <div class="field-card" id="card-langs">
-      <div class="field-label">
-        <span class="icon">🌐</span>
-        لغات البوست على القناة
-        <span class="required-star">*</span>
-      </div>
-      <div class="lang-selector">
-        <label class="lang-option">
-          <input type="checkbox" id="lang-ar" value="ar" checked />
-          <span class="lang-badge">🇸🇦 عربي</span>
-        </label>
-        <label class="lang-option">
-          <input type="checkbox" id="lang-tr" value="tr" />
-          <span class="lang-badge">🇹🇷 Türkçe</span>
-        </label>
-        <label class="lang-option">
-          <input type="checkbox" id="lang-en" value="en" />
-          <span class="lang-badge">🇬🇧 English</span>
-        </label>
-      </div>
-      <div class="field-error" id="error-langs">يجب اختيار لغة واحدة على الأقل</div>
-    </div>
+    <!-- ─── 9. لغات البوست (مخفية — تُعبأ من التطبيق، ترسل ar+tr+en افتراضياً) ─── -->
+    <!-- hidden checkboxes so payload builder still works -->
+    <input type="checkbox" id="lang-ar" value="ar" checked style="display:none" />
+    <input type="checkbox" id="lang-tr" value="tr" checked style="display:none" />
+    <input type="checkbox" id="lang-en" value="en" checked style="display:none" />
 
     <!-- ─── 10. ملاحظة الصور ────────────────────────────── -->
     <div class="info-card">
@@ -769,6 +737,7 @@
         error_name:         "يجب أن يحتوي الاسم على 3 أحرف على الأقل",
         label_desc:         "الوصف",
         placeholder_desc:   "اكتب وصف المنتج بالتفصيل...",
+        error_desc:         "يجب كتابة وصف المنتج",
         label_price:        "السعر (₺ ليرة تركية)",
         placeholder_price:  "مثال: 200",
         error_price:        "يجب أن يكون السعر أكبر من 0",
@@ -779,7 +748,7 @@
         placeholder_code:   "مثال: TK-143",
         optional:           "اختياري",
         label_notes:        "ملاحظات",
-        placeholder_notes:  "مثال: الباكيت يحوي 4 قطع — صيفي — بدون فاتورة",
+        placeholder_notes:  "مثال:\n• ماذا يحتوي كل باكيت: 4 قطع (S، M، L، XL)\n• السعر: بفاتورة / بدون فاتورة",
         label_langs:        "لغات البوست على القناة",
         error_langs:        "يجب اختيار لغة واحدة على الأقل",
         attrs_divider:      "الخصائص",
@@ -797,6 +766,7 @@
         error_name:         "İsim en az 3 karakter içermelidir",
         label_desc:         "Açıklama",
         placeholder_desc:   "Ürün açıklamasını detaylı yazın...",
+        error_desc:         "Ürün açıklaması zorunludur",
         label_price:        "Fiyat (₺ Türk Lirası)",
         placeholder_price:  "Örnek: 200",
         error_price:        "Fiyat 0'dan büyük olmalıdır",
@@ -807,7 +777,7 @@
         placeholder_code:   "Örnek: TK-143",
         optional:           "isteğe bağlı",
         label_notes:        "Notlar",
-        placeholder_notes:  "Örnek: Paket 4 adet içerir — yazlık — faturasız",
+        placeholder_notes:  "Örnek:\n• Paketin içeriği: 4 adet (S, M, L, XL)\n• Fiyat: faturalı / faturasız",
         label_langs:        "Kanal Gönderi Dilleri",
         error_langs:        "En az bir dil seçilmelidir",
         attrs_divider:      "Özellikler",
@@ -825,6 +795,7 @@
         error_name:         "Name must be at least 3 characters",
         label_desc:         "Description",
         placeholder_desc:   "Write the product description in detail...",
+        error_desc:         "Product description is required",
         label_price:        "Price (₺ TRY)",
         placeholder_price:  "Example: 200",
         error_price:        "Price must be greater than 0",
@@ -835,7 +806,7 @@
         placeholder_code:   "Example: TK-143",
         optional:           "optional",
         label_notes:        "Notes",
-        placeholder_notes:  "Example: Pack contains 4 pcs — summer — no invoice",
+        placeholder_notes:  "Example:\n• Package contents: 4 pcs (S, M, L, XL)\n• Price: with invoice / without invoice",
         label_langs:        "Channel Post Languages",
         error_langs:        "At least one language must be selected",
         attrs_divider:      "Attributes",
@@ -883,13 +854,11 @@
           }
         });
       }
-      setLabelText("card-name",   T.label_name);
-      setLabelText("card-desc",   T.label_desc);
-      setLabelText("card-price",  T.label_price);
-      setLabelText("card-minqty", T.label_minqty);
-      setLabelText("card-code",   T.label_code);
-      setLabelText("card-notes",  T.label_notes);
-      setLabelText("card-langs",  T.label_langs);
+      setLabelText("card-name",  T.label_name);
+      setLabelText("card-desc",  T.label_desc);
+      setLabelText("card-price", T.label_price);
+      setLabelText("card-code",  T.label_code);
+      setLabelText("card-notes", T.label_notes);
 
       // Optional tags
       document.querySelectorAll(".optional-tag").forEach(el => {
@@ -913,10 +882,9 @@
         const el = document.getElementById(id);
         if (el) el.textContent = val;
       };
-      setError("error-name",   T.error_name);
-      setError("error-price",  T.error_price);
-      setError("error-minqty", T.error_minqty);
-      setError("error-langs",  T.error_langs);
+      setError("error-name",  T.error_name);
+      setError("error-desc",  T.error_desc);
+      setError("error-price", T.error_price);
 
       // Attributes section divider
       const attrDiv = document.getElementById("attrs-divider");
@@ -1037,30 +1005,37 @@
       const name = document.getElementById("field-name").value.trim();
       if (name.length < 3) {
         showError("card-name", "error-name");
+        document.getElementById("card-name").classList.remove("is-filled");
         valid = false;
       } else {
         clearError("card-name", "error-name");
+        document.getElementById("card-name").classList.add("is-filled");
+      }
+
+      // Description (now required)
+      const desc = document.getElementById("field-desc").value.trim();
+      if (desc.length < 3) {
+        showError("card-desc", "error-desc");
+        valid = false;
+      } else {
+        clearError("card-desc", "error-desc");
+        document.getElementById("card-desc").classList.toggle("is-filled", true);
       }
 
       // Price
       const price = parseFloat(document.getElementById("field-price").value);
       if (!price || price < 0.01) {
         showError("card-price", "error-price");
+        document.getElementById("card-price").classList.remove("is-filled");
         valid = false;
       } else {
         clearError("card-price", "error-price");
-      }
-
-      // Min Quantity
-      const minQty = parseInt(document.getElementById("field-minqty").value);
-      if (!minQty || minQty < 1) {
-        showError("card-minqty", "error-minqty");
-        valid = false;
-      } else {
-        clearError("card-minqty", "error-minqty");
+        document.getElementById("card-price").classList.add("is-filled");
       }
 
       // Stock — hidden field with default value 500, no validation needed
+      // Min Quantity — hidden field with default value 1, no validation needed
+      // Post Languages — hidden, all 3 sent by default
 
       // Dynamic required attributes
       for (const [attrId, state] of Object.entries(attrState)) {
@@ -1089,9 +1064,9 @@
       if (!tg) return;
       // Quick lightweight check (no error display)
       const name  = document.getElementById("field-name").value.trim();
+      const desc  = document.getElementById("field-desc").value.trim();
       const price = parseFloat(document.getElementById("field-price").value);
-      const minQ  = parseInt(document.getElementById("field-minqty").value);
-      const basicOk = name.length >= 3 && price >= 0.01 && minQ >= 1;
+      const basicOk = name.length >= 3 && desc.length >= 3 && price >= 0.01;
 
       if (basicOk) {
         tg.MainButton.show();
@@ -1100,9 +1075,22 @@
       }
     }
 
-    // Attach live validation to numeric fields (stock is hidden with default 500, excluded)
-    ["field-price", "field-minqty"].forEach(id => {
-      document.getElementById(id).addEventListener("input", validateAndToggleMainButton);
+    // Attach live validation to required fields
+    document.getElementById("field-price").addEventListener("input", function() {
+      validateAndToggleMainButton();
+      const filled = parseFloat(this.value) >= 0.01;
+      document.getElementById("card-price").classList.toggle("is-filled", filled);
+    });
+    document.getElementById("field-name").addEventListener("input", function() {
+      validateAndToggleMainButton();
+      const filled = this.value.trim().length >= 3;
+      document.getElementById("card-name").classList.toggle("is-filled", filled);
+    });
+    // Also attach to desc textarea
+    document.getElementById("field-desc").addEventListener("input", function() {
+      validateAndToggleMainButton();
+      const filled = this.value.trim().length >= 3;
+      document.getElementById("card-desc").classList.toggle("is-filled", filled);
     });
 
 
@@ -1184,10 +1172,14 @@
 
       const container = document.getElementById("attrs-container");
 
-      // ── Sort: required fields first, then optional (preserving relative order) ──
+      // ── FILTER: show only required attributes (optional ones are filled from the app) ──
+      // Exception: always show is_variant_selector attrs (they define product variants)
+      const filteredAttrs = attrs.filter(a => !!a.required || !!a.is_variant_selector);
+
+      // Sort: required first, then variant selectors
       const sortedAttrs = [
-        ...attrs.filter(a => !!a.required),
-        ...attrs.filter(a => !a.required)
+        ...filteredAttrs.filter(a => !!a.required),
+        ...filteredAttrs.filter(a => !a.required),
       ];
 
       sortedAttrs.forEach(attr => {
@@ -1486,12 +1478,11 @@
         const el = document.getElementById(id);
         if (el && val !== undefined && val !== null && val !== '') el.value = val;
       };
-      setVal('field-name',   PREFILL.name);
-      setVal('field-desc',   PREFILL.description);
-      setVal('field-price',  PREFILL.price);
-      setVal('field-minqty', PREFILL.min_quantity);
-      setVal('field-code',   PREFILL.product_code);
-      setVal('field-notes',  PREFILL.notes);
+      setVal('field-name',  PREFILL.name);
+      setVal('field-desc',  PREFILL.description);
+      setVal('field-price', PREFILL.price);
+      setVal('field-code',  PREFILL.product_code);
+      setVal('field-notes', PREFILL.notes);
 
       // Update char counters for text fields (counter IDs: counter-name, counter-desc, counter-notes)
       const counterMap = { 'field-name': 'counter-name', 'field-desc': 'counter-desc', 'field-notes': 'counter-notes' };
@@ -1501,15 +1492,10 @@
         if (el && max) updateCounter(counterId, el.value.length, max);
       });
 
-      // ── Post languages checkboxes ─────────────────────────────────────────────────────────
-      if (Array.isArray(PREFILL.post_languages)) {
-        ['ar', 'tr', 'en'].forEach(l => {
-          const cb = document.getElementById('lang-' + l);
-          if (cb) cb.checked = PREFILL.post_languages.includes(l);
-        });
-      }
+      // Post languages — hidden checkboxes, always send all 3 by default
+      // (no prefill needed for hidden fields)
 
-      // ── Dynamic attribute controls ──────────────────────────────────────────────────────────
+      // ── Dynamic attribute controls ───────────────────────────────────────────────────────────────────────────────────────
       // shared_attributes: { attr_id: [opt_id, ...] }
       const shared = PREFILL.shared_attributes || {};
       for (const [attrId, optIds] of Object.entries(shared)) {

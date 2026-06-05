@@ -1221,7 +1221,6 @@ def _build_extraction_summary(
         f"{L['name']}: <b>{name}</b>",
         f"{L['desc']}: {description}",
         f"{L['price']}: <b>{price} ₺</b>",
-        f"{L['min']}: {min_qty}",
     ]
 
     # Show extracted attributes if any
@@ -1247,11 +1246,17 @@ def _build_extraction_summary(
                         # Prefer label/name over value (which may be a raw hex code)
                         # label = human-readable color name (e.g. "Bej", "بيج")
                         # value = raw hex code (e.g. "#FFF5F5DC") — used for API, not display
-                        display = _deduplicate_name(
+                        # Prefer label (already deduped by webapp_routes proxy)
+                        # over name (may still contain 'نسائي نسائي' from raw API)
+                        raw_display = (
                             opt.get("label")
                             or opt.get("name")
                             or opt.get("value", opt_id)
                         )
+                        # Strip pipe-separated hex prefix if present: "#FF0000|أحمر" → "أحمر"
+                        if "|" in (raw_display or ""):
+                            raw_display = raw_display.split("|", 1)[-1].strip()
+                        display = _deduplicate_name(raw_display)
                         option_values.append((display, opt.get("value", "")))
                         break
                 else:
@@ -1312,7 +1317,12 @@ def _build_extraction_summary(
                 for opt in attr.get("options", []):
                     if opt.get("id") == option_id:
                         # Prefer human label over raw hex value
-                        raw_name = opt.get("name") or opt.get("value", option_id)
+                        # Prefer label (already deduped) over name (may have 'نسائي نسائي')
+                        raw_name = (
+                            opt.get("label")
+                            or opt.get("name")
+                            or opt.get("value", option_id)
+                        )
                         raw_val  = opt.get("value", "")
                         # Parse pipe-separated format: "#FFFFFFFF|أبيض" → label="أبيض"
                         if "|" in raw_name:
@@ -1784,6 +1794,10 @@ async def handle_category_selection(
     subcategory_prompt = get_string(lang, "add_product_select_subcategory")
     body = f"{breadcrumb}\n\n{subcategory_prompt}" if breadcrumb else subcategory_prompt
 
+    # Add back button to return to root category selection
+    _back_labels = {"ar": "⬅️ رجوع للفئات", "tr": "⬅️ Kategorilere Dön", "en": "⬅️ Back to Categories"}
+    keyboard.append([InlineKeyboardButton(_back_labels.get(lang, _back_labels["en"]), callback_data="back_to_category")])
+
     await query.edit_message_text(
         f"{progress}\n\n{body}",
         reply_markup=InlineKeyboardMarkup(keyboard),
@@ -1983,9 +1997,13 @@ async def _load_attributes_and_ask_form(
             "en": ("📝 Open Product Form", "✏️ Manual Entry"),
         }
         webapp_label, manual_label = btn_labels.get(lang, btn_labels["en"])
+        # Back button — goes back to subcategory list (or category list if no subs)
+        _back_labels = {"ar": "⬅️ رجوع للخطوة السابقة", "tr": "⬅️ Önceki Adıma Dön", "en": "⬅️ Back to Previous Step"}
+        _back_label = _back_labels.get(lang, _back_labels["en"])
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton(webapp_label, web_app=WebAppInfo(url=webapp_url))],
             [InlineKeyboardButton(manual_label, callback_data="form_manual_entry")],
+            [InlineKeyboardButton(_back_label, callback_data="back_to_subcategory")],
         ])
         await query.edit_message_text(full_body, reply_markup=keyboard, parse_mode=ParseMode.HTML)
         logger.info(
@@ -2328,7 +2346,11 @@ async def handle_confirm_details(
                 seen_oids.add(opt_id)
                 for opt in attr_info.get("options", []):
                     if opt.get("id") == opt_id:
-                        option_names.append(_deduplicate_name(opt.get("name", "") or opt_id))
+                        # Prefer label (already deduped by proxy) over name
+                        raw_n = opt.get("label") or opt.get("name", "") or opt_id
+                        if "|" in (raw_n or ""):
+                            raw_n = raw_n.split("|", 1)[-1].strip()
+                        option_names.append(_deduplicate_name(raw_n))
                         break
                 else:
                     option_names.append(_deduplicate_name(str(opt_id)))
@@ -2355,7 +2377,11 @@ async def handle_confirm_details(
             for opt_id in grp["opt_ids"]:
                 for opt in attr_info.get("options", []):
                     if opt.get("id") == opt_id:
-                        opt_names.append(_deduplicate_name(opt.get("name", "") or opt_id))
+                        # Prefer label (already deduped by proxy) over name
+                        raw_n = opt.get("label") or opt.get("name", "") or opt_id
+                        if "|" in (raw_n or ""):
+                            raw_n = raw_n.split("|", 1)[-1].strip()
+                        opt_names.append(_deduplicate_name(raw_n))
                         break
                 else:
                     opt_names.append(_deduplicate_name(str(opt_id)))
@@ -2575,7 +2601,11 @@ async def handle_ai_post_review(
                 seen_oids.add(opt_id)
                 for opt in attr_info.get("options", []):
                     if opt.get("id") == opt_id:
-                        option_names.append(_deduplicate_name(opt.get("name", "") or opt_id))
+                        # Prefer label (already deduped by proxy) over name
+                        raw_n = opt.get("label") or opt.get("name", "") or opt_id
+                        if "|" in (raw_n or ""):
+                            raw_n = raw_n.split("|", 1)[-1].strip()
+                        option_names.append(_deduplicate_name(raw_n))
                         break
                 else:
                     option_names.append(_deduplicate_name(str(opt_id)))
@@ -3027,16 +3057,30 @@ async def handle_color_image_upload(
 
     added_raw = _gs2("color_upload_added", _ADDED_FALLBACK)
     status_text = added_raw.format(color_name=color["name"], count=new_count)
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton(
-            _gs2("color_upload_done_btn", _DONE_FALLBACK),
-            callback_data="color_done",
-        ),
-        InlineKeyboardButton(
-            _gs2("color_upload_skip_btn", _SKIP_FALLBACK),
-            callback_data="color_skip",
-        ),
-    ]])
+
+    # After first photo: show "Add another photo" + "Done" buttons
+    # This gives supplier the choice to add more photos or move to next color
+    _ADD_MORE_FALLBACK = {
+        "ar": f"📸 إضافة صورة إضافية لـ {color['name']}",
+        "tr": f"📸 {color['name']} için Ek Fotoğraf Ekle",
+        "en": f"📸 Add Another Photo for {color['name']}",
+    }
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            _ADD_MORE_FALLBACK.get(lang, _ADD_MORE_FALLBACK["en"]),
+            callback_data="color_add_more",
+        )],
+        [
+            InlineKeyboardButton(
+                _gs2("color_upload_done_btn", _DONE_FALLBACK),
+                callback_data="color_done",
+            ),
+            InlineKeyboardButton(
+                _gs2("color_upload_skip_btn", _SKIP_FALLBACK),
+                callback_data="color_skip",
+            ),
+        ],
+    ])
 
     # Delete the old prompt message so the new status appears BELOW the photo
     if prev_msg_id and prev_chat_id:
@@ -3078,7 +3122,22 @@ async def handle_color_action(
 
     color    = colors[index]
     color_id = color["id"]
-    action   = query.data  # "color_done" or "color_skip"
+    action   = query.data  # "color_done", "color_skip", or "color_add_more"
+
+    if action == "color_add_more":
+        # Supplier wants to add another photo for the current color
+        # Just answer the query — the next photo they send will be handled by handle_color_image_upload
+        _add_more_hint = {
+            "ar": f"📸 أرسل صورة إضافية للون <b>{color['name']}</b>",
+            "tr": f"📸 <b>{color['name']}</b> rengi için ek fotoğraf gönderin",
+            "en": f"📸 Send another photo for <b>{color['name']}</b>",
+        }
+        await query.answer()
+        await query.message.reply_text(
+            _add_more_hint.get(lang, _add_more_hint["en"]),
+            parse_mode=ParseMode.HTML,
+        )
+        return COLOR_UPLOAD
 
     if action == "color_done":
         # Check if at least one photo was uploaded
@@ -4457,6 +4516,135 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
     return "\n".join(lines)
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# BACK NAVIGATION HANDLERS
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def handle_back_to_category(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> int:
+    """
+    Back button: returns to root category selection (Step 1).
+    Called from SELECT_SUBCATEGORY state.
+    """
+    query   = update.callback_query
+    await query.answer()
+    user_id = str(query.from_user.id)
+    lang    = context.user_data.get("lang") or get_user_lang(user_id, telegram_language_code=query.from_user.language_code or "")
+
+    progress = _progress_bar(1)
+    await query.edit_message_text(
+        f"{progress}\n\n{get_string(lang, 'add_product_loading_categories')}",
+        parse_mode=ParseMode.HTML,
+    )
+
+    api = KayisoftAPI(telegram_user_id=user_id, language=lang)
+    try:
+        categories = await api.get_categories()
+    except Exception:
+        categories = None
+
+    if not categories:
+        _err = {"ar": "❌ تعذّر تحميل الفئات.", "tr": "❌ Kategoriler yüklenemedi.", "en": "❌ Could not load categories."}
+        await query.edit_message_text(_err.get(lang, _err["en"]), parse_mode=ParseMode.HTML)
+        return ConversationHandler.END
+
+    _GENDER_PRIORITY = {
+        "نساء": 0, "سيدات": 0, "حريمي": 0,
+        "رجال": 1, "رجالي": 1,
+        "أطفال": 2, "اطفال": 2,
+        "kadın": 0, "bayan": 0, "kadin": 0,
+        "erkek": 1,
+        "çocuk": 2, "cocuk": 2, "bebek": 2,
+        "women": 0, "ladies": 0, "men": 1, "kids": 2, "children": 2,
+    }
+    def _sort_key(c):
+        n = c.get("name", "").lower().strip()
+        p = 99
+        for kw, pv in _GENDER_PRIORITY.items():
+            if kw in n: p = pv; break
+        return (p, n)
+
+    visible_cats = [c for c in categories if c.get("is_visible_for_creating", True)]
+    visible_cats.sort(key=_sort_key)
+    categories_map = {}
+    keyboard = []
+    for cat in visible_cats:
+        cid = cat.get("id")
+        cname = cat.get("name", "—")
+        categories_map[cid] = cname
+        keyboard.append([InlineKeyboardButton(cname, callback_data=f"cat_{cid}")])
+    context.user_data["categories_map"] = categories_map
+
+    await query.edit_message_text(
+        f"{progress}\n\n{get_string(lang, 'add_product_select_category')}",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode=ParseMode.HTML,
+    )
+    return SELECT_CATEGORY
+
+
+async def handle_back_to_subcategory(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> int:
+    """
+    Back button: returns to subcategory selection (Step 2).
+    Called from FILL_FORM state.
+    """
+    query   = update.callback_query
+    await query.answer()
+    user_id = str(query.from_user.id)
+    lang    = context.user_data.get("lang") or get_user_lang(user_id, telegram_language_code=query.from_user.language_code or "")
+
+    cat_id = context.user_data.get("selected_category")
+    if not cat_id:
+        # No category saved — go all the way back to category selection
+        return await handle_back_to_category(update, context)
+
+    progress = _progress_bar(2)
+    await query.edit_message_text(
+        f"{progress}\n\n{get_string(lang, 'add_product_loading_subcategories')}",
+        parse_mode=ParseMode.HTML,
+    )
+
+    api = KayisoftAPI(telegram_user_id=user_id, language=lang)
+    subcategories = await api.get_categories(parent_id=cat_id)
+
+    if not subcategories:
+        # No subcategories — go back to category selection
+        return await handle_back_to_category(update, context)
+
+    cat_name = context.user_data.get("selected_category_name", "")
+    visible_subs = [s for s in subcategories if s.get("is_visible_for_creating", True)]
+    visible_subs.sort(key=lambda s: s.get("name", "").lower().strip())
+
+    subcategories_map = {}
+    keyboard = []
+    for sub in visible_subs:
+        sid   = sub.get("id")
+        sname = sub.get("name", "—")
+        subcategories_map[sid] = sname
+        keyboard.append([InlineKeyboardButton(sname, callback_data=f"sub_{sid}")])
+    context.user_data["subcategories_map"] = subcategories_map
+
+    _back_labels = {"ar": "⬅️ رجوع للفئات", "tr": "⬅️ Kategorilere Dön", "en": "⬅️ Back to Categories"}
+    keyboard.append([InlineKeyboardButton(_back_labels.get(lang, _back_labels["en"]), callback_data="back_to_category")])
+
+    cat_label = {"tr": "Kategori", "ar": "الفئة", "en": "Category"}.get(lang, "Category")
+    breadcrumb = f"✅ <b>{cat_label}:</b> {cat_name}" if cat_name else ""
+    subcategory_prompt = get_string(lang, "add_product_select_subcategory")
+    body = f"{breadcrumb}\n\n{subcategory_prompt}" if breadcrumb else subcategory_prompt
+
+    await query.edit_message_text(
+        f"{progress}\n\n{body}",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode=ParseMode.HTML,
+    )
+    return SELECT_SUBCATEGORY
+
+
 async def handle_manual_entry_fallback(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -4549,6 +4737,11 @@ def get_product_conv_handler() -> ConversationHandler:
                     handle_subcategory_selection,
                     pattern=r"^sub_",
                 ),
+                # Back button: return to root category selection
+                CallbackQueryHandler(
+                    handle_back_to_category,
+                    pattern=r"^back_to_category$",
+                ),
                 # NEW: Manual entry fallback when supplier taps "✏️ الإدخال اليدوي"
                 CallbackQueryHandler(
                     handle_manual_entry_fallback,
@@ -4578,6 +4771,26 @@ def get_product_conv_handler() -> ConversationHandler:
                 CallbackQueryHandler(
                     handle_manual_entry_fallback,
                     pattern=r"^form_manual_entry$",
+                ),
+                # PRIORITY 3b: Confirm/Edit buttons from AI summary
+                # These can arrive in FILL_FORM state when supplier edits and re-submits.
+                # After handle_form_submitted returns CONFIRM_DETAILS, the next callback
+                # (details_confirm / details_edit) may still be processed in FILL_FORM
+                # if the state transition hasn't propagated yet.
+                CallbackQueryHandler(
+                    handle_confirm_details,
+                    pattern=r"^(details_confirm|details_edit)$",
+                ),
+                # PRIORITY 3c: AI post review buttons (approve/regenerate/edit)
+                # Can arrive in FILL_FORM after re-submission flow.
+                CallbackQueryHandler(
+                    handle_ai_post_review,
+                    pattern=r"^(post_approve|post_regenerate|post_edit)$",
+                ),
+                # Back button: return to subcategory selection
+                CallbackQueryHandler(
+                    handle_back_to_subcategory,
+                    pattern=r"^back_to_subcategory$",
                 ),
                 # PRIORITY 4: free-text description (legacy AI extraction path)
                 MessageHandler(
@@ -4616,10 +4829,10 @@ def get_product_conv_handler() -> ConversationHandler:
                 MessageHandler(filters.PHOTO, handle_color_image_upload),
                 # Accept photos sent as documents (high-res)
                 MessageHandler(filters.Document.IMAGE, handle_color_image_upload),
-                # Done / Skip buttons
+                # Done / Skip / Add More buttons
                 CallbackQueryHandler(
                     handle_color_action,
-                    pattern=r"^color_(done|skip)$",
+                    pattern=r"^color_(done|skip|add_more)$",
                 ),
             ],
             UPLOAD_IMAGES: [

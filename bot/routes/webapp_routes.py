@@ -268,6 +268,33 @@ async def proxy_attributes(
             _json.dumps(first_attr, ensure_ascii=False)[:500],
         )
 
+    def _dedup(name: str) -> str:
+        """
+        Remove duplicated words from KAYISOFT option names.
+        Examples: 'XS XS' → 'XS', 'Satin Satin' → 'Satin', 'Navy Blue' → 'Navy Blue'
+        Also handles triple/quad repetitions: 'M M M' → 'M'
+        """
+        if not name:
+            return name
+        parts = name.strip().split()
+        n = len(parts)
+        if n < 2:
+            return name
+        # Check for exact half-repetition (even count): 'XS XS', 'Navy Blue Navy Blue'
+        if n % 2 == 0:
+            half = n // 2
+            if parts[:half] == parts[half:]:
+                return " ".join(parts[:half])
+        # Check for triple repetition: 'M M M'
+        if n % 3 == 0:
+            third = n // 3
+            if parts[:third] == parts[third:2*third] == parts[2*third:]:
+                return " ".join(parts[:third])
+        # Check if all words are the same (any count): 'L L L L'
+        if len(set(parts)) == 1:
+            return parts[0]
+        return name
+
     # ── NORMALIZE: ensure every option has a valid 'id' field ─────────────────
     # KAYISOFT may return options with different field names depending on the endpoint.
     # The WebApp HTML relies on opt.id for the value to send back.
@@ -276,6 +303,9 @@ async def proxy_attributes(
         for attr in data:
             if not isinstance(attr, dict):
                 continue
+            # Deduplicate attribute name itself
+            if attr.get("name"):
+                attr["name"] = _dedup(attr["name"])
             options = attr.get("options", [])
             if not isinstance(options, list):
                 continue
@@ -296,9 +326,12 @@ async def proxy_attributes(
                 if not opt.get("label"):
                     if raw_val and "|" in raw_val:
                         parts = raw_val.split("|")
-                        opt["label"] = parts[-1].strip()  # last part = human-readable name
+                        opt["label"] = _dedup(parts[-1].strip())  # last part = human-readable name
                     else:
-                        opt["label"] = raw_val
+                        opt["label"] = _dedup(raw_val)
+                else:
+                    # Label already set — still deduplicate it
+                    opt["label"] = _dedup(opt["label"])
 
                 # ── Normalize hex_code: convert KAYISOFT ARGB (#AARRGGBB) → CSS RGB (#RRGGBB) ──
                 # KAYISOFT stores colors as "#AARRGGBB|name" where AA is the alpha channel.
