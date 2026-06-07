@@ -330,6 +330,29 @@ def _process_attributes(raw_attributes: list) -> dict:
         if not attr_id:
             continue
 
+        # ── Deduplicate attribute name at the source ─────────────────────────────
+        # KAYISOFT API sometimes returns duplicated names like 'نسائي نسائي' or 'XS XS'.
+        # We fix this here once so ALL downstream code (summary, post, variants) gets
+        # clean names without needing per-call deduplication.
+        if attr.get("name"):
+            attr["name"] = _deduplicate_name(attr["name"])
+        # Also deduplicate every option name/label inside this attribute
+        for opt in attr.get("options", []):
+            if not isinstance(opt, dict):
+                continue
+            if opt.get("name"):
+                opt["name"] = _deduplicate_name(opt["name"])
+            if opt.get("label"):
+                opt["label"] = _deduplicate_name(opt["label"])
+            # Handle pipe-separated value like '#FF0000|أحمر أحمر' → '#FF0000|أحمر'
+            raw_val = str(opt.get("value", ""))
+            if "|" in raw_val:
+                hex_part, label_part = raw_val.split("|", 1)
+                clean_label = _deduplicate_name(label_part.strip())
+                opt["value"] = f"{hex_part.strip()}|{clean_label}"
+                if not opt.get("label"):
+                    opt["label"] = clean_label
+
         all_by_id[attr_id] = attr
         is_selector = attr.get("is_variant_selector", False)
         is_required = attr.get("required", False)
@@ -959,9 +982,9 @@ async def _publish_to_channel(
         "notes":        None,
         "attributes":   attributes or [],
     }
-    # Use supplier's language for the post
-    post_languages = [lang] if lang in ("ar", "tr", "en") else ["tr"]
-    logger.info("🤖 Generating AI channel post via DeepSeek (lang=%s)...", lang)
+    # Always post in all 3 languages for maximum reach (AR, TR, EN)
+    post_languages = ["ar", "tr", "en"]
+    logger.info("🤖 Generating AI channel post via DeepSeek (3 languages)...")
     ai_caption = await _gen_post(product_data_for_ai, post_languages)
     if ai_caption:
         caption = ai_caption
@@ -1002,14 +1025,16 @@ async def _publish_to_channel(
             )
             # Inline buttons must be sent as a separate message after MediaGroup
             # (Telegram does not support reply_markup on MediaGroup)
-            # We send a minimal separator line so the buttons appear directly below the album
-            # without any distracting text — the caption on the first image carries all info.
-            sep = "─" * 24
-            await context.bot.send_message(
-                chat_id=channel_id,
-                text=sep,
-                reply_markup=keyboard,
-            )
+            # Even if this fails, the album was already published — treat as success
+            try:
+                sep = "─" * 24
+                await context.bot.send_message(
+                    chat_id=channel_id,
+                    text=sep,
+                    reply_markup=keyboard,
+                )
+            except Exception as btn_exc:
+                logger.warning("⚠️ Could not send buttons after album: %s", btn_exc)
 
         elif len(image_file_ids) == 1:
             await context.bot.send_photo(
@@ -2330,9 +2355,12 @@ async def handle_confirm_details(
         # Build attributes list for DeepSeek
         # NOTE: raw_attributes is a LIST; build a dict keyed by id for fast lookup
         attrs_list = []
-        raw_attrs_list = context.user_data.get("raw_attributes", [])
-        all_attrs = {a.get("id"): a for a in raw_attrs_list if a.get("id")}
-
+        # Use processed_attributes (already deduplicated by _process_attributes)
+        # instead of raw_attributes (which may still contain 'نسائي نسائي' from API)
+        processed_attrs = context.user_data.get("processed_attributes", {})
+        all_attrs = processed_attrs.get("all_by_id") or {
+            a.get("id"): a for a in context.user_data.get("raw_attributes", []) if a.get("id")
+        }
         shared_attrs = product_details.get("shared_attributes", {})
         for attr_id, option_ids in shared_attrs.items():
             attr_info = all_attrs.get(attr_id, {})
@@ -4135,7 +4163,9 @@ async def handle_form_submitted(
 
     shared_attributes   = payload.get("shared_attributes",   {}) or {}
     selector_attributes = payload.get("selector_attributes", []) or []
-    post_languages      = payload.get("post_languages", ["ar"]) or ["ar"]
+    # Always post in all 3 languages (form no longer has language selector)
+    # If payload explicitly sends languages, use them; otherwise default to all 3
+    post_languages      = payload.get("post_languages") or ["ar", "tr", "en"]
 
     product_details = {
         "name":                name,
@@ -4399,7 +4429,6 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
         f"{L['name']}: <b>{name}</b>",
         f"{L['desc']}: {description}",
         f"{L['price']}: <b>{price} ₺</b>",
-        f"{L['min']}: {min_qty}",
         f"{L['stock']}: {stock}",
     ]
 
