@@ -4191,6 +4191,10 @@ async def handle_form_submitted(
         user_id, name, price_str, min_quantity, stock_count,
         len(shared_attributes), len(selector_attributes),
     )
+    # DEBUG: log actual shared_attributes and selector_attributes values
+    import json as _json_debug
+    logger.info("[PAYLOAD_DEBUG] shared_attributes=%s", _json_debug.dumps(shared_attributes, ensure_ascii=False)[:500])
+    logger.info("[PAYLOAD_DEBUG] selector_attributes=%s", _json_debug.dumps(selector_attributes, ensure_ascii=False)[:500])
 
     # ── Build and show summary with confirm/edit buttons ──────────────────────
     summary = _build_webapp_summary(product_details, lang, context)
