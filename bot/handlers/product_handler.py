@@ -4386,10 +4386,15 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
     shared_attrs   = product_details.get("shared_attributes",   {}) or {}
     selector_attrs = product_details.get("selector_attributes", []) or []
 
-    raw_attributes = context.user_data.get("raw_attributes", [])
-    attr_map       = {a.get("id"): a for a in raw_attributes if a.get("id")}
+    # Use processed_attributes (which has _deduplicate_name applied) instead of raw
+    processed_attrs = context.user_data.get("processed_attributes", {})
+    attr_map        = processed_attrs.get("all_by_id", {})
+    # Fallback: build from raw_attributes if processed not available
+    if not attr_map:
+        raw_attributes = context.user_data.get("raw_attributes", [])
+        attr_map       = {a.get("id"): a for a in raw_attributes if a.get("id")}
     # Also build a key-based map as fallback (WebApp may send key instead of UUID)
-    attr_key_map   = {a.get("key"): a for a in raw_attributes if a.get("key")}
+    attr_key_map   = {a.get("key"): a for a in attr_map.values() if a.get("key")}
 
     def _resolve_attr(attr_id: str) -> dict:
         """Find attribute by UUID first, then by key string."""
