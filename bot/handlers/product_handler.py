@@ -325,6 +325,9 @@ def _process_attributes(raw_attributes: list) -> dict:
     selector_optional = []
     all_by_id         = {}
 
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
+
     for attr in raw_attributes:
         attr_id = attr.get("id")
         if not attr_id:
@@ -334,12 +337,14 @@ def _process_attributes(raw_attributes: list) -> dict:
         # KAYISOFT API sometimes returns duplicated names like 'نسائي نسائي' or 'XS XS'.
         # We fix this here once so ALL downstream code (summary, post, variants) gets
         # clean names without needing per-call deduplication.
+        _log.info(f"[DEDUP_DEBUG] attr raw name={attr.get('name')!r} value={attr.get('value')!r}")
         if attr.get("name"):
             attr["name"] = _deduplicate_name(attr["name"])
         # Also deduplicate every option name/label inside this attribute
         for opt in attr.get("options", []):
             if not isinstance(opt, dict):
                 continue
+            _log.info(f"[DEDUP_DEBUG]   opt raw name={opt.get('name')!r} label={opt.get('label')!r} value={opt.get('value')!r}")
             if opt.get("name"):
                 opt["name"] = _deduplicate_name(opt["name"])
             if opt.get("label"):
