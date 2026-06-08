@@ -4501,9 +4501,13 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
                     seen_opt_ids.add(oid)
                     deduped_ids.append(oid)
             for opt_id in deduped_ids:
+                import logging as _log_mod
+                _log_ws = _log_mod.getLogger(__name__)
+                _log_ws.info(f"[SUMMARY_DEBUG] attr_id={attr_id!r} attr_name={attr_name!r} opt_id={opt_id!r}")
                 for opt in attr.get("options", []):
                     if opt.get("id") == opt_id:
                         display, hex_val = _clean_option_display(opt, opt_id)
+                        _log_ws.info(f"[SUMMARY_DEBUG]   found opt: name={opt.get('name')!r} label={opt.get('label')!r} value={opt.get('value')!r} → display={display!r}")
                         emoji = _render_color_value(hex_val if hex_val else display)
                         if display:
                             rendered.append(f"{emoji} {display}" if emoji else display)
@@ -4512,6 +4516,7 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
                         break
                 else:
                     # opt_id may itself be the option name (text-type attrs)
+                    _log_ws.info(f"[SUMMARY_DEBUG]   opt_id NOT found in options, using as text: {opt_id!r}")
                     rendered.append(_deduplicate_name(str(opt_id)))
             lines.append(f"  • {attr_name}: {', '.join(rendered)}")
 
