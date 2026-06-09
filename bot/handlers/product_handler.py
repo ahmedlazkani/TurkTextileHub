@@ -4198,7 +4198,7 @@ async def handle_form_submitted(
 
     # ── Build and show summary with confirm/edit buttons ──────────────────────
     summary = _build_webapp_summary(product_details, lang, context)
-
+    logger.info("[SUMMARY_FINAL] summary text:\n%s", summary)
     confirm_buttons = {
         "ar": ("✅ تأكيد وإرسال الصور", "✏️ تعديل"),
         "tr": ("✅ Onayla ve Fotoğraf Ekle", "✏️ Düzenle"),
