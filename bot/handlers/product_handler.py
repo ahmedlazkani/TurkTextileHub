@@ -2366,6 +2366,26 @@ async def handle_confirm_details(
         all_attrs = processed_attrs.get("all_by_id") or {
             a.get("id"): a for a in context.user_data.get("raw_attributes", []) if a.get("id")
         }
+        logger.info("[CONFIRM_DEBUG] all_attrs size=%d raw_attrs size=%d",
+                    len(all_attrs), len(context.user_data.get("raw_attributes", [])))
+        # If all_attrs is empty (session lost between form and confirm), re-fetch from API
+        if not all_attrs:
+            category_id = context.user_data.get("selected_subcategory", "")
+            logger.info("[CONFIRM_DEBUG] all_attrs empty! Re-fetching attributes for category=%s", category_id)
+            if category_id:
+                try:
+                    _api = KayisoftAPI(telegram_user_id=user_id, language=lang)
+                    _raw = await _api.get_attributes(category_id=category_id)
+                    _raw = _raw or []
+                    _processed = _process_attributes(_raw)
+                    context.user_data["raw_attributes"]       = _raw
+                    context.user_data["processed_attributes"] = _processed
+                    all_attrs = _processed.get("all_by_id") or {
+                        a.get("id"): a for a in _raw if a.get("id")
+                    }
+                    logger.info("[CONFIRM_DEBUG] re-fetched all_attrs size=%d", len(all_attrs))
+                except Exception as _e:
+                    logger.warning("[CONFIRM_DEBUG] re-fetch failed: %s", _e)
         shared_attrs = product_details.get("shared_attributes", {})
         for attr_id, option_ids in shared_attrs.items():
             attr_info = all_attrs.get(attr_id, {})
