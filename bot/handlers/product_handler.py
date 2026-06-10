@@ -4508,11 +4508,17 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
                     if opt.get("id") == opt_id:
                         display, hex_val = _clean_option_display(opt, opt_id)
                         _log_ws.info(f"[SUMMARY_DEBUG]   found opt: name={opt.get('name')!r} label={opt.get('label')!r} value={opt.get('value')!r} → display={display!r}")
-                        emoji = _render_color_value(hex_val if hex_val else display)
-                        if display:
-                            rendered.append(f"{emoji} {display}" if emoji else display)
+                        # Only render color emoji if hex_val is an actual hex color code
+                        import re as _re_chk
+                        is_hex = bool(hex_val and _re_chk.match(r'^#?[0-9A-Fa-f]{6,8}$', hex_val.strip()))
+                        if is_hex:
+                            emoji = _render_color_value(hex_val)
+                            if display:
+                                rendered.append(f"{emoji} {display}")
+                            else:
+                                rendered.append(emoji)
                         else:
-                            rendered.append(emoji)
+                            rendered.append(display if display else str(opt_id))
                         break
                 else:
                     # opt_id may itself be the option name (text-type attrs)
@@ -4550,11 +4556,17 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
                 for opt in attr.get("options", []):
                     if opt.get("id") == o_id:
                         display, hex_val = _clean_option_display(opt, o_id)
-                        emoji = _render_color_value(hex_val if hex_val else display)
-                        if display:
-                            rendered.append(f"{emoji} {display}" if emoji else display)
+                        # Only render color emoji if hex_val is an actual hex color code
+                        import re as _re_chk2
+                        is_hex = bool(hex_val and _re_chk2.match(r'^#?[0-9A-Fa-f]{6,8}$', hex_val.strip()))
+                        if is_hex:
+                            emoji = _render_color_value(hex_val)
+                            if display:
+                                rendered.append(f"{emoji} {display}")
+                            else:
+                                rendered.append(emoji)
                         else:
-                            rendered.append(emoji)
+                            rendered.append(display if display else str(o_id))
                         break
                 else:
                     # o_id may itself be the option name (text-type attrs)
