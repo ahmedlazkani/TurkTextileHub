@@ -2440,6 +2440,9 @@ async def handle_confirm_details(
                     opt_names.append(_deduplicate_name(str(opt_id)))
             attrs_list.append({"name": attr_name, "value": ", ".join(opt_names)})
 
+        import json as _jdebug
+        logger.info("[AI_ATTRS_DEBUG] attrs_list=%s", _jdebug.dumps(attrs_list, ensure_ascii=False))
+        logger.info("[AI_ATTRS_DEBUG] languages=%s", languages)
         post_data = {
             "name":         product_details.get("name", ""),
             "description":  product_details.get("description", ""),
@@ -2449,7 +2452,6 @@ async def handle_confirm_details(
             "notes":        product_details.get("notes", ""),
             "attributes":   attrs_list,
         }
-
         # Show "generating" message
         generating_msgs = {
             "ar": "🤖 <b>DeepSeek AI</b> يُحسّن بوست القناة...",
