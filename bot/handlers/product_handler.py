@@ -2387,26 +2387,53 @@ async def handle_confirm_details(
                 except Exception as _e:
                     logger.warning("[CONFIRM_DEBUG] re-fetch failed: %s", _e)
         shared_attrs = product_details.get("shared_attributes", {})
+        # ── Helper: resolve option display name from opt_id ──────────────────────────────
+        # KAYISOFT options carry an 'id' UUID field.  The WebApp sends back that UUID
+        # as the selected option_id.  We look up the human-readable label here.
+        # Fallback chain:
+        #   1. Match opt.id == opt_id  (normal case)
+        #   2. Match opt.value == opt_id  (proxy may set id = value for non-UUID values)
+        #   3. opt_id is already human-readable (not a UUID pattern)
+        import re as _re_uuid
+        _UUID_RE = _re_uuid.compile(
+            r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+            _re_uuid.I,
+        )
+
+        def _resolve_opt_label(attr_info: dict, opt_id: str) -> str:
+            """Return human-readable label for opt_id from attr_info.options."""
+            options = attr_info.get("options", [])
+            # Pass 1: match by id (UUID)
+            for opt in options:
+                if opt.get("id") == opt_id:
+                    raw_n = opt.get("label") or opt.get("name") or str(opt.get("value", ""))
+                    if "|" in raw_n:
+                        raw_n = raw_n.split("|", 1)[-1].strip()
+                    return _deduplicate_name(raw_n) if raw_n else opt_id
+            # Pass 2: match by value (proxy sets opt.id = opt.value for non-UUID options)
+            for opt in options:
+                raw_val = str(opt.get("value", ""))
+                cmp_val = raw_val.split("|", 1)[-1].strip() if "|" in raw_val else raw_val
+                if cmp_val == opt_id or raw_val == opt_id:
+                    raw_n = opt.get("label") or opt.get("name") or cmp_val
+                    if "|" in raw_n:
+                        raw_n = raw_n.split("|", 1)[-1].strip()
+                    return _deduplicate_name(raw_n) if raw_n else opt_id
+            # Pass 3: opt_id is already a human-readable string (not a UUID)
+            if not _UUID_RE.match(opt_id):
+                return _deduplicate_name(opt_id)
+            return opt_id  # last resort: return UUID as-is
+
         for attr_id, option_ids in shared_attrs.items():
             attr_info = all_attrs.get(attr_id, {})
             attr_name = _deduplicate_name(attr_info.get("name", "") or attr_id)
-            # Deduplicate option_ids
-            seen_oids = set()
-            option_names = []
+            seen_oids: set = set()
+            option_names: list = []
             for opt_id in (option_ids if isinstance(option_ids, list) else [option_ids]):
                 if opt_id in seen_oids:
                     continue
                 seen_oids.add(opt_id)
-                for opt in attr_info.get("options", []):
-                    if opt.get("id") == opt_id:
-                        # Prefer label (already deduped by proxy) over name
-                        raw_n = opt.get("label") or opt.get("name", "") or opt_id
-                        if "|" in (raw_n or ""):
-                            raw_n = raw_n.split("|", 1)[-1].strip()
-                        option_names.append(_deduplicate_name(raw_n))
-                        break
-                else:
-                    option_names.append(_deduplicate_name(str(opt_id)))
+                option_names.append(_resolve_opt_label(attr_info, opt_id))
             if option_names:
                 attrs_list.append({"name": attr_name, "value": ", ".join(option_names)})
 
@@ -2426,18 +2453,7 @@ async def handle_confirm_details(
         for attr_id, grp in sel_grouped.items():
             attr_info = grp["attr_info"]
             attr_name = _deduplicate_name(attr_info.get("name", "") or attr_id)
-            opt_names = []
-            for opt_id in grp["opt_ids"]:
-                for opt in attr_info.get("options", []):
-                    if opt.get("id") == opt_id:
-                        # Prefer label (already deduped by proxy) over name
-                        raw_n = opt.get("label") or opt.get("name", "") or opt_id
-                        if "|" in (raw_n or ""):
-                            raw_n = raw_n.split("|", 1)[-1].strip()
-                        opt_names.append(_deduplicate_name(raw_n))
-                        break
-                else:
-                    opt_names.append(_deduplicate_name(str(opt_id)))
+            opt_names = [_resolve_opt_label(attr_info, oid) for oid in grp["opt_ids"]]
             attrs_list.append({"name": attr_name, "value": ", ".join(opt_names)})
 
         import json as _jdebug

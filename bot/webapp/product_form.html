@@ -686,11 +686,28 @@
       <div class="char-counter" id="counter-notes">0 / 500</div>
     </div>
 
-    <!-- ─── 9. لغات البوست (مخفية — تُعبأ من التطبيق، ترسل ar+tr+en افتراضياً) ─── -->
-    <!-- hidden checkboxes so payload builder still works -->
-    <input type="checkbox" id="lang-ar" value="ar" checked style="display:none" />
-    <input type="checkbox" id="lang-tr" value="tr" checked style="display:none" />
-    <input type="checkbox" id="lang-en" value="en" checked style="display:none" />
+    <!-- ─── 9. لغات البوست ────────────────────────────── -->
+    <div class="field-card" id="section-languages">
+      <div class="field-label">
+        <span class="icon">🌐</span>
+        لغات البوست على القناة
+        <span style="font-size:0.7rem;color:var(--tg-hint);font-weight:400;margin-inline-start:4px;">اختياري</span>
+      </div>
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;background:var(--tg-bg);border:1.5px solid var(--tg-btn);border-radius:10px;padding:8px 14px;font-size:0.9rem;font-weight:600;">
+          <input type="checkbox" id="lang-ar" value="ar" checked style="width:16px;height:16px;accent-color:var(--tg-btn);" />
+          🇸🇦 عربي
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;background:var(--tg-bg);border:1.5px solid var(--tg-btn);border-radius:10px;padding:8px 14px;font-size:0.9rem;font-weight:600;">
+          <input type="checkbox" id="lang-tr" value="tr" checked style="width:16px;height:16px;accent-color:var(--tg-btn);" />
+          🇹🇷 تركي
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;background:var(--tg-bg);border:1.5px solid var(--tg-btn);border-radius:10px;padding:8px 14px;font-size:0.9rem;font-weight:600;">
+          <input type="checkbox" id="lang-en" value="en" checked style="width:16px;height:16px;accent-color:var(--tg-btn);" />
+          🇬🇧 إنكليزي
+        </label>
+      </div>
+    </div>
 
     <!-- ─── 10. ملاحظة الصور ────────────────────────────── -->
     <div class="info-card">
