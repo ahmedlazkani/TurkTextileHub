@@ -344,7 +344,7 @@ def _process_attributes(raw_attributes: list) -> dict:
         for opt in attr.get("options", []):
             if not isinstance(opt, dict):
                 continue
-            _log.info(f"[DEDUP_DEBUG]   opt raw name={opt.get('name')!r} label={opt.get('label')!r} value={opt.get('value')!r}")
+            _log.info(f"[DEDUP_DEBUG]   opt raw id={opt.get('id')!r} name={opt.get('name')!r} label={opt.get('label')!r} value={opt.get('value')!r}")
             if opt.get("name"):
                 opt["name"] = _deduplicate_name(opt["name"])
             if opt.get("label"):
