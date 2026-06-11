@@ -337,7 +337,7 @@ def _process_attributes(raw_attributes: list) -> dict:
         # KAYISOFT API sometimes returns duplicated names like 'نسائي نسائي' or 'XS XS'.
         # We fix this here once so ALL downstream code (summary, post, variants) gets
         # clean names without needing per-call deduplication.
-        _log.info(f"[DEDUP_DEBUG] attr raw name={attr.get('name')!r} value={attr.get('value')!r}")
+        _log.info(f"[DEDUP_DEBUG] attr raw id={attr.get('id')!r} name={attr.get('name')!r} value={attr.get('value')!r}")
         if attr.get("name"):
             attr["name"] = _deduplicate_name(attr["name"])
         # Also deduplicate every option name/label inside this attribute
