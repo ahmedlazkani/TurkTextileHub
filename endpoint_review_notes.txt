@@ -1,0 +1,143 @@
+ملاحظات مراجعة ملف TelegramBackendEndpoints(3).pdf
+
+المصدر: /home/ubuntu/upload/TelegramBackendEndpoints(3).pdf
+
+الصفحات 1-10:
+
+1) Header مطلوب في جميع الطلبات:
+- Telegram-User-Id: string
+- Authorization: Bearer {token}
+- Platform: telegram
+- Accept-Language: language_code
+
+2) ربط حساب البائع مع تيليجرام:
+- الرابط: https://t.me/YOUR_BOT_USERNAME?start=TOKEN
+- Endpoint: POST api/seller/telegram-bot/connect
+- Body:
+  - token
+  - telegram_user_id
+  - telegram_user_name (optional)
+
+3) إنشاء/تسجيل القناة بعد إضافة البوت كمسؤول:
+- Endpoint: POST api/seller/telegram-bot/create-channel
+- Body:
+  - channel_id
+  - telegram_user_id
+  - channel_name
+
+4) جلب التصنيفات:
+- Endpoint: GET api/seller/categories
+- Query param: parent
+- parent فارغ للجذور، ثم parent=selected_root_category_id لجلب الفئات التابعة/النهائية
+
+5) جلب خصائص الفئة النهائية:
+- Endpoint: GET api/seller/categories/{id}/attributes
+- الاستجابة تحتوي attribute.id و options[].id و options[].attribute_id و options[].value
+- يوجد is_variant_selector لتحديد خصائص المتغيرات
+
+6) ملاحظات مهمة عن بناء الفورم:
+- الاسم name من الفورم
+- product_no يُولّد تلقائياً
+- stock_id يُولّد تلقائياً
+- stock_count القيمة الافتراضية 100
+- visibility_status الافتراضي public
+- tax_percentage الافتراضي null
+- cost_price الافتراضي null
+- prices من الفورم ويحوّل إلى الشكل:
+  {
+    "min_quantity": 1,
+    "price": 1299.99
+  }
+- titles يجب أخذها من الفورم للغة واحدة ثم تحويلها إلى array objects فيه language + text
+- descriptions كذلك من الفورم للغة واحدة ثم تحويلها إلى array objects
+- dimensions الافتراضي null
+
+7) رفع الصور/الوسائط:
+- Endpoint: POST extensions/signed-urls
+- Body:
+  - operation: put_product_variant_media
+  - file_names: array
+  - category_id
+- أسماء الملفات يجب أن تكون بصيغة ISO-8601 timestamp + SHA-256 hash
+- الاستجابة signed upload URLs
+
+8) نشر المنتج:
+- Endpoint: POST api/seller/products
+- Body يحتوي:
+  - name
+  - product_no
+  - category_id
+  - shared_attributes
+  - variants[]
+- variant يحتوي:
+  - stock_id
+  - stock_count
+  - visibility_status
+  - tax_percentage
+  - cost_price
+  - selector_attributes
+  - images
+  - videos
+  - prices
+  - titles
+  - descriptions
+  - dimensions
+
+9) التعديل البرتقالي المكتشف حتى الآن (مهم جداً):
+- داخل variant يوجد share_links
+- share_links.details = https://kayisoft.dynalinks.app/topgate/product-variant?id={variant_id}
+- share_links.chat = https://kayisoft.dynalinks.app/topgate/start-chat-variant?id={variant_id}
+- هذه إضافة جديدة يجب ربطها مع أزرار منشور القناة وأزرار بدء المحادثة/عرض المنتج
+
+10) توضيحات من الملف:
+- shared_attributes: dictionary values قد تكون option UUIDs أو قيم أخرى حسب نوع الخاصية
+- selector_attributes: تحدد الفروق بين المتغيرات، وكل key يجب أن يحتوي exactly one option UUID
+- response من POST product يعيد shared_attributes و variants وداخل variants selector_attributes وprices وtitles وdescriptions وغيرها
+
+11) يوجد جزء عربي بعنوان مسار عمل البوت يؤكد الفلو:
+- زر ربط داخل التطبيق
+- فتح البوت عبر deep link
+- استخراج token
+- استدعاء connect
+- إضافة البوت كمسؤول بالقناة
+- تسجيل القناة بالنظام
+
+ما يزال مطلوباً:
+- قراءة الصفحات 11-13 بالكامل
+- استخراج جميع التعديلات البرتقالية إن وجدت في آخر الصفحات
+- مطابقة هذه النقاط مع كود البوت الحالي
+- إعداد تقرير الفجوات والتنفيذ المطلوب
+
+الصفحات 11-13 (مسار عمل البوت):
+
+مسار عمل البوت الكامل (كما في الملف):
+1. ربط الحساب مع Telegram → POST api/seller/telegram-bot/connect
+2. إضافة البوت كمسؤول في القناة
+3. تسجيل القناة → POST api/seller/telegram-bot/create-channel
+4. بدء إضافة منتج → زر "إضافة منتج" → GET api/seller/categories
+5. اختيار فئة رئيسية → عرض فئات فرعية
+6. اختيار فئة فرعية → عرض الفورم
+7. تعبئة بيانات المنتج (اسم، وصف، سعر، attributes)
+8. مراجعة البيانات → إذا ناقصة يطلب استكمالها
+9. رفع صور المنتج → POST api/extensions/signed-urls
+10. إنشاء Variants تلقائياً بناءً على selector_attributes
+11. رفع الصور وإضافة المنتج → POST api/seller/products
+12. الاستجابة تحتوي على share_links (details + chat) ← التعديل البرتقالي
+13. البوت يستخدم share_links في أزرار منشور القناة
+14. البوت ينشر المنتج على قناة Telegram الخاصة بالبائع
+
+التعديلات البرتقالية المكتشفة (مهمة جداً):
+==============================================
+التعديل 1: share_links في response من POST api/seller/products
+- share_links.details = https://kayisoft.dynalinks.app/topgate/product-variant?id={variant_id}
+- share_links.chat = https://kayisoft.dynalinks.app/topgate/start-chat-variant?id={variant_id}
+- هذه الروابط يجب أن تُستخدم في أزرار منشور القناة
+
+التعديل 2 (برتقالي في الصفحة الأخيرة):
+"عند نجاح اضافة المنتج يرجع في الـ Response الـ Deeps links التي سيستخدمها الـ bot
+في ازرار المحادثة مع المورد و عرض المنتج الموجودين في المنشور الذي سينشره الـ Bot في قناة الـ Telegram"
+
+ملاحظات إضافية مهمة من الملف:
+- لا يجب أن يقوم البوت بترجمة حقول title وdescription (تتم الترجمة من Backend Service)
+- يجب استخدام DeepSeek API في جميع العمليات المتعلقة بالذكاء الاصطناعي
+- يجب أخذ قابلية النقل بعين الاعتبار (Bot Service قابل للنقل)

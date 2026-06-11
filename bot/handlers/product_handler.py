@@ -936,7 +936,9 @@ async def _publish_to_channel(
     supplier_name: str,
     product_id: str,
     supplier_id: str,
-    attributes: list = None,  # list of {"name": str, "value": str} for DeepSeek post
+    attributes: list = None,       # list of {"name": str, "value": str} for DeepSeek post
+    share_link_chat: str = "",     # KAYISOFT deep link: start-chat-variant
+    share_link_details: str = "",  # KAYISOFT deep link: product-variant details
 ) -> bool:
     """
     Publishes a professional product post to the supplier's Telegram channel.
@@ -946,32 +948,53 @@ async def _publish_to_channel(
     - Single image    → Photo with caption + inline buttons
     - No images       → Text message with inline buttons
 
+    Button URLs (per TelegramBackendEndpoints spec, orange section):
+    - share_link_chat    (KAYISOFT dynalinks) → opens supplier chat for this variant
+    - share_link_details (KAYISOFT dynalinks) → opens product variant detail page
+    - Falls back to legacy _product_chat_url / _supplier_page_url if not provided.
+
     Args:
-        context:       Bot context for API calls
-        channel_id:    Telegram channel ID (e.g. "@mychannel" or "-100...")
-        lang:          Language code for localized labels
-        image_file_ids: List of Telegram file_ids for product images
-        product_name:  Product title
-        description:   Product description
-        price:         Price string
-        min_order:     Minimum order quantity
-        supplier_name: Supplier's display name
-        product_id:    KAYISOFT product UUID
-        supplier_id:   KAYISOFT supplier UUID
+        context:             Bot context for API calls
+        channel_id:          Telegram channel ID (e.g. "@mychannel" or "-100...")
+        lang:                Language code for localized labels
+        image_file_ids:      List of Telegram file_ids for product images
+        product_name:        Product title
+        description:         Product description
+        price:               Price string
+        min_order:           Minimum order quantity
+        supplier_name:       Supplier's display name
+        product_id:          KAYISOFT product UUID
+        supplier_id:         KAYISOFT supplier UUID
+        share_link_chat:     KAYISOFT deep link for chat (optional, falls back to legacy)
+        share_link_details:  KAYISOFT deep link for product details (optional, falls back)
 
     Returns:
         bool: True on success, False on any failure
     """
-    # ── Build keyboard (always uses static builder for buttons) ────────────────
-    _, keyboard = _build_channel_post(
-        lang=lang,
-        product_name=product_name,
-        description=description,
-        price=price,
-        min_order=min_order,
-        supplier_name=supplier_name,
-        product_id=product_id,
-        supplier_id=supplier_id,
+    # ── Build keyboard using KAYISOFT share_links (or fallback to legacy URLs) ───
+    # Per TelegramBackendEndpoints spec (orange section):
+    #   - share_link_chat    → btn_chat button URL
+    #   - share_link_details → btn_page button URL
+    # If KAYISOFT did not return share_links, fall back to legacy URL builders.
+    _btn_chat_url = share_link_chat    or _product_chat_url(product_id, supplier_id)
+    _btn_page_url = share_link_details or _supplier_page_url(supplier_id)
+
+    _btn_labels = {
+        "ar": {"btn_chat": "💬 تواصل مع المورد",  "btn_page": "🛒 عرض المنتج"},
+        "tr": {"btn_chat": "💬 Tedarikçiyle Sohbet", "btn_page": "🛒 Ürünü Görüntüle"},
+        "en": {"btn_chat": "💬 Chat with Supplier",  "btn_page": "🛒 View Product"},
+    }
+    _L_btn = _btn_labels.get(lang, _btn_labels["en"])
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(_L_btn["btn_chat"], url=_btn_chat_url)],
+        [InlineKeyboardButton(_L_btn["btn_page"], url=_btn_page_url)],
+    ])
+
+    logger.info(
+        "🔗 Channel buttons: chat=%s | details=%s",
+        _btn_chat_url[:60] if _btn_chat_url else "(fallback)",
+        _btn_page_url[:60] if _btn_page_url else "(fallback)",
     )
 
     # ── Build post caption via DeepSeek AI (professional copywriting) ─────────
@@ -2424,8 +2447,26 @@ async def handle_confirm_details(
                 return _deduplicate_name(opt_id)
             return opt_id  # last resort: return UUID as-is
 
+        # ── Build secondary lookup by key (some attrs use 'key' instead of 'id') ─────
+        _all_attrs_by_key = {
+            a.get("key", ""): a
+            for a in context.user_data.get("raw_attributes", [])
+            if a.get("key")
+        }
+
+        def _get_attr_info(aid: str) -> dict:
+            """Lookup attr by UUID (id) or key, returns {} if not found."""
+            result = all_attrs.get(aid) or _all_attrs_by_key.get(aid) or {}
+            if not result:
+                logger.warning(
+                    "[ATTRS_LOOKUP] attr_id=%r not found in all_attrs (keys=%s)",
+                    aid,
+                    list(all_attrs.keys())[:5],
+                )
+            return result
+
         for attr_id, option_ids in shared_attrs.items():
-            attr_info = all_attrs.get(attr_id, {})
+            attr_info = _get_attr_info(attr_id)
             attr_name = _deduplicate_name(attr_info.get("name", "") or attr_id)
             seen_oids: set = set()
             option_names: list = []
@@ -2433,7 +2474,12 @@ async def handle_confirm_details(
                 if opt_id in seen_oids:
                     continue
                 seen_oids.add(opt_id)
-                option_names.append(_resolve_opt_label(attr_info, opt_id))
+                label = _resolve_opt_label(attr_info, opt_id)
+                logger.info(
+                    "[AI_RESOLVE] shared attr_id=%r opt_id=%r → label=%r",
+                    attr_id, opt_id, label,
+                )
+                option_names.append(label)
             if option_names:
                 attrs_list.append({"name": attr_name, "value": ", ".join(option_names)})
 
@@ -2446,14 +2492,21 @@ async def handle_confirm_details(
             if not attr_id:
                 continue
             if attr_id not in sel_grouped:
-                sel_grouped[attr_id] = {"attr_info": all_attrs.get(attr_id, {}), "opt_ids": [], "seen": set()}
+                sel_grouped[attr_id] = {"attr_info": _get_attr_info(attr_id), "opt_ids": [], "seen": set()}
             if opt_id and opt_id not in sel_grouped[attr_id]["seen"]:
                 sel_grouped[attr_id]["seen"].add(opt_id)
                 sel_grouped[attr_id]["opt_ids"].append(opt_id)
         for attr_id, grp in sel_grouped.items():
             attr_info = grp["attr_info"]
             attr_name = _deduplicate_name(attr_info.get("name", "") or attr_id)
-            opt_names = [_resolve_opt_label(attr_info, oid) for oid in grp["opt_ids"]]
+            opt_names = []
+            for oid in grp["opt_ids"]:
+                label = _resolve_opt_label(attr_info, oid)
+                logger.info(
+                    "[AI_RESOLVE] selector attr_id=%r opt_id=%r → label=%r",
+                    attr_id, oid, label,
+                )
+                opt_names.append(label)
             attrs_list.append({"name": attr_name, "value": ", ".join(opt_names)})
 
         import json as _jdebug
@@ -3904,12 +3957,27 @@ async def handle_final_publish(
     product_id  = str(created_product.get("id", "0"))
     supplier_id = str(created_product.get("seller_id", user_id))
 
+    # ── Extract share_links from first variant (KAYISOFT deep links) ─────────
+    # Per TelegramBackendEndpoints spec (orange section):
+    #   share_links.chat    → opens supplier chat for this variant
+    #   share_links.details → opens product variant detail page
+    # These are returned by POST api/seller/products in each variant object.
+    _api_variants = created_product.get("variants", [])
+    _first_variant_links = (
+        _api_variants[0].get("share_links", {}) if _api_variants else {}
+    )
+    share_link_chat    = _first_variant_links.get("chat", "")    or ""
+    share_link_details = _first_variant_links.get("details", "") or ""
+
     logger.info(
-        "✅ Product created: id=%s, seller=%s, category=%s, variants=%d",
+        "✅ Product created: id=%s, seller=%s, category=%s, variants=%d | "
+        "share_links.chat=%s share_links.details=%s",
         product_id,
         supplier_id,
         category_id,
         len(variants),
+        share_link_chat or "(none — will use fallback)",
+        share_link_details or "(none — will use fallback)",
     )
 
     # ── Step 7: Publish professional post to Telegram Channel ─────────────────
@@ -4012,6 +4080,8 @@ async def handle_final_publish(
             product_id=product_id,
             supplier_id=supplier_id,
             attributes=_attrs_list_pub,
+            share_link_chat=share_link_chat,
+            share_link_details=share_link_details,
         )
     else:
         logger.warning(
