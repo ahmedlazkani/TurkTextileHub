@@ -2512,6 +2512,12 @@ async def handle_confirm_details(
         import json as _jdebug
         logger.info("[AI_ATTRS_DEBUG] attrs_list=%s", _jdebug.dumps(attrs_list, ensure_ascii=False))
         logger.info("[AI_ATTRS_DEBUG] languages=%s", languages)
+
+        # Add sizes from form if provided
+        sizes_val = (product_details.get("sizes") or "").strip()
+        if sizes_val:
+            attrs_list.append({"name": "المقاسات", "value": sizes_val})
+
         post_data = {
             "name":         product_details.get("name", ""),
             "description":  product_details.get("description", ""),
@@ -3073,16 +3079,30 @@ async def _ask_color_photos(
             color_name=color["name"],
         )
 
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton(
-            _gs("color_upload_done_btn", _FALLBACK_DONE),
-            callback_data="color_done",
-        ),
-        InlineKeyboardButton(
-            _gs("color_upload_skip_btn", _FALLBACK_SKIP),
-            callback_data="color_skip",
-        ),
-    ]])
+    # 3-button layout from the start:
+    # Row 1: 📸 Add Photo (hint — user sends photo directly)
+    # Row 2: ✅ Done (next color)  |  ⏭️ Skip this color
+    _ADD_PHOTO_FALLBACK = {
+        "ar": f"📸 إضافة صورة إضافية لـ {color['name']}",
+        "tr": f"📸 {color['name']} için Ek Fotoğraf Ekle",
+        "en": f"📸 Add Another Photo for {color['name']}",
+    }
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            _ADD_PHOTO_FALLBACK.get(lang, _ADD_PHOTO_FALLBACK["en"]),
+            callback_data="color_add_more",
+        )],
+        [
+            InlineKeyboardButton(
+                _gs("color_upload_done_btn", _FALLBACK_DONE),
+                callback_data="color_done",
+            ),
+            InlineKeyboardButton(
+                _gs("color_upload_skip_btn", _FALLBACK_SKIP),
+                callback_data="color_skip",
+            ),
+        ],
+    ])
 
     sent = await message.reply_text(
         text,

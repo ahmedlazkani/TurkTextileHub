@@ -614,7 +614,7 @@
     <div class="field-card is-required" id="card-price">
       <div class="field-label">
         <span class="icon">💰</span>
-        السعر (₺ ليرة تركية)
+        السعر ($ دولار أمريكي)
         <span class="required-star">*</span>
       </div>
       <input
@@ -686,7 +686,27 @@
       <div class="char-counter" id="counter-notes">0 / 500</div>
     </div>
 
-    <!-- ─── 9. لغات البوست ────────────────────────────── -->
+    <!-- ─── 9. المقاسات (اختياري) ───────────────── -->
+    <div class="field-card" id="card-sizes">
+      <div class="field-label">
+        <span class="icon">📐</span>
+        المقاسات
+        <span class="optional-tag">اختياري</span>
+      </div>
+      <input
+        type="text"
+        id="field-sizes"
+        placeholder="مثال: S, M, L, XL أو مقاس موحد"
+        maxlength="100"
+        autocomplete="off"
+        inputmode="text"
+      />
+      <div class="field-hint" style="font-size:0.72rem;color:var(--tg-hint);margin-top:4px;">
+        اكتب المقاسات المتاحة مفصولة بفواصل أو اكتب مقاس موحد إذا كان المنتج بمقاس واحد
+      </div>
+    </div>
+
+    <!-- ─── 10. لغات البوست ──────────────────── -->
     <div class="field-card" id="section-languages">
       <div class="field-label">
         <span class="icon">🌐</span>
@@ -755,7 +775,7 @@
         label_desc:         "الوصف",
         placeholder_desc:   "اكتب وصف المنتج بالتفصيل...",
         error_desc:         "يجب كتابة وصف المنتج",
-        label_price:        "السعر (₺ ليرة تركية)",
+        label_price:        "السعر ($ دولار أمريكي)",
         placeholder_price:  "مثال: 200",
         error_price:        "يجب أن يكون السعر أكبر من 0",
         label_minqty:       "الحد الأدنى للطلب",
@@ -784,7 +804,7 @@
         label_desc:         "Açıklama",
         placeholder_desc:   "Ürün açıklamasını detaylı yazın...",
         error_desc:         "Ürün açıklaması zorunludur",
-        label_price:        "Fiyat (₺ Türk Lirası)",
+        label_price:        "Fiyat ($ USD)",
         placeholder_price:  "Örnek: 200",
         error_price:        "Fiyat 0'dan büyük olmalıdır",
         label_minqty:       "Minimum Sipariş Miktarı",
@@ -813,7 +833,7 @@
         label_desc:         "Description",
         placeholder_desc:   "Write the product description in detail...",
         error_desc:         "Product description is required",
-        label_price:        "Price (₺ TRY)",
+        label_price:        "Price ($ USD)",
         placeholder_price:  "Example: 200",
         error_price:        "Price must be greater than 0",
         label_minqty:       "Minimum Order Quantity",
@@ -1622,6 +1642,7 @@
 
       const code  = (document.getElementById("field-code")?.value || "").trim();
       const notes = (document.getElementById("field-notes")?.value || "").trim();
+      const sizes = (document.getElementById("field-sizes")?.value || "").trim();
       const langs = ["ar","tr","en"].filter(l => document.getElementById(`lang-${l}`)?.checked);
 
       const payload = {
@@ -1632,6 +1653,7 @@
         stock_count:         stock,
         product_code:        code  || null,
         notes:               notes || null,
+        sizes:               sizes || null,
         post_languages:      langs.length ? langs : ["ar"],
         shared_attributes:   sharedAttrs,
         selector_attributes: selectorAttrs,
