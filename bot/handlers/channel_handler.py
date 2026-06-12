@@ -192,8 +192,8 @@ def _support_keyboard(lang: str, extra_buttons: list | None = None):
     subject_map = {"ar": "Help - TopKap", "tr": "Destek - TopKap", "en": "Support - TopKap"}
     labels      = {"ar": "📧 تواصل مع الدعم", "tr": "📧 Destek ile iletişim", "en": "📧 Contact Support"}
     subject  = urllib.parse.quote(subject_map.get(lang, subject_map["en"]), safe="")
-    mailto   = f"mailto:topkap.support@kayisoft.net?subject={subject}"
-    support_row = [InlineKeyboardButton(labels.get(lang, labels["en"]), url=mailto)]
+    gmail_url = f"https://mail.google.com/mail/?view=cm&to=topkap.support%40kayisoft.net&su={subject}"
+    support_row = [InlineKeyboardButton(labels.get(lang, labels["en"]), url=gmail_url)]
     rows = list(extra_buttons) if extra_buttons else []
     rows.append(support_row)
     return InlineKeyboardMarkup(rows)

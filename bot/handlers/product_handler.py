@@ -240,11 +240,11 @@ def _support_keyboard(lang: str, extra_buttons: list | None = None) -> InlineKey
         "en": "Support - TopKap",
     }
     subject = urllib.parse.quote(subject_map.get(lang, subject_map["en"]), safe="")
-    mailto  = f"mailto:topkap.support@kayisoft.net?subject={subject}"
+    gmail_url = f"https://mail.google.com/mail/?view=cm&to=topkap.support%40kayisoft.net&su={subject}"
 
     support_row = [InlineKeyboardButton(
         labels.get(lang, labels["en"]),
-        url=mailto,
+        url=gmail_url,
     )]
 
     rows = list(extra_buttons) if extra_buttons else []
