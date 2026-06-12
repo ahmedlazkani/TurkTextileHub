@@ -229,6 +229,7 @@ def _support_keyboard(lang: str, extra_buttons: list | None = None) -> InlineKey
         "en": "📧 Contact Support",
     }
 
+    import urllib.parse  # local import — avoids NameError if module-level import is missing
     subject = urllib.parse.quote(subjects.get(lang, subjects["en"]))
     body    = urllib.parse.quote(bodies.get(lang, bodies["en"]))
     mailto  = f"mailto:topkap.support@kayisoft.net?subject={subject}&body={body}"
