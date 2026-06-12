@@ -229,10 +229,18 @@ def _support_keyboard(lang: str, extra_buttons: list | None = None) -> InlineKey
         "en": "📧 Contact Support",
     }
 
-    import urllib.parse  # local import — avoids NameError if module-level import is missing
-    subject = urllib.parse.quote(subjects.get(lang, subjects["en"]))
-    body    = urllib.parse.quote(bodies.get(lang, bodies["en"]))
-    mailto  = f"mailto:topkap.support@kayisoft.net?subject={subject}&body={body}"
+    # Use simple mailto URL with subject only.
+    # Telegram rejects mailto: URLs with non-ASCII body content (Button_url_invalid).
+    # Solution: encode subject only using ASCII-safe percent-encoding, omit body.
+    import urllib.parse
+    # Use only ASCII-safe subject to avoid Telegram's Button_url_invalid error
+    subject_map = {
+        "ar": "Help - TopKap",
+        "tr": "Destek - TopKap",
+        "en": "Support - TopKap",
+    }
+    subject = urllib.parse.quote(subject_map.get(lang, subject_map["en"]), safe="")
+    mailto  = f"mailto:topkap.support@kayisoft.net?subject={subject}"
 
     support_row = [InlineKeyboardButton(
         labels.get(lang, labels["en"]),

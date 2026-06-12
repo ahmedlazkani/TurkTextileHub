@@ -188,16 +188,11 @@ def _support_keyboard(lang: str, extra_buttons: list | None = None):
     """Gmail support button — opens pre-filled email to topkap.support@kayisoft.net"""
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     import urllib.parse
-    subjects = {"ar": "مساعدة — TopKap", "tr": "Destek — TopKap", "en": "Support — TopKap"}
-    bodies   = {
-        "ar": "مرحباً فريق TopKap،\n\nأحتاج مساعدة بخصوص:\n\n",
-        "tr": "Merhaba TopKap ekibi,\n\nŞu konuda yardıma ihtiyacım var:\n\n",
-        "en": "Hello TopKap team,\n\nI need help with:\n\n",
-    }
-    labels   = {"ar": "📧 تواصل مع الدعم", "tr": "📧 Destek ile iletişim", "en": "📧 Contact Support"}
-    subject  = urllib.parse.quote(subjects.get(lang, subjects["en"]))
-    body     = urllib.parse.quote(bodies.get(lang, bodies["en"]))
-    mailto   = f"mailto:topkap.support@kayisoft.net?subject={subject}&body={body}"
+    # Use ASCII-safe subject only — Telegram rejects mailto: with non-ASCII body (Button_url_invalid)
+    subject_map = {"ar": "Help - TopKap", "tr": "Destek - TopKap", "en": "Support - TopKap"}
+    labels      = {"ar": "📧 تواصل مع الدعم", "tr": "📧 Destek ile iletişim", "en": "📧 Contact Support"}
+    subject  = urllib.parse.quote(subject_map.get(lang, subject_map["en"]), safe="")
+    mailto   = f"mailto:topkap.support@kayisoft.net?subject={subject}"
     support_row = [InlineKeyboardButton(labels.get(lang, labels["en"]), url=mailto)]
     rows = list(extra_buttons) if extra_buttons else []
     rows.append(support_row)
