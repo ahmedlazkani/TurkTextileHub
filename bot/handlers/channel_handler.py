@@ -132,6 +132,9 @@ def save_channel_for_user(user_id: str, channel_id: str, context: ContextTypes.D
       Single Responsibility Principle — one function, one job.
       Both automatic and manual flows call the same save logic.
     """
+    # ── 0. Normalize channel_id: remove all spaces (e.g. "-10014428 17937" → "-1001442817937") ──
+    channel_id = channel_id.replace(" ", "").strip()
+
     # ── 1. In-memory cache (fast, lost on restart) ─────────────────────────────
     if "user_channels" not in context.bot_data:
         context.bot_data["user_channels"] = {}
@@ -157,12 +160,15 @@ def get_channel_id_for_user(user_id: str, context: ContextTypes.DEFAULT_TYPE) ->
     # 1. In-memory cache
     channel_id = context.bot_data.get("user_channels", {}).get(user_id)
     if channel_id:
-        return channel_id
+        # Normalize on read: remove spaces that may have been saved before this fix
+        return channel_id.replace(" ", "").strip()
 
     # 2. Disk fallback
     channels = _load_channels()
     channel_id = channels.get(user_id)
     if channel_id:
+        # Normalize on read: remove spaces that may have been saved before this fix
+        channel_id = channel_id.replace(" ", "").strip()
         # Warm the in-memory cache so subsequent calls are fast
         if "user_channels" not in context.bot_data:
             context.bot_data["user_channels"] = {}

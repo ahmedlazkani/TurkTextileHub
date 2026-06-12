@@ -4006,6 +4006,9 @@ async def handle_final_publish(
     #   2. /data/user_channels.json  (persistent, survives Railway restarts)
     from bot.handlers.channel_handler import get_channel_id_for_user
     channel_id = get_channel_id_for_user(user_id, context) or context.user_data.get("channel_id")
+    # Safety normalization: strip spaces from channel_id (e.g. "-10014428 17937" → "-1001442817937")
+    if channel_id:
+        channel_id = channel_id.replace(" ", "").strip()
 
     channel_published = False
     if channel_id:
