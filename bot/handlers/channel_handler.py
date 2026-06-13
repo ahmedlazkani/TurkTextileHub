@@ -50,45 +50,43 @@ def _resolve_channels_file() -> str:
     Resolve the path to the user_channels.json persistence file.
 
     Priority order:
-      1. CHANNELS_FILE env var  — explicit override (recommended for Railway)
+      1. CHANNELS_FILE env var  — explicit override (RECOMMENDED for Railway)
       2. /data directory        — Railway Volume mounted at /data
-      3. /app/data directory    — Railway Volume mounted at /app/data
-      4. /tmp                   — ephemeral fallback (LOST on restart)
+      3. /tmp                   — ephemeral fallback (LOST on restart)
+
+    ⚠️  /app/data is intentionally EXCLUDED from the priority list.
+        On Railway, /app/data is part of the container filesystem and is
+        WIPED on every deploy — even if a Volume is mounted at /data.
+        Using /app/data would silently bypass the Volume and lose all
+        channel_id mappings on every redeploy.
 
     To persist channel_ids across Railway restarts:
-      Option A: Add a Railway Volume mounted at /data or /app/data
-      Option B: Set CHANNELS_FILE env var to any writable path
+      RECOMMENDED: Set env var CHANNELS_FILE=/data/user_channels.json
+                   in Railway Dashboard → Variables.
+                   This guarantees the Volume is always used.
     """
-    # 1. Explicit env var override
-    env_path = os.environ.get("CHANNELS_FILE", "")
+    # 1. Explicit env var override — highest priority, always wins
+    env_path = os.environ.get("CHANNELS_FILE", "").strip()
     if env_path:
-        logger.info("Using CHANNELS_FILE from env: %s", env_path)
+        logger.info("✅ Using CHANNELS_FILE from env: %s", env_path)
         return env_path
 
-    # 2. /data — standard Railway Volume mount point
+    # 2. /data — Railway Volume mount point
+    #    Only use if the directory actually exists AND is writable
+    #    (i.e. a Volume is mounted). Do NOT create it — creation would
+    #    succeed on the container filesystem and bypass the Volume.
     data_dir = "/data"
     if os.path.isdir(data_dir) and os.access(data_dir, os.W_OK):
         path = os.path.join(data_dir, "user_channels.json")
-        logger.info("Using /data volume for channel persistence: %s", path)
+        logger.info("✅ Using /data Volume for channel persistence: %s", path)
         return path
 
-    # 3. /app/data — alternative Railway Volume mount point
-    app_data_dir = "/app/data"
-    try:
-        os.makedirs(app_data_dir, exist_ok=True)
-        if os.access(app_data_dir, os.W_OK):
-            path = os.path.join(app_data_dir, "user_channels.json")
-            logger.info("Using /app/data for channel persistence: %s", path)
-            return path
-    except Exception:
-        pass
-
-    # 4. /tmp fallback — ephemeral, lost on restart
+    # 3. /tmp fallback — ephemeral, LOST on Railway restarts/redeploys
+    #    This is only acceptable for local development.
     logger.warning(
-        "⚠️ No persistent storage found — using /tmp/user_channels.json as fallback. "
-        "channel_id WILL BE LOST on Railway restarts. "
-        "Fix: Add a Railway Volume mounted at /data or /app/data, "
-        "or set CHANNELS_FILE env var to a writable path."
+        "⚠️  No persistent storage found — using /tmp/user_channels.json as fallback. "
+        "channel_id WILL BE LOST on Railway restarts/redeploys. "
+        "FIX: Set env var CHANNELS_FILE=/data/user_channels.json in Railway Dashboard."
     )
     return "/tmp/user_channels.json"
 
