@@ -297,31 +297,46 @@
     }
 
     /* ═══════════════════════════════════════════════════════════
-       CHECKBOX GROUP (multiselect)
+       CHECKBOX GROUP (multiselect) — displayed as a responsive
+       pill-grid so SIZE options appear side-by-side, not stacked.
+       Each pill has a visible border that turns accent on select.
     ═══════════════════════════════════════════════════════════ */
     .checkbox-group {
       display:        flex;
-      flex-direction: column;
+      flex-wrap:      wrap;          /* pills wrap to next line */
       gap:            8px;
     }
 
+    /* Each checkbox-item is now a styled pill button */
     .checkbox-item {
-      display:     flex;
-      align-items: center;
-      gap:         10px;
-      cursor:      pointer;
+      display:         flex;
+      align-items:     center;
+      gap:             6px;
+      cursor:          pointer;
+      padding:         7px 14px;
+      border:          2px solid var(--tg-secondary);
+      border-radius:   20px;         /* pill shape */
+      background:      var(--tg-bg);
+      transition:      border-color var(--transition),
+                       background   var(--transition);
+      user-select:     none;
     }
 
+    /* Highlight selected pill */
+    .checkbox-item:has(input:checked) {
+      border-color: var(--tg-btn);
+      background:   color-mix(in srgb, var(--tg-btn) 12%, transparent);
+    }
+
+    /* Hide the native checkbox — the pill border shows selection state */
     .checkbox-item input[type="checkbox"] {
-      width:  18px;
-      height: 18px;
-      flex-shrink: 0;
-      accent-color: var(--tg-btn);
-      cursor: pointer;
+      display: none;
     }
 
     .checkbox-item span {
-      font-size: 0.88rem;
+      font-size:   0.88rem;
+      font-weight: 500;
+      color:       var(--tg-text);
     }
 
     /* ═══════════════════════════════════════════════════════════
