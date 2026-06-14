@@ -804,7 +804,7 @@ async def generate_channel_post(
     product_summary = (
         f"Product Name   : {product_data.get('name', '')}\n"
         f"Description    : {product_data.get('description', '') or '(not provided)'}\n"
-        f"Price          : {product_data.get('price', '')} ₺\n"
+        f"Price          : ${product_data.get('price', '')}\n"
 
         f"Product Code   : {product_data.get('product_code') or '(not provided)'}\n"
         f"Notes          : {product_data.get('notes') or '(none)'}\n"
@@ -836,7 +836,10 @@ async def generate_channel_post(
         "C. SIZE: ONLY show sizes if there is a size/measurement attribute in the data.\n"
         "   → If no size attribute exists → OMIT the size line entirely. Do NOT write 'غير محدد'.\n"
         "D. FABRIC: Use ONLY the fabric/material from Attributes. Do not invent.\n"
-        "E. PRICE: Use the exact price provided (in $). Do not modify.\n"
+        "E. PRICE: ALWAYS use the $ (USD) symbol. The price is already in $. NEVER use ₺ or TL or Lira or any other currency symbol.\n"
+        "   → In Arabic: write the price as: 💰 السعر: [price] $\n"
+        "   → In Turkish: write the price as: 💰 Fiyat: [price] $\n"
+        "   → In English: write the price as: 💰 Price: [price] $\n"
         "F. NOTES: If notes is empty or '(none)' → OMIT the notes line.\n"
         "G. CODE: If product_code is empty → OMIT the code line.\n\n"
 
@@ -873,6 +876,7 @@ async def generate_channel_post(
         "• Use 2-4 emojis per section maximum. Keep it clean and readable.\n"
         "• The description should highlight: product type, material quality, use case, season if relevant.\n"
         "• Do NOT include phone numbers, WhatsApp links, or URLs.\n"
+        "• CRITICAL: ALWAYS use $ for price in ALL languages. NEVER use ₺ or TL or Lira.\n"
         "• Return ONLY the post text — no explanations, no code fences, no extra blank lines at start/end."
     )
 

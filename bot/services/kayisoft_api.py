@@ -167,7 +167,7 @@ class KayisoftAPI:
                     timeout=aiohttp.ClientTimeout(total=15),
                 ) as resp:
                     text = await resp.text()
-                    logger.info("POST %s \u2192 HTTP %s | response: %s", endpoint, resp.status, text[:300])
+                    logger.info("POST %s \u2192 HTTP %s | response: %s", endpoint, resp.status, text[:1500])
                     if resp.status >= 400:
                         logger.error(
                             "POST %s \u2192 HTTP %s FAILED: %s",
