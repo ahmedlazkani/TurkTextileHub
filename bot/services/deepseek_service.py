@@ -793,7 +793,7 @@ async def generate_channel_post(
         lang_instruction = (
             "Write the post in ALL of these languages, each section clearly separated:\n"
             + "\n".join(f"  • {n}" for n in lang_names)
-            + "\nUse a divider line (────────────────────────) between language sections."
+            + "\nUse TWO blank lines between language sections — NO horizontal divider lines between languages."
         )
 
     # ── Build product summary ───────────────────────────────────────────────
@@ -823,7 +823,7 @@ async def generate_channel_post(
         "• The post is sent via Telegram HTML mode — do NOT add any HTML tags or Markdown markup.\n"
         "• Each label appears ONCE followed by a colon: e.g.  🧵 القماش: بوليستر\n"
         "• NEVER repeat a label or value twice on the same line.\n"
-        "• Use the divider line exactly as shown: ────────────────────────\n\n"
+        "• Use TWO blank lines (\n\n) to separate language sections. NO horizontal divider lines between languages.\n\n"
 
         "═══════════════════════════════════════\n"
         "SECTION 2 — DATA RULES (CRITICAL)\n"

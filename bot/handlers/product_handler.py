@@ -2579,7 +2579,7 @@ async def handle_confirm_details(
         approve_labels = {
             "ar": ("✅ موافق، ارفع الصور", "🔄 أعد التوليد", "✏️ تعديل يدوي"),
             "tr": ("✅ Onayla, Fotoğraf Ekle", "🔄 Yeniden Oluştur", "✏️ Manuel Düzenle"),
-            "en": ("✅ Approve & Upload Photos", "🔄 Regenerate", "✏️ Edit Manually"),
+            "en": ("✅ Approve & Upload", "🔄 Regenerate", "✏️ Edit"),
         }
         approve_lbl, regen_lbl, edit_lbl = approve_labels.get(lang, approve_labels["en"])
 
@@ -2810,7 +2810,7 @@ async def handle_ai_post_review(
         approve_labels = {
             "ar": ("✅ موافق، ارفع الصور", "🔄 أعد التوليد", "✏️ تعديل يدوي"),
             "tr": ("✅ Onayla, Fotoğraf Ekle", "🔄 Yeniden Oluştur", "✏️ Manuel Düzenle"),
-            "en": ("✅ Approve & Upload Photos", "🔄 Regenerate", "✏️ Edit Manually"),
+            "en": ("✅ Approve & Upload", "🔄 Regenerate", "✏️ Edit"),
         }
         approve_lbl, regen_lbl, edit_lbl = approve_labels.get(lang, approve_labels["en"])
         keyboard = InlineKeyboardMarkup([[
@@ -2863,7 +2863,7 @@ async def handle_ai_post_manual_edit(
     approve_labels = {
         "ar": ("✅ موافق، ارفع الصور", "🔄 أعد التوليد بالذكاء الاصطناعي"),
         "tr": ("✅ Onayla, Fotoğraf Ekle", "🔄 AI ile Yeniden Oluştur"),
-        "en": ("✅ Approve & Upload Photos", "🔄 Regenerate with AI"),
+        "en": ("✅ Approve & Upload", "🔄 Regenerate with AI"),
     }
     approve_lbl, regen_lbl = approve_labels.get(lang, approve_labels["en"])
     keyboard = InlineKeyboardMarkup([[
@@ -4340,9 +4340,9 @@ async def handle_form_submitted(
     summary = _build_webapp_summary(product_details, lang, context)
     logger.info("[SUMMARY_FINAL] summary text:\n%s", summary)
     confirm_buttons = {
-        "ar": ("✅ تأكيد وإرسال الصور", "✏️ تعديل"),
-        "tr": ("✅ Onayla ve Fotoğraf Ekle", "✏️ Düzenle"),
-        "en": ("✅ Confirm & Upload Images", "✏️ Edit"),
+        "ar": ("✅ تأكيد وإرسال", "✏️ تعديل"),
+        "tr": ("✅ Onayla & Yükle", "✏️ Düzenle"),
+        "en": ("✅ Confirm & Upload", "✏️ Edit"),
     }
     confirm_label, edit_label = confirm_buttons.get(lang, confirm_buttons["en"])
     keyboard = InlineKeyboardMarkup([[
@@ -4463,9 +4463,9 @@ async def handle_webapp_data(
     summary = _build_webapp_summary(product_details, lang, context)
 
     confirm_buttons = {
-        "ar": ("✅ تأكيد وإرسال الصور", "✏️ تعديل"),
-        "tr": ("✅ Onayla ve Fotoğraf Ekle", "✏️ Düzenle"),
-        "en": ("✅ Confirm & Upload Images", "✏️ Edit"),
+        "ar": ("✅ تأكيد وإرسال", "✏️ تعديل"),
+        "tr": ("✅ Onayla & Yükle", "✏️ Düzenle"),
+        "en": ("✅ Confirm & Upload", "✏️ Edit"),
     }
     confirm_label, edit_label = confirm_buttons.get(lang, confirm_buttons["en"])
     keyboard = InlineKeyboardMarkup([[

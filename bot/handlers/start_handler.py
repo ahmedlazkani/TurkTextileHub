@@ -542,7 +542,7 @@ async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def handle_menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Routes all supplier dashboard button presses to the correct handler."""
     telegram_id = str(update.effective_user.id)
-    lang = get_user_lang(telegram_id) or "tr"
+    lang = get_user_lang(telegram_id, telegram_language_code=update.effective_user.language_code or "") or "en"
     text = update.message.text
 
     # Build text → action map for all 3 languages
