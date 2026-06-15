@@ -3991,12 +3991,30 @@ async def handle_final_publish(
     #   share_links.chat    → opens supplier chat for this variant
     #   share_links.details → opens product variant detail page
     # These are returned by POST api/seller/products in each variant object.
+    #
+    # SMART FALLBACK STRATEGY:
+    # 1. Try share_links.chat / share_links.details from API response (preferred)
+    # 2. If not present, build dynalinks from variant_id using the documented
+    #    KAYISOFT dynalinks URL pattern:
+    #      chat:    https://kayisoft.dynalinks.app/topgate/start-chat-variant?id={variant_id}
+    #      details: https://kayisoft.dynalinks.app/topgate/product-variant?id={variant_id}
     _api_variants = created_product.get("variants", [])
-    _first_variant_links = (
-        _api_variants[0].get("share_links", {}) if _api_variants else {}
-    )
+    _first_variant = _api_variants[0] if _api_variants else {}
+    _first_variant_links = _first_variant.get("share_links", {}) or {}
+    _first_variant_id = _first_variant.get("id", "")
+
+    # Attempt 1: use share_links from API response
     share_link_chat    = _first_variant_links.get("chat", "")    or ""
     share_link_details = _first_variant_links.get("details", "") or ""
+
+    # Attempt 2: build dynalinks from variant_id if API didn't return share_links
+    _DYNALINKS_BASE = "https://kayisoft.dynalinks.app/topgate"
+    if not share_link_chat and _first_variant_id:
+        share_link_chat = f"{_DYNALINKS_BASE}/start-chat-variant?id={_first_variant_id}"
+        logger.info("🔗 Built share_link_chat from variant_id: %s", share_link_chat)
+    if not share_link_details and _first_variant_id:
+        share_link_details = f"{_DYNALINKS_BASE}/product-variant?id={_first_variant_id}"
+        logger.info("🔗 Built share_link_details from variant_id: %s", share_link_details)
 
     logger.info(
         "✅ Product created: id=%s, seller=%s, category=%s, variants=%d | "

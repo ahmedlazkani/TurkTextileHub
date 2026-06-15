@@ -1,0 +1,29 @@
+المصدر: /home/ubuntu/upload/TelegramBackendEndpoints(4).pdf
+التاريخ: 2026-06-15
+الهدف: استخراج التعديلات البرتقالية الخاصة بأزرار المنشور وروابط الـ deep links.
+
+الصفحات التي تمت معاينتها:
+- الصفحات 1-5: هيدر جميع الطلبات + connect + create-channel + categories + attributes + signed URLs.
+- الصفحات 6-10: POST api/seller/products + Response example + المسار العربي لعمل البوت.
+
+النتائج المؤكدة:
+1) في قسم POST api/seller/products يوجد داخل كل variant كائن باسم share_links.
+2) share_links يحتوي المفتاحين التاليين بالاسم نفسه:
+   - details
+   - chat
+3) أمثلة القيم كما ظهرت باللون البرتقالي:
+   - details: https://kayisoft.dynalinks.app/topgate/product-variant?id={variant_id}
+   - chat:    https://kayisoft.dynalinks.app/topgate/start-chat-variant?id={variant_id}
+4) هذه الروابط موجودة داخل variant نفسه، وليست على مستوى product root.
+5) الملف يوضح أن Response من POST api/seller/products هو "The posted product" ويحتوي variants[].
+6) المسار العربي يؤكد أن البوت بعد نجاح إضافة المنتج يجب أن يستخدم هذه الروابط في منشور القناة.
+
+الاستنتاج الفني الحالي:
+- استخراج البوت الحالي من variants[0].share_links.chat و variants[0].share_links.details متوافق مع ملف الـ PDF.
+- إذا كانت الأزرار ما زالت تستخدم fallback URLs، فالمشكلة ليست في اسم المفاتيح حسب الملف، بل في واحد من الآتي:
+  أ) الـ backend لم يُرجع share_links فعلياً في الـ response الحقيقي رغم أنها موثقة في الملف.
+  ب) الـ share_links موجودة في variant آخر غير الأول.
+  ج) الـ response الحقيقي يختلف جزئياً عن الـ example ويحتاج فحصاً كاملاً من logs.
+
+ملاحظة إضافية:
+- ظهر في المثال أيضاً حقل currency داخل response variant، لكن هذا ليس محور التعديل الحالي.
