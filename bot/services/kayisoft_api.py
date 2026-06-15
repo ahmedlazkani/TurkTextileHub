@@ -167,7 +167,7 @@ class KayisoftAPI:
                     timeout=aiohttp.ClientTimeout(total=15),
                 ) as resp:
                     text = await resp.text()
-                    logger.info("POST %s \u2192 HTTP %s | response: %s", endpoint, resp.status, text[:1500])
+                    logger.info("POST %s \u2192 HTTP %s | response: %s", endpoint, resp.status, text[:5000])
                     if resp.status >= 400:
                         logger.error(
                             "POST %s \u2192 HTTP %s FAILED: %s",
@@ -484,4 +484,14 @@ class KayisoftAPI:
 
         Response: the created product object
         """
-        return await self._post("api/seller/products", product_data)
+        result = await self._post("api/seller/products", product_data)
+        # ── DEBUG: log share_links from each variant ─────────────────────────────
+        if result and isinstance(result, dict):
+            _variants = result.get("variants", [])
+            for _i, _v in enumerate(_variants):
+                _sl = _v.get("share_links", {})
+                logger.info(
+                    "create_product variant[%d] id=%s | share_links=%s | all_keys=%s",
+                    _i, _v.get("id", "?"), _sl, list(_v.keys())
+                )
+        return result
