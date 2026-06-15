@@ -3986,35 +3986,47 @@ async def handle_final_publish(
     product_id  = str(created_product.get("id", "0"))
     supplier_id = str(created_product.get("seller_id", user_id))
 
-    # ── Extract share_links from first variant (KAYISOFT deep links) ─────────
-    # Per TelegramBackendEndpoints spec (orange section):
-    #   share_links.chat    → opens supplier chat for this variant
-    #   share_links.details → opens product variant detail page
-    # These are returned by POST api/seller/products in each variant object.
+    # ── Extract share_links (KAYISOFT deep links) ────────────────────────────
+    # Per TelegramBackendEndpoints spec (confirmed by KAYISOFT team):
+    #   share_links is returned at the TOP LEVEL of the response (NOT inside variants)
     #
-    # SMART FALLBACK STRATEGY:
-    # 1. Try share_links.chat / share_links.details from API response (preferred)
-    # 2. If not present, build dynalinks from variant_id using the documented
-    #    KAYISOFT dynalinks URL pattern:
-    #      chat:    https://kayisoft.dynalinks.app/topgate/start-chat-variant?id={variant_id}
-    #      details: https://kayisoft.dynalinks.app/topgate/product-variant?id={variant_id}
-    _api_variants = created_product.get("variants", [])
-    _first_variant = _api_variants[0] if _api_variants else {}
-    _first_variant_links = _first_variant.get("share_links", {}) or {}
-    _first_variant_id = _first_variant.get("id", "")
+    #   Response structure:
+    #   {
+    #     "id": "...",
+    #     "variants": [...],
+    #     "share_links": {                   ← TOP LEVEL
+    #       "chat":    "https://kayisoft.dynalinks.app/topgate/start-chat-variant?id=...",
+    #       "details": "https://kayisoft.dynalinks.app/topgate/product-variant?id=..."
+    #     }
+    #   }
+    #
+    # FALLBACK STRATEGY (if backend hasn't deployed share_links yet):
+    #   Build dynalinks from first variant_id using the documented URL pattern.
 
-    # Attempt 1: use share_links from API response
-    share_link_chat    = _first_variant_links.get("chat", "")    or ""
-    share_link_details = _first_variant_links.get("details", "") or ""
+    # Attempt 1: use share_links from TOP LEVEL of API response (correct location)
+    _top_level_links = created_product.get("share_links", {}) or {}
+    share_link_chat    = _top_level_links.get("chat", "")    or ""
+    share_link_details = _top_level_links.get("details", "") or ""
 
-    # Attempt 2: build dynalinks from variant_id if API didn't return share_links
-    _DYNALINKS_BASE = "https://kayisoft.dynalinks.app/topgate"
-    if not share_link_chat and _first_variant_id:
-        share_link_chat = f"{_DYNALINKS_BASE}/start-chat-variant?id={_first_variant_id}"
-        logger.info("🔗 Built share_link_chat from variant_id: %s", share_link_chat)
-    if not share_link_details and _first_variant_id:
-        share_link_details = f"{_DYNALINKS_BASE}/product-variant?id={_first_variant_id}"
-        logger.info("🔗 Built share_link_details from variant_id: %s", share_link_details)
+    if share_link_chat or share_link_details:
+        logger.info(
+            "🔗 share_links from API response (top-level): chat=%s | details=%s",
+            share_link_chat, share_link_details
+        )
+    else:
+        # Attempt 2: build dynalinks from first variant_id as fallback
+        _api_variants = created_product.get("variants", [])
+        _first_variant_id = _api_variants[0].get("id", "") if _api_variants else ""
+        _DYNALINKS_BASE = "https://kayisoft.dynalinks.app/topgate"
+        if _first_variant_id:
+            share_link_chat    = f"{_DYNALINKS_BASE}/start-chat-variant?id={_first_variant_id}"
+            share_link_details = f"{_DYNALINKS_BASE}/product-variant?id={_first_variant_id}"
+            logger.info(
+                "🔗 share_links built from variant_id (fallback): chat=%s | details=%s",
+                share_link_chat, share_link_details
+            )
+        else:
+            logger.warning("⚠️ share_links not found in API response and no variant_id available — buttons will use legacy URLs")
 
     logger.info(
         "✅ Product created: id=%s, seller=%s, category=%s, variants=%d | "
