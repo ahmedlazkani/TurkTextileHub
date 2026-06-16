@@ -30,7 +30,7 @@
   "add_product_categories_error": "❌ <b>Failed to load categories.</b>\n\nPlease check your connection and try again.",
   "add_product_select_category": "📂 <b>Step 1 — Main Category</b>\n\nSelect the main category for your product:",
   "add_product_select_subcategory": "📁 <b>Step 2 — Subcategory</b>\n\nSelect the subcategory for your product:",
-  "add_product_fill_form": "✍️ <b>Step 3 — Product Details</b>\n\nDescribe your product in a single message including:\n\n• <b>Product name</b>\n• <b>Description</b>\n• <b>Price (₺)</b>\n• <b>Minimum order quantity</b>\n• <b>Available stock</b>\n• <b>Attributes</b> (color, size, etc.)\n\n<i>AI will automatically extract and organize the data.</i>",
+  "add_product_fill_form": "✍️ <b>Step 3 — Product Details</b>\n\nDescribe your product in a single message including:\n\n• <b>Product name</b>\n• <b>Description</b>\n• <b>Price in Turkish Lira</b> (example: 200)\n• <b>Attributes</b> (color, size, etc.)\n\n📋 <b>Required fields:</b>\n  • Gender\n  • Fabric\n  • Scarf Type\n  • Color\n\n<i>AI will automatically extract and organize the data.</i>",
   "add_product_ai_processing": "🤖 <b>AI is analyzing your data...</b>\n\nProcessing your input, please wait.",
   "add_product_upload_images": "📸 <b>Step 4 — Product Photos</b>\n\nSend your product photos now.\n<i>From 1 to {max} photos allowed.</i>",
   "add_product_upload_more": "📸 Keep sending photos.\nWhen done, press <b>Publish</b>.",

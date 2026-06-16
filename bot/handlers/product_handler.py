@@ -1322,8 +1322,22 @@ def _build_extraction_summary(
                         option_values.append((display, opt.get("value", "")))
                         break
                 else:
-                    # opt_id not found in options list — apply dedup directly
-                    option_values.append((_deduplicate_name(str(opt_id)), ""))
+                    # opt_id not found in options list — try fuzzy match by UUID prefix
+                    # (AI sometimes generates a UUID with a single-char typo)
+                    _fuzzy_display = None
+                    for opt in attr.get("options", []):
+                        real_id = opt.get("id", "")
+                        if real_id and opt_id[:20].lower() == real_id[:20].lower():
+                            raw_d = opt.get("label") or opt.get("name") or opt.get("value", "")
+                            if "|" in (raw_d or ""):
+                                raw_d = raw_d.split("|", 1)[-1].strip()
+                            _fuzzy_display = _deduplicate_name(raw_d) if raw_d else None
+                            break
+                    if _fuzzy_display:
+                        option_values.append((_fuzzy_display, ""))
+                    else:
+                        # Last resort: show UUID as-is (shouldn't happen in normal flow)
+                        option_values.append((_deduplicate_name(str(opt_id)), ""))
             # ── Color rendering: show emoji + human label (never raw hex) ──────────────
             # Handle "#RRGGBBAA|label" format from API (pipe-separated hex|name)
             rendered_values = []
@@ -3909,7 +3923,41 @@ async def handle_final_publish(
 
         if has_opts and all_uuids:
             # Option-based attribute: send as list of UUIDs
-            final_value = clean_ids
+            # CRITICAL: Validate each UUID exists in the real options list.
+            # The AI sometimes generates a slightly wrong UUID (e.g. '4b47' vs '4c47').
+            # Fix: if UUID not found in options, find the closest match by value/name.
+            real_option_ids = {opt.get("id", ""): opt for opt in attr_obj.get("options", [])}
+            validated_ids = []
+            for oid in clean_ids:
+                if oid in real_option_ids:
+                    # UUID is correct — use as-is
+                    validated_ids.append(oid)
+                else:
+                    # UUID not found — try to find the real option by fuzzy match on value/name
+                    _found_id = None
+                    for real_id, real_opt in real_option_ids.items():
+                        raw_val = str(real_opt.get("value", "") or real_opt.get("name", "") or real_opt.get("label", ""))
+                        # Strip hex color prefix if present (e.g. "#FF0000|أحمر" → "أحمر")
+                        if "|" in raw_val:
+                            raw_val = raw_val.split("|", 1)[-1].strip()
+                        # Also try matching by UUID prefix (first 20 chars) in case of single-char typo
+                        if oid[:20].lower() == real_id[:20].lower():
+                            _found_id = real_id
+                            break
+                    if _found_id:
+                        logger.warning(
+                            "⚠️ UUID mismatch fixed: AI gave %r, real UUID is %r (attr_key=%s)",
+                            oid, _found_id, attr_key
+                        )
+                        validated_ids.append(_found_id)
+                    else:
+                        # Last resort: keep original (will fail at API, but we log it)
+                        logger.error(
+                            "❌ UUID %r not found in options for attr_key=%s — sending as-is",
+                            oid, attr_key
+                        )
+                        validated_ids.append(oid)
+            final_value = validated_ids
             logger.info(
                 "🔑 attr_id=%s → attr_key=%s | OPTION-BASED | value=%s",
                 attr_id[:20] if len(attr_id) > 20 else attr_id,
