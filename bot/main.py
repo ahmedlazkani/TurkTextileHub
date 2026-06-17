@@ -136,8 +136,8 @@ async def _run_telegram_bot() -> None:
         return
 
     logger.info("TopKap Bot initializing (async mode)...")
-    # Enable job_queue for weekly stats scheduler
-    application = ApplicationBuilder().token(token).job_queue(True).build()
+    # Standard ApplicationBuilder without job_queue to avoid APScheduler blocking issues
+    application = ApplicationBuilder().token(token).build()
 
     # IMPORTANT: ConversationHandler MUST be registered BEFORE start_handler
     application.add_handler(get_product_conv_handler())   # Product upload flow (FIRST)
@@ -148,21 +148,6 @@ async def _run_telegram_bot() -> None:
     )
     # /mystats command — on-demand weekly stats for the supplier
     application.add_handler(CommandHandler("mystats", handle_mystats))
-
-    # ── Weekly stats job: every Monday at 09:00 UTC ─────────────────────────────────
-    # Programmatic note:
-    #   run_daily(callback, time, days=(0,)) runs every Monday (0=Monday in PTB).
-    #   The job sends a weekly summary to every supplier who published this week.
-    if application.job_queue:
-        application.job_queue.run_daily(
-            send_weekly_stats_to_all_suppliers,
-            time=datetime.time(9, 0, tzinfo=datetime.timezone.utc),
-            days=(0,),  # 0 = Monday
-            name="weekly_stats_report",
-        )
-        logger.info("✅ Weekly stats job scheduled: every Monday at 09:00 UTC")
-    else:
-        logger.warning("⚠️ job_queue not available — weekly stats will not be sent automatically")
 
     logger.info("TopKap Bot started successfully -- polling for updates...")
 
@@ -182,12 +167,50 @@ async def _run_telegram_bot() -> None:
         await application.updater.start_polling(drop_pending_updates=True)
         logger.info("TopKap Bot polling active.")
 
+        # ── Weekly stats asyncio loop ─────────────────────────────────────────
+        # Programmatic note:
+        #   We use a pure asyncio loop instead of APScheduler to avoid
+        #   dependency issues. The loop wakes up every hour, checks if
+        #   it's Monday 09:00 UTC, and sends the weekly report once per week.
+        #   A sentinel file /data/.last_weekly_stats prevents double-sending.
+        async def _weekly_stats_loop():
+            import datetime
+            sentinel_path = "/data/.last_weekly_stats"
+            while True:
+                try:
+                    await asyncio.sleep(3600)  # Check every hour
+                    now = datetime.datetime.now(datetime.timezone.utc)
+                    # Monday = 0, hour = 9
+                    if now.weekday() == 0 and now.hour == 9:
+                        today_str = now.strftime("%Y-%m-%d")
+                        # Check sentinel to avoid double-sending
+                        last_sent = ""
+                        try:
+                            with open(sentinel_path) as _f:
+                                last_sent = _f.read().strip()
+                        except FileNotFoundError:
+                            pass
+                        if last_sent != today_str:
+                            logger.info("📈 Sending weekly stats report...")
+                            await send_weekly_stats_to_all_suppliers(application.bot)
+                            with open(sentinel_path, "w") as _f:
+                                _f.write(today_str)
+                            logger.info("✅ Weekly stats report sent for %s", today_str)
+                except asyncio.CancelledError:
+                    break
+                except Exception as _e:
+                    logger.warning("⚠️ Weekly stats loop error: %s", _e)
+
+        _weekly_task = asyncio.create_task(_weekly_stats_loop(), name="weekly-stats")
+        logger.info("✅ Weekly stats loop started (checks every hour, sends on Monday 09:00 UTC)")
+
         # Keep running until cancelled (FastAPI shutdown)
         try:
             await asyncio.Event().wait()  # Wait forever until cancelled
         except asyncio.CancelledError:
             logger.info("TopKap Bot shutting down...")
         finally:
+            _weekly_task.cancel()
             await application.updater.stop()
             await application.stop()
             await application.shutdown()
