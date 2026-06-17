@@ -123,10 +123,12 @@ async def _run_telegram_bot() -> None:
     This function is started as an asyncio Task inside FastAPI's lifespan,
     so it runs concurrently with the FastAPI HTTP server.
     """
-    from telegram.ext import ApplicationBuilder, ChatMemberHandler
+    import datetime
+    from telegram.ext import ApplicationBuilder, ChatMemberHandler, CommandHandler
     from bot.handlers.start_handler import register_start_handlers
     from bot.handlers.product_handler import get_product_conv_handler
     from bot.handlers.channel_handler import register_channel_handlers, handle_my_chat_member
+    from bot.handlers.channel_stats import send_weekly_stats_to_all_suppliers, handle_mystats
 
     token = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("BOT_TOKEN")
     if not token:
@@ -134,7 +136,8 @@ async def _run_telegram_bot() -> None:
         return
 
     logger.info("TopKap Bot initializing (async mode)...")
-    application = ApplicationBuilder().token(token).build()
+    # Enable job_queue for weekly stats scheduler
+    application = ApplicationBuilder().token(token).job_queue(True).build()
 
     # IMPORTANT: ConversationHandler MUST be registered BEFORE start_handler
     application.add_handler(get_product_conv_handler())   # Product upload flow (FIRST)
@@ -143,6 +146,23 @@ async def _run_telegram_bot() -> None:
     application.add_handler(                              # Detect bot added to channel
         ChatMemberHandler(handle_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER)
     )
+    # /mystats command — on-demand weekly stats for the supplier
+    application.add_handler(CommandHandler("mystats", handle_mystats))
+
+    # ── Weekly stats job: every Monday at 09:00 UTC ─────────────────────────────────
+    # Programmatic note:
+    #   run_daily(callback, time, days=(0,)) runs every Monday (0=Monday in PTB).
+    #   The job sends a weekly summary to every supplier who published this week.
+    if application.job_queue:
+        application.job_queue.run_daily(
+            send_weekly_stats_to_all_suppliers,
+            time=datetime.time(9, 0, tzinfo=datetime.timezone.utc),
+            days=(0,),  # 0 = Monday
+            name="weekly_stats_report",
+        )
+        logger.info("✅ Weekly stats job scheduled: every Monday at 09:00 UTC")
+    else:
+        logger.warning("⚠️ job_queue not available — weekly stats will not be sent automatically")
 
     logger.info("TopKap Bot started successfully -- polling for updates...")
 

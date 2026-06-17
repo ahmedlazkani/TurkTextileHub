@@ -435,7 +435,10 @@ async def handle_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TY
         )
         response = None
 
-    # ── STEP 3: Send confirmation to user ─────────────────────────────────────
+    # ── STEP 3: Send welcome post to the channel ────────────────────────────────
+    await _send_channel_welcome_post(context.bot, channel_id, channel_title, lang)
+
+    # ── STEP 4: Send confirmation to user ─────────────────────────────────────
     try:
         if response is not None:
             # Full success: saved locally + registered with API
@@ -483,6 +486,70 @@ async def handle_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TY
 # ══════════════════════════════════════════════════════════════════════════════
 # Inline callback: How to get channel ID
 # ══════════════════════════════════════════════════════════════════════════════
+async def _send_channel_welcome_post(
+    bot,
+    channel_id: str,
+    channel_title: str,
+    lang: str,
+) -> None:
+    """
+    Sends a professional welcome post to the supplier's channel
+    immediately after it is linked to the bot.
+
+    The post introduces the channel to subscribers and explains
+    that products from TopGate will be published here.
+
+    Programmatic note:
+      This is a "fire and forget" call — errors are caught and logged
+      but do NOT block the main channel-linking flow.
+    """
+    welcome_texts = {
+        "ar": (
+            "🌟 <b>مرحباً بكم في قناة {channel_title}</b>\n\n"
+            "يسعدنا الإعلان عن انطلاق هذه القناة الرسمية للتجارة بالجملة.\n"
+            "سيتم نشر منتجات المورد هنا بشكل منتظم عبر منصة <b>TopGate</b>.\n\n"
+            "📦 <b>ما ستجده هنا:</b>\n"
+            "• منتجات تركية مباشرة من المورد\n"
+            "• أسعار الجملة بالدولار\n"
+            "• إمكانية التواصل مع المورد مباشرة\n\n"
+            "🔔 اشترك في القناة لتصلك أحدث المنتجات فور نشرها.\n\n"
+            "<i>مدعوم بواسطة TopGate — منصة B2B للتجارة التركية</i>"
+        ),
+        "tr": (
+            "🌟 <b>{channel_title} Kanalına Hoş Geldiniz</b>\n\n"
+            "Bu resmi toptan ticaret kanalının açılışını duyurmaktan mutluluk duyuyoruz.\n"
+            "Tedarikçi ürünleri <b>TopGate</b> platformu aracılığıyla düzenli olarak burada yayınlanacaktır.\n\n"
+            "📦 <b>Burada neler bulacaksınız:</b>\n"
+            "• Doğrudan tedarikçiden Türk ürünleri\n"
+            "• Dolar cinsinden toptan fiyatlar\n"
+            "• Tedarikçiyle doğrudan iletişim imkânı\n\n"
+            "🔔 En yeni ürünleri anında almak için kanala abone olun.\n\n"
+            "<i>TopGate tarafından desteklenmektedir — Türk ticareti için B2B platformu</i>"
+        ),
+        "en": (
+            "🌟 <b>Welcome to {channel_title}</b>\n\n"
+            "We are pleased to announce the launch of this official wholesale channel.\n"
+            "Supplier products will be published here regularly via the <b>TopGate</b> platform.\n\n"
+            "📦 <b>What you will find here:</b>\n"
+            "• Turkish products directly from the supplier\n"
+            "• Wholesale prices in USD\n"
+            "• Direct contact with the supplier\n\n"
+            "🔔 Subscribe to the channel to receive the latest products as soon as they are published.\n\n"
+            "<i>Powered by TopGate — B2B platform for Turkish trade</i>"
+        ),
+    }
+    text = welcome_texts.get(lang, welcome_texts["en"]).replace("{channel_title}", channel_title)
+    try:
+        await bot.send_message(
+            chat_id=channel_id,
+            text=text,
+            parse_mode="HTML",
+        )
+        logger.info("✅ Welcome post sent to channel %s", channel_id)
+    except Exception as exc:
+        logger.warning("⚠️ Could not send welcome post to channel %s: %s", channel_id, exc)
+
+
 async def handle_how_to_get_channel_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Responds to the inline button 'How to get my channel ID?'.

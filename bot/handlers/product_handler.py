@@ -144,6 +144,7 @@ from telegram.ext import (
 from bot.services.language_service import get_string, get_user_lang
 from bot.services.kayisoft_api import KayisoftAPI
 from bot.services.deepseek_service import deepseek_service, generate_channel_post
+from bot.handlers.channel_stats import track_product_published
 
 logger = logging.getLogger(__name__)
 
@@ -1100,6 +1101,65 @@ async def _publish_to_channel(
     except Exception as exc:
         logger.error("❌ Failed to publish to channel %s: %s", channel_id, exc)
         return False
+
+
+async def _send_new_product_notification(
+    bot,
+    channel_id: str,
+    product_name: str,
+    lang: str,
+    share_link_details: str = "",
+) -> None:
+    """
+    Sends a short notification to the channel subscribers immediately
+    after a new product is published.
+
+    This is a separate, brief message (not the full product post)
+    that acts as a "ping" to attract attention.
+
+    Programmatic note:
+      This is a fire-and-forget call. Errors are caught and logged
+      but do NOT block the main publish flow.
+    """
+    notif_texts = {
+        "ar": (
+            f"🔔 <b>منتج جديد متاح الآن</b>\n\n"
+            f"📦 {product_name}\n\n"
+            "⬇️ اضغط على زر عرض المنتج أدناه للاطلاع على التفاصيل."
+        ),
+        "tr": (
+            f"🔔 <b>Yeni Ürün Müsait</b>\n\n"
+            f"📦 {product_name}\n\n"
+            "⬇️ Detaylar için aşağıdaki ürün görüntcalme düğmesine basın."
+        ),
+        "en": (
+            f"🔔 <b>New Product Available</b>\n\n"
+            f"📦 {product_name}\n\n"
+            "⬇️ Tap the product button below to view the details."
+        ),
+    }
+    text = notif_texts.get(lang, notif_texts["en"])
+
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    buttons = []
+    if share_link_details:
+        view_labels = {"ar": "🛒 عرض المنتج", "tr": "🛒 Ürünü Gör", "en": "🛒 View Product"}
+        buttons.append([InlineKeyboardButton(
+            view_labels.get(lang, view_labels["en"]),
+            url=share_link_details,
+        )])
+    keyboard = InlineKeyboardMarkup(buttons) if buttons else None
+
+    try:
+        await bot.send_message(
+            chat_id=channel_id,
+            text=text,
+            parse_mode="HTML",
+            reply_markup=keyboard,
+        )
+        logger.info("🔔 New product notification sent to channel %s", channel_id)
+    except Exception as exc:
+        logger.warning("⚠️ Could not send new product notification to channel %s: %s", channel_id, exc)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -4204,6 +4264,21 @@ async def handle_final_publish(
     success_text = get_string(lang, "add_product_success")
     if channel_published:
         success_text += "\n\n" + get_string(lang, "add_product_channel_published")
+        # Track stats for this supplier
+        track_product_published(
+            user_id=str(user_id),
+            product_id=product_id or "",
+            product_name=product_name or "",
+        )
+        # Send new-product notification to channel subscribers
+        if channel_id:
+            await _send_new_product_notification(
+                bot=context.bot,
+                channel_id=channel_id,
+                product_name=product_name or "",
+                lang=lang,
+                share_link_details=share_link_details or "",
+            )
     elif channel_id:
         # channel_id exists but publish failed (bot not admin or API error)
         channel_fail_texts = {
