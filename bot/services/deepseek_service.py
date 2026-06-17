@@ -872,11 +872,15 @@ async def generate_channel_post(
         "═══════════════════════════════════════\n"
         "SECTION 4 — STYLE GUIDELINES\n"
         "═══════════════════════════════════════\n"
-        "• Write in a professional B2B wholesale tone — confident, clear, attractive.\n"
-        "• Use 2-4 emojis per section maximum. Keep it clean and readable.\n"
-        "• The description should highlight: product type, material quality, use case, season if relevant.\n"
+        "• Write in a professional B2B WHOLESALE tone — factual, direct, and clear. NO marketing hype.\n"
+        "• The audience is WHOLESALE BUYERS (traders, resellers) — not end consumers.\n"
+        "• Description must be SHORT (1-2 lines max): state the product type, material, and key feature ONLY.\n"
+        "• FORBIDDEN phrases: 'luxurious', 'world-class', 'premium quality', 'perfect for every occasion',\n"
+        "  'elevate your style', 'timeless elegance', 'stunning', 'gorgeous', 'amazing'.\n"
+        "• Use 2-3 emojis per section maximum. Keep it clean and readable.\n"
         "• Do NOT include phone numbers, WhatsApp links, or URLs.\n"
         "• CRITICAL: ALWAYS use $ for price in ALL languages. NEVER use ₺ or TL or Lira.\n"
+        "• CRITICAL: You MUST write ALL requested language sections. Do NOT stop early.\n"
         "• Return ONLY the post text — no explanations, no code fences, no extra blank lines at start/end."
     )
 
@@ -888,8 +892,8 @@ async def generate_channel_post(
             {"role": "system", "content": system_prompt},
             {"role": "user",   "content": user_message},
         ],
-        "temperature": 0.7,
-        "max_tokens":  800,
+        "temperature": 0.6,
+        "max_tokens":  1400,  # raised from 800 — 3-language post needs ~1100-1300 tokens
     }
     headers = {
         "Authorization": f"Bearer {_key}",
