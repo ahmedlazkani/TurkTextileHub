@@ -1350,7 +1350,7 @@ def _build_extraction_summary(
     selector_attrs = data.get("selector_attributes", [])
 
     if shared_attrs or selector_attrs:
-        attr_header = {"tr": "\n📋 <b>Özellikler:</b>", "ar": "\n📋 <b>الخصائص:</b>", "en": "\n📋 <b>Attributes:</b>"}
+        attr_header = {"tr": "\n━━━━━━━━━━━━━━━━━━━━\n📋 <b>Özellikler:</b>", "ar": "\n━━━━━━━━━━━━━━━━━━━━\n📋 <b>الخصائص:</b>", "en": "\n━━━━━━━━━━━━━━━━━━━━\n📋 <b>Attributes:</b>"}
         lines.append(attr_header.get(lang, attr_header["en"]))
 
         for attr_id, option_ids in shared_attrs.items():
@@ -1421,9 +1421,12 @@ def _build_extraction_summary(
                 else:
                     # Human label available — show emoji + label
                     rendered_values.append(f"{emoji} {display}" if emoji != display else display)
-            lines.append(f"  \u2022 {attr_name}: {', '.join(rendered_values)}")
+             # Each attribute on its own line with separator
+            values_str = ' | '.join(rendered_values)
+            lines.append(f"  ┣ <b>{attr_name}:</b> {values_str}")
+            lines.append("")
 
-        # \u2500\u2500 Group selector_attrs by attribute_id so each attribute appears on ONE line \u2500\u2500
+        # ── Group selector_attrstor_attrs by attribute_id so each attribute appears on ONE line \u2500\u2500
         # e.g. instead of: \u2022 Size: M / \u2022 Size: L / \u2022 Size: XL
         # we show:         \u2022 Size: M, L, XL
         import re as _re
@@ -1484,7 +1487,10 @@ def _build_extraction_summary(
                     rendered_values.append(f"{emoji} {display_val}" if emoji != display_val else display_val)
                 else:
                     rendered_values.append(emoji)
-            lines.append(f"  \u2022 {attr_name}: {', '.join(rendered_values)}")
+            # Each attribute on its own line with separator
+            values_str = ' | '.join(rendered_values)
+            lines.append(f"  ┣ <b>{attr_name}:</b> {values_str}")
+            lines.append("")
 
     return "\n".join(lines)
 
