@@ -1235,11 +1235,15 @@
       // Exception: always show is_variant_selector attrs (they define product variants)
       const filteredAttrs = attrs.filter(a => !!a.required || !!a.is_variant_selector);
 
-      // Sort: required first, then variant selectors
-      const sortedAttrs = [
-        ...filteredAttrs.filter(a => !!a.required),
-        ...filteredAttrs.filter(a => !a.required),
-      ];
+      // Sort by ui_order (ascending) — respects KAYISOFT API display order
+      // Falls back to 9999 if ui_order is missing, then sorts required before optional
+      const sortedAttrs = [...filteredAttrs].sort((a, b) => {
+        const orderA = (a.ui_order !== undefined && a.ui_order !== null) ? a.ui_order : 9999;
+        const orderB = (b.ui_order !== undefined && b.ui_order !== null) ? b.ui_order : 9999;
+        if (orderA !== orderB) return orderA - orderB;
+        // Tiebreak: required before optional
+        return (b.required ? 1 : 0) - (a.required ? 1 : 0);
+      });
 
       sortedAttrs.forEach(attr => {
         const attrId  = attr.id;

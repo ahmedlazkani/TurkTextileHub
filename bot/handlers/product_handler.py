@@ -4499,9 +4499,9 @@ async def handle_form_submitted(
     summary = _build_webapp_summary(product_details, lang, context)
     logger.info("[SUMMARY_FINAL] summary text:\n%s", summary)
     confirm_buttons = {
-        "ar": ("✅ تأكيد وإرسال", "✏️ تعديل"),
-        "tr": ("✅ Onayla & Yükle", "✏️ Düzenle"),
-        "en": ("✅ Confirm & Upload", "✏️ Edit"),
+        "ar": ("✅ تأكيد", "✏️ تعديل"),
+        "tr": ("✅ Onayla", "✏️ Düzenle"),
+        "en": ("✅ Confirm", "✏️ Edit"),
     }
     confirm_label, edit_label = confirm_buttons.get(lang, confirm_buttons["en"])
     keyboard = InlineKeyboardMarkup([[
@@ -4622,9 +4622,9 @@ async def handle_webapp_data(
     summary = _build_webapp_summary(product_details, lang, context)
 
     confirm_buttons = {
-        "ar": ("✅ تأكيد وإرسال", "✏️ تعديل"),
-        "tr": ("✅ Onayla & Yükle", "✏️ Düzenle"),
-        "en": ("✅ Confirm & Upload", "✏️ Edit"),
+        "ar": ("✅ تأكيد", "✏️ تعديل"),
+        "tr": ("✅ Onayla", "✏️ Düzenle"),
+        "en": ("✅ Confirm", "✏️ Edit"),
     }
     confirm_label, edit_label = confirm_buttons.get(lang, confirm_buttons["en"])
     keyboard = InlineKeyboardMarkup([[
@@ -4787,8 +4787,15 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
         }
         lines.append(attr_header.get(lang, attr_header["en"]))
 
-        # ── Shared attributes ─────────────────────────────────────────────────────
-        for attr_id, option_ids in shared_attrs.items():
+        # ── Helper: sort by ui_order ──────────────────────────────────────────────────────────
+        def _ui_order(attr_id_key: str) -> int:
+            a = _resolve_attr(attr_id_key)
+            v = a.get("ui_order")
+            return v if (v is not None) else 9999
+
+        # ── Shared attributes — sorted by ui_order ─────────────────────────────────────────────────────────
+        sorted_shared = sorted(shared_attrs.items(), key=lambda kv: _ui_order(kv[0]))
+        for attr_id, option_ids in sorted_shared:
             attr      = _resolve_attr(attr_id)
             attr_name = _deduplicate_name(attr.get("name", "") or attr_id)
             rendered  = []
@@ -4847,7 +4854,9 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
                 sel_grouped[a_id]["seen"].add(o_id)
                 sel_grouped[a_id]["values"].append(o_id)
 
-        for a_id, grp in sel_grouped.items():
+        # Sort sel_grouped by ui_order before rendering
+        sorted_sel = sorted(sel_grouped.items(), key=lambda kv: _ui_order(kv[0]))
+        for a_id, grp in sorted_sel:
             attr      = grp["attr"]
             attr_name = grp["name"]
             rendered  = []
