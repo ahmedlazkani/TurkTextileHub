@@ -44,6 +44,13 @@ TOPKAP_ORDERS_URL = os.getenv(
     TOPKAP_APP_URL  # fallback to main app until KAYISOFT provides orders deep-link
 )
 
+# TopKap App download / smart link — takes user to app store or supplier page
+# Uses KAYISOFT dynalink that detects platform and redirects accordingly
+TOPKAP_DOWNLOAD_URL = os.getenv(
+    "TOPKAP_DOWNLOAD_URL",
+    "https://kayisoft.dynalinks.app/topkap/downloadApp"
+)
+
 # TopGate Buyer/Trader App URL — used for product post buttons
 TOPGATE_WEB_URL = os.getenv(
     "TOPGATE_WEB_URL",
@@ -55,6 +62,13 @@ _ORDERS_BTN = {
     "tr": "📦 Siparişlerim",
     "ar": "📦 طلبياتي",
     "en": "📦 My Orders",
+}
+
+# ─── TopKap App button label per language ────────────────────────────────────
+_APP_BTN = {
+    "tr": "📲 TopKap Uygulaması",
+    "ar": "📲 تطبيق TopKap",
+    "en": "📲 TopKap App",
 }
 
 
@@ -73,6 +87,7 @@ def supplier_main_keyboard(lang: str) -> ReplyKeyboardMarkup:
     All of those are accessible inside the app after tapping the blue button.
     """
     orders_label = _ORDERS_BTN.get(lang, _ORDERS_BTN["tr"])
+    app_label    = _APP_BTN.get(lang, _APP_BTN["en"])
 
     keyboard = [
         # Row 1: Primary action — full width
@@ -86,11 +101,11 @@ def supplier_main_keyboard(lang: str) -> ReplyKeyboardMarkup:
         ],
         # Row 4: Change Language — full width
         [KeyboardButton(get_string(lang, "btn_language"))],
-        # Row 5: BLUE WebApp button → opens Orders page directly in TopKap app
+        # Row 5: BLUE button → opens TopKap app (smart link: app store or supplier page)
         [
             KeyboardButton(
-                orders_label,
-                web_app=WebAppInfo(url=TOPKAP_ORDERS_URL),
+                app_label,
+                web_app=WebAppInfo(url=TOPKAP_DOWNLOAD_URL),
             )
         ],
     ]
