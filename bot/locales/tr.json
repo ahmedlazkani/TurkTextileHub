@@ -28,7 +28,7 @@
   "add_product_categories_error": "❌ <b>Kategoriler yüklenemedi.</b>\n\nLütfen internet bağlantınızı kontrol edin ve tekrar deneyin.",
   "add_product_select_category": "📂 <b>Adım 1 — Ana Kategori</b>\n\nÜrününüzün ana kategorisini seçin:",
   "add_product_select_subcategory": "📁 <b>Adım 2 — Alt Kategori</b>\n\nÜrününüzün alt kategorisini seçin:",
-  "add_product_fill_form": "✍️ <b>Adım 3 — Ürün Bilgileri</b>\n\nÜrününüzü tek bir mesajda aşağıdaki bilgileri içerecek şekilde açıklayın:\n\n• <b>Ürün adı</b>\n• <b>Açıklama</b>\n• <b>Fiyat (Türkish Lira)</b> (örnek: 200)\n• <b>Özellikler</b> (renk, beden, vb.)\n\n📋 <b>Zorunlu alanlar:</b>\n  • Cinsiyet\n  • Kumaş\n  • Eşarp Türü\n  • Renk\n\n<i>Yapay zeka bilgileri otomatik olarak analiz edecektir.</i>",
+  "add_product_fill_form": "✍️ <b>Adım 3 — Ürün Bilgileri</b>\n\nÜrününüzü tek bir mesajda aşağıdaki bilgileri içerecek şekilde açıklayın:\n\n• <b>Ürün adı</b>\n• <b>Açıklama</b>\n• <b>Fiyat (Türk Lirası)</b> (örnek: 200)\n• <b>Özellikler</b> (renk, beden, vb.)\n\n<i>Yapay zeka bilgileri otomatik olarak analiz edecektir.</i>"",
   "add_product_ai_processing": "🤖 <b>Yapay Zeka analiz ediyor...</b>\n\nBilgileriniz işleniyor, lütfen bekleyin.",
   "add_product_upload_images": "📸 <b>Adım 4 — Ürün Fotoğrafları</b>\n\nÜrününüzün fotoğraflarını gönderin.\n<i>En az 1, en fazla {max} fotoğraf ekleyebilirsiniz.</i>",
   "add_product_upload_more": "📸 Fotoğraf göndermeye devam edin.\nBitirdiğinizde <b>Yayınla</b> butonuna basın.",

@@ -949,6 +949,7 @@ async def _publish_to_channel(
     attributes: list = None,       # list of {"name": str, "value": str} for DeepSeek post
     share_link_chat: str = "",     # KAYISOFT deep link: start-chat-variant
     share_link_details: str = "",  # KAYISOFT deep link: product-variant details
+    post_languages: list = None,   # languages for the AI post; defaults to ["ar","tr","en"]
 ) -> bool:
     """
     Publishes a professional product post to the supplier's Telegram channel.
@@ -1020,9 +1021,10 @@ async def _publish_to_channel(
         "notes":        None,
         "attributes":   attributes or [],
     }
-    # Always post in all 3 languages for maximum reach (AR, TR, EN)
-    post_languages = ["ar", "tr", "en"]
-    logger.info("🤖 Generating AI channel post via DeepSeek (3 languages)...")
+    # Use the languages selected by the supplier; fall back to all 3 if not specified
+    if not post_languages:
+        post_languages = ["ar", "tr", "en"]
+    logger.info("🤖 Generating AI channel post via DeepSeek (languages=%s)...", post_languages)
     ai_caption = await _gen_post(product_data_for_ai, post_languages)
     if ai_caption:
         caption = ai_caption
@@ -2221,6 +2223,11 @@ async def handle_form_input(
             user_id,
         )
 
+    # Preserve the language selection made before entering manual flow
+    # (stored earlier as context.user_data["post_languages"] when user chose language)
+    _saved_langs = context.user_data.get("post_languages")
+    if _saved_langs and "post_languages" not in extracted_data:
+        extracted_data["post_languages"] = _saved_langs
     context.user_data["product_details"] = extracted_data
     # Save the original raw text so handle_fix_missing can combine it with corrections
     context.user_data["original_text"] = text
@@ -2353,6 +2360,10 @@ async def handle_fix_missing(
         # original_details was the old name — fixed to use user_data directly
         extracted_data = context.user_data.get("product_details", {})
 
+    # Preserve language selection across re-extraction
+    _saved_langs2 = context.user_data.get("post_languages")
+    if _saved_langs2 and "post_languages" not in extracted_data:
+        extracted_data["post_languages"] = _saved_langs2
     context.user_data["product_details"] = extracted_data
 
     await processing_msg.delete()
@@ -2467,7 +2478,7 @@ async def handle_confirm_details(
     if query.data == "details_confirm":
         # ── Supplier confirmed → generate AI channel post ────────────────────────────────────────────
         product_details = context.user_data.get("product_details", {})
-        languages = product_details.get("post_languages") or ["ar", "tr"]
+        languages = product_details.get("post_languages") or context.user_data.get("post_languages") or ["ar", "tr", "en"]
 
         # Build attributes list for DeepSeek
         # NOTE: raw_attributes is a LIST; build a dict keyed by id for fast lookup
@@ -2791,7 +2802,7 @@ async def handle_ai_post_review(
     elif query.data == "post_regenerate":
         # ── Regenerate → call DeepSeek again ────────────────────────────────
         product_details = context.user_data.get("product_details", {})
-        languages = product_details.get("post_languages") or ["ar", "tr"]
+        languages = product_details.get("post_languages") or context.user_data.get("post_languages") or ["ar", "tr", "en"]
 
         gen_msgs = {
             "ar": "🔄 <b>إعادة توليد البوست...</b>",
@@ -4243,6 +4254,8 @@ async def handle_final_publish(
             if _rendered:
                 _attrs_list_pub.append({"name": _aname, "value": ", ".join(_rendered)})
 
+        # Honour the language selection made by the supplier (webapp or manual flow)
+        _post_languages = product_details.get("post_languages") or ["ar", "tr", "en"]
         channel_published = await _publish_to_channel(
             context=context,
             channel_id=channel_id,
@@ -4258,6 +4271,7 @@ async def handle_final_publish(
             attributes=_attrs_list_pub,
             share_link_chat=share_link_chat,
             share_link_details=share_link_details,
+            post_languages=_post_languages,
         )
     else:
         logger.warning(
@@ -4276,15 +4290,10 @@ async def handle_final_publish(
             product_id=product_id or "",
             product_name=product_name or "",
         )
-        # Send new-product notification to channel subscribers
-        if channel_id:
-            await _send_new_product_notification(
-                bot=context.bot,
-                channel_id=channel_id,
-                product_name=product_name or "",
-                lang=lang,
-                share_link_details=share_link_details or "",
-            )
+        # NOTE: _send_new_product_notification was removed — it caused a duplicate
+        # second card to appear in the channel right after the main product post.
+        # The main product post already contains all info + buttons, so no extra
+        # notification is needed. (Removed 2026-06-21)
     elif channel_id:
         # channel_id exists but publish failed (bot not admin or API error)
         channel_fail_texts = {
@@ -4467,8 +4476,8 @@ async def handle_form_submitted(
 
     shared_attributes   = payload.get("shared_attributes",   {}) or {}
     selector_attributes = payload.get("selector_attributes", []) or []
-    # Always post in all 3 languages (form no longer has language selector)
-    # If payload explicitly sends languages, use them; otherwise default to all 3
+    # Use the languages selected by the supplier in the form;
+    # fall back to all 3 if the payload doesn't include a selection
     post_languages      = payload.get("post_languages") or ["ar", "tr", "en"]
 
     product_details = {
@@ -4608,6 +4617,7 @@ async def handle_webapp_data(
         "stock_count":         stock_count,
         "shared_attributes":   shared_attributes,
         "selector_attributes": selector_attributes,
+        "post_languages":      payload.get("post_languages") or context.user_data.get("post_languages") or ["ar", "tr", "en"],
         "_source":             "webapp",
     }
     context.user_data["product_details"] = product_details
