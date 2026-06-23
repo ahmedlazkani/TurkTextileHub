@@ -590,6 +590,14 @@ async def handle_menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif action == "topkap_app":
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
         from bot.keyboards import TOPKAP_DOWNLOAD_URL
+        # Add ?openExternalBrowser=1 so Telegram opens the Universal Link
+        # in the external browser (Safari/Chrome) instead of the built-in
+        # WebView — this is required for iOS Universal Links to work correctly
+        _download_url = TOPKAP_DOWNLOAD_URL
+        if "?" not in _download_url:
+            _download_url += "?openExternalBrowser=1"
+        else:
+            _download_url += "&openExternalBrowser=1"
         _app_msgs = {
             "ar": "📲 <b>تحميل تطبيق TopKap</b>\n\nاضغط على الزر أدناه لتحميل تطبيق TopKap:",
             "tr": "📲 <b>TopKap Uygulamasını İndir</b>\n\nTopKap uygulamasını indirmek için aşağıdaki butona basın:",
@@ -606,7 +614,7 @@ async def handle_menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton(
                     _app_btn_labels.get(lang, _app_btn_labels["en"]),
-                    url=TOPKAP_DOWNLOAD_URL,
+                    url=_download_url,
                 )
             ]]),
         )
