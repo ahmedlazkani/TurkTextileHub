@@ -101,13 +101,14 @@ def supplier_main_keyboard(lang: str) -> ReplyKeyboardMarkup:
         ],
         # Row 4: Change Language — full width
         [KeyboardButton(get_string(lang, "btn_language"))],
-        # Row 5: BLUE button → opens TopKap app (smart link: app store or supplier page)
-        [
-            KeyboardButton(
-                app_label,
-                web_app=WebAppInfo(url=TOPKAP_DOWNLOAD_URL),
-            )
-        ],
+        # Row 5: BLUE button → opens TopKap app download link in browser
+        # NOTE: must use request_contact=False and no web_app here because
+        # TOPKAP_DOWNLOAD_URL is a dynalink (not a Telegram Mini App),
+        # so WebAppInfo would be rejected by Telegram.
+        # We use an InlineKeyboardMarkup approach via a separate inline button
+        # but since ReplyKeyboard doesn't support url buttons, we keep it as
+        # a plain KeyboardButton and handle the text in the message handler.
+        [KeyboardButton(app_label)],
     ]
     return ReplyKeyboardMarkup(
         keyboard,

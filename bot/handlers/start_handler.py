@@ -553,6 +553,10 @@ async def handle_menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
         btn_map[get_string(_lang, "btn_why_topkap")]     = "why_topkap"
         btn_map[get_string(_lang, "btn_help")]           = "help"
         btn_map[get_string(_lang, "btn_language")]       = "language"
+    # TopKap App button labels (hardcoded in keyboards.py _APP_BTN)
+    btn_map["📲 TopKap Uygulaması"] = "topkap_app"
+    btn_map["📲 تطبيق TopKap"]     = "topkap_app"
+    btn_map["📲 TopKap App"]         = "topkap_app"
 
     action = btn_map.get(text)
 
@@ -582,6 +586,30 @@ async def handle_menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     elif action == "share_topgate":
         await handle_share_topgate(update, context, lang)
+
+    elif action == "topkap_app":
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        from bot.keyboards import TOPKAP_DOWNLOAD_URL
+        _app_msgs = {
+            "ar": "📲 <b>تحميل تطبيق TopKap</b>\n\nاضغط على الزر أدناه لتحميل تطبيق TopKap:",
+            "tr": "📲 <b>TopKap Uygulamasını İndir</b>\n\nTopKap uygulamasını indirmek için aşağıdaki butona basın:",
+            "en": "📲 <b>Download TopKap App</b>\n\nTap the button below to download the TopKap app:",
+        }
+        _app_btn_labels = {
+            "ar": "📲 تحميل TopKap",
+            "tr": "📲 TopKap'i İndir",
+            "en": "📲 Download TopKap",
+        }
+        await update.message.reply_text(
+            _app_msgs.get(lang, _app_msgs["en"]),
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    _app_btn_labels.get(lang, _app_btn_labels["en"]),
+                    url=TOPKAP_DOWNLOAD_URL,
+                )
+            ]]),
+        )
 
     elif action == "why_topkap":
         try:
