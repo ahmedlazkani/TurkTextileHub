@@ -507,6 +507,7 @@ _REDIRECT_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TopKap</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   * {{ margin: 0; padding: 0; box-sizing: border-box; }}
   body {{
@@ -522,13 +523,14 @@ _REDIRECT_HTML = """<!DOCTYPE html>
   p  {{ font-size: 0.95rem; color: #666; margin-bottom: 28px; line-height: 1.5; }}
   .btn {{
     display: inline-block;
-    background: #2481cc;
-    color: #fff;
+    background: var(--tg-theme-button-color, #2481cc);
+    color: var(--tg-theme-button-text-color, #fff);
     font-size: 1rem; font-weight: 600;
     padding: 14px 32px;
     border-radius: 12px;
     text-decoration: none;
     border: none; cursor: pointer;
+    width: 100%; max-width: 280px;
   }}
   .btn:active {{ opacity: 0.85; }}
 </style>
@@ -536,13 +538,26 @@ _REDIRECT_HTML = """<!DOCTYPE html>
 <body>
 <div class="logo">📲</div>
 <h1>TopKap</h1>
-<p>اضغط الزر لتحميل التطبيق أو فتحه مباشرةً</p>
-<a class="btn" href="{target}" id="dl">تحميل TopKap</a>
+<p>اضغط الزر لتحميل تطبيق TopKap أو فتحه مباشرةً</p>
+<button class="btn" id="dl" onclick="openApp()">📲 تحميل TopKap</button>
 <script>
-  // Auto-redirect after 300ms so the button is visible first
-  setTimeout(function() {{
-    window.location.href = "{target}";
-  }}, 300);
+  var TARGET = "{target}";
+
+  function openApp() {{
+    // Use Telegram.WebApp.openLink to force external browser (Safari/Chrome)
+    // try_instant_view: false ensures it opens in the real browser, not WebView
+    if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.openLink) {{
+      window.Telegram.WebApp.openLink(TARGET, {{try_instant_view: false}});
+    }} else {{
+      // Fallback for non-Telegram environments
+      window.open(TARGET, '_blank');
+    }}
+  }}
+
+  // Auto-trigger after 400ms so the page renders first
+  window.addEventListener('load', function() {{
+    setTimeout(openApp, 400);
+  }});
 </script>
 </body>
 </html>"""
