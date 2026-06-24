@@ -490,3 +490,80 @@ async def _get_user_token(user_id: Optional[str]) -> Optional[str]:
 
     logger.info("_get_user_token: using static server token for user_id=%s", user_id)
     return KAYISOFT_API_KEY
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ROUTE 4 — App Download Redirect (Mini App → External Browser)
+# ══════════════════════════════════════════════════════════════════════════════
+
+_DOWNLOAD_TARGET = os.getenv(
+    "TOPKAP_DOWNLOAD_URL",
+    "https://kayisoft.dynalinks.app/topkap/downloadApp"
+)
+
+_REDIRECT_HTML = """<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TopKap</title>
+<style>
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+  body {{
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--tg-theme-bg-color, #fff);
+    color: var(--tg-theme-text-color, #222);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    min-height: 100vh; padding: 24px; text-align: center;
+  }}
+  .logo {{ font-size: 3rem; margin-bottom: 16px; }}
+  h1 {{ font-size: 1.4rem; font-weight: 700; margin-bottom: 8px; }}
+  p  {{ font-size: 0.95rem; color: #666; margin-bottom: 28px; line-height: 1.5; }}
+  .btn {{
+    display: inline-block;
+    background: #2481cc;
+    color: #fff;
+    font-size: 1rem; font-weight: 600;
+    padding: 14px 32px;
+    border-radius: 12px;
+    text-decoration: none;
+    border: none; cursor: pointer;
+  }}
+  .btn:active {{ opacity: 0.85; }}
+</style>
+</head>
+<body>
+<div class="logo">📲</div>
+<h1>TopKap</h1>
+<p>اضغط الزر لتحميل التطبيق أو فتحه مباشرةً</p>
+<a class="btn" href="{target}" id="dl">تحميل TopKap</a>
+<script>
+  // Auto-redirect after 300ms so the button is visible first
+  setTimeout(function() {{
+    window.location.href = "{target}";
+  }}, 300);
+</script>
+</body>
+</html>"""
+
+
+@router.get(
+    "/webapp/download-app",
+    response_class=HTMLResponse,
+    summary="Redirect to TopKap app download / Universal Link",
+    tags=["WebApp"],
+)
+async def download_app_redirect() -> HTMLResponse:
+    """
+    Opens as a Telegram Mini App then immediately redirects the user
+    to the TopKap Universal Link (App Store / installed app).
+
+    Why a Mini App instead of a plain URL button?
+    Telegram's built-in WebView intercepts plain URL buttons on iOS,
+    which breaks Universal Links.  Opening as a Mini App and then
+    redirecting via window.location.href triggers the Universal Link
+    correctly through Safari.
+    """
+    html = _REDIRECT_HTML.format(target=_DOWNLOAD_TARGET)
+    return HTMLResponse(content=html, status_code=200)

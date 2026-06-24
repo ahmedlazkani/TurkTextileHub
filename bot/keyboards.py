@@ -51,6 +51,21 @@ TOPKAP_DOWNLOAD_URL = os.getenv(
     "https://kayisoft.dynalinks.app/topkap/downloadApp"
 )
 
+# Railway domain — used to build the /webapp/download-app Mini App URL
+_raw_static = os.getenv("RAILWAY_STATIC_URL", "")
+_static_domain = _raw_static.replace("https://", "").replace("http://", "").rstrip("/")
+RAILWAY_DOMAIN = (
+    os.getenv("RAILWAY_DOMAIN")
+    or os.getenv("RAILWAY_PUBLIC_DOMAIN")
+    or _static_domain
+    or ""
+)
+# Mini App redirect page URL — opens as Mini App then redirects to TOPKAP_DOWNLOAD_URL
+TOPKAP_APP_MINIAPP_URL = (
+    f"https://{RAILWAY_DOMAIN}/webapp/download-app"
+    if RAILWAY_DOMAIN else None
+)
+
 # TopGate Buyer/Trader App URL — used for product post buttons
 TOPGATE_WEB_URL = os.getenv(
     "TOPGATE_WEB_URL",
@@ -89,6 +104,16 @@ def supplier_main_keyboard(lang: str) -> ReplyKeyboardMarkup:
     orders_label = _ORDERS_BTN.get(lang, _ORDERS_BTN["tr"])
     app_label    = _APP_BTN.get(lang, _APP_BTN["en"])
 
+    # Row 5: TopKap App button
+    # Strategy: open /webapp/download-app as a Mini App — that page immediately
+    # redirects to the Universal Link (App Store / installed app) via JS.
+    # This is the ONLY reliable way to trigger Universal Links from Telegram on iOS.
+    # Fallback: plain KeyboardButton (handled in start_handler.py as inline URL button).
+    if TOPKAP_APP_MINIAPP_URL:
+        app_row = [KeyboardButton(app_label, web_app=WebAppInfo(url=TOPKAP_APP_MINIAPP_URL))]
+    else:
+        app_row = [KeyboardButton(app_label)]
+
     keyboard = [
         # Row 1: Primary action — full width
         [KeyboardButton(get_string(lang, "btn_add_product"))],
@@ -101,14 +126,8 @@ def supplier_main_keyboard(lang: str) -> ReplyKeyboardMarkup:
         ],
         # Row 4: Change Language — full width
         [KeyboardButton(get_string(lang, "btn_language"))],
-        # Row 5: BLUE button → opens TopKap app download link in browser
-        # NOTE: must use request_contact=False and no web_app here because
-        # TOPKAP_DOWNLOAD_URL is a dynalink (not a Telegram Mini App),
-        # so WebAppInfo would be rejected by Telegram.
-        # We use an InlineKeyboardMarkup approach via a separate inline button
-        # but since ReplyKeyboard doesn't support url buttons, we keep it as
-        # a plain KeyboardButton and handle the text in the message handler.
-        [KeyboardButton(app_label)],
+        # Row 5: TopKap App — Mini App redirect or plain button
+        app_row,
     ]
     return ReplyKeyboardMarkup(
         keyboard,
