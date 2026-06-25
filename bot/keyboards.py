@@ -51,20 +51,21 @@ TOPKAP_DOWNLOAD_URL = os.getenv(
     "https://kayisoft.dynalinks.app/topkap/downloadApp"
 )
 
-# Railway domain — used to build the /webapp/download-app Mini App URL
-_raw_static = os.getenv("RAILWAY_STATIC_URL", "")
-_static_domain = _raw_static.replace("https://", "").replace("http://", "").rstrip("/")
-RAILWAY_DOMAIN = (
-    os.getenv("RAILWAY_DOMAIN")
-    or os.getenv("RAILWAY_PUBLIC_DOMAIN")
-    or _static_domain
-    or ""
-)
-# Mini App redirect page URL — opens as Mini App then redirects to TOPKAP_DOWNLOAD_URL
-TOPKAP_APP_MINIAPP_URL = (
-    f"https://{RAILWAY_DOMAIN}/webapp/download-app"
-    if RAILWAY_DOMAIN else None
-)
+def _get_miniapp_url() -> str | None:
+    """
+    Build the /webapp/download-app Mini App URL dynamically at call time.
+    Reading env vars inside the function (not at module level) ensures we
+    always get the latest value even if Railway injects them after import.
+    """
+    _raw_static = os.getenv("RAILWAY_STATIC_URL", "")
+    _static_domain = _raw_static.replace("https://", "").replace("http://", "").rstrip("/")
+    domain = (
+        os.getenv("RAILWAY_DOMAIN")
+        or os.getenv("RAILWAY_PUBLIC_DOMAIN")
+        or _static_domain
+        or ""
+    )
+    return f"https://{domain}/webapp/download-app" if domain else None
 
 # TopGate Buyer/Trader App URL — used for product post buttons
 TOPGATE_WEB_URL = os.getenv(
@@ -109,8 +110,9 @@ def supplier_main_keyboard(lang: str) -> ReplyKeyboardMarkup:
     # redirects to the Universal Link (App Store / installed app) via JS.
     # This is the ONLY reliable way to trigger Universal Links from Telegram on iOS.
     # Fallback: plain KeyboardButton (handled in start_handler.py as inline URL button).
-    if TOPKAP_APP_MINIAPP_URL:
-        app_row = [KeyboardButton(app_label, web_app=WebAppInfo(url=TOPKAP_APP_MINIAPP_URL))]
+    miniapp_url = _get_miniapp_url()
+    if miniapp_url:
+        app_row = [KeyboardButton(app_label, web_app=WebAppInfo(url=miniapp_url))]
     else:
         app_row = [KeyboardButton(app_label)]
 
