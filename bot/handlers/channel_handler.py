@@ -90,13 +90,16 @@ def _resolve_channels_file() -> str:
     )
     return "/tmp/user_channels.json"
 
-_CHANNELS_FILE = _resolve_channels_file()
+# NOTE: _CHANNELS_FILE is intentionally NOT cached at module level.
+# We call _resolve_channels_file() at each read/write to ensure we always
+# use the correct path even if Railway mounts /data after module import.
 
 
 def _load_channels() -> dict:
     """Load persisted user→channel mapping from disk."""
+    channels_file = _resolve_channels_file()
     try:
-        with open(_CHANNELS_FILE, "r", encoding="utf-8") as f:
+        with open(channels_file, "r", encoding="utf-8") as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
@@ -104,16 +107,17 @@ def _load_channels() -> dict:
 
 def _save_channels(channels: dict) -> None:
     """Persist user→channel mapping to disk."""
+    channels_file = _resolve_channels_file()
     try:
         # Ensure parent directory exists (important for /data/user_channels.json)
-        parent = os.path.dirname(_CHANNELS_FILE)
+        parent = os.path.dirname(channels_file)
         if parent:
             os.makedirs(parent, exist_ok=True)
-        with open(_CHANNELS_FILE, "w", encoding="utf-8") as f:
+        with open(channels_file, "w", encoding="utf-8") as f:
             json.dump(channels, f, ensure_ascii=False, indent=2)
-        logger.info("✅ Saved user_channels to %s", _CHANNELS_FILE)
+        logger.info("✅ Saved user_channels to %s", channels_file)
     except Exception as exc:
-        logger.error("❌ Failed to save user_channels to %s: %s", _CHANNELS_FILE, exc)
+        logger.error("❌ Failed to save user_channels to %s: %s", channels_file, exc)
 
 
 def save_channel_for_user(user_id: str, channel_id: str, context: ContextTypes.DEFAULT_TYPE) -> None:
