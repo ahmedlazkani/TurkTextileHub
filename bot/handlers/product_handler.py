@@ -470,6 +470,11 @@ def _build_variants(
     id_to_key: dict = None,
     product_name_en: str = "",
     description_en: str = "",
+    product_name_tr: str = "",
+    description_tr: str = "",
+    product_name_ar: str = "",
+    description_ar: str = "",
+    color_uploaded_map: dict = None,  # BUG FIX Band 12: {color_option_id: [s3_filename]}
 ) -> list:
     """
     Builds the variants list for the KAYISOFT product payload.
@@ -524,26 +529,32 @@ def _build_variants(
     SUPPORTED_LANGS = ["ar", "en", "tr"]
 
     def _build_titles(name_local: str, name_en: str, lang_code: str) -> list:
+        # Use multilingual fields if available, otherwise fallback to local text
         titles = []
         for lng in SUPPORTED_LANGS:
-            if lng == lang_code:
-                text = name_local
+            if lng == "ar":
+                text = product_name_ar or (name_local if lang_code == "ar" else name_local)
+            elif lng == "tr":
+                text = product_name_tr or (name_local if lang_code == "tr" else name_local)
             elif lng == "en":
-                text = name_en or name_local
+                text = name_en or product_name_en or name_local
             else:
-                text = name_local  # fallback: use local text for missing languages
+                text = name_local
             titles.append({"language": lng, "text": text})
         return titles
 
     def _build_descriptions(desc_local: str, desc_en: str, lang_code: str) -> list:
+        # Use multilingual fields if available, otherwise fallback to local text
         descs = []
         for lng in SUPPORTED_LANGS:
-            if lng == lang_code:
-                text = desc_local
+            if lng == "ar":
+                text = description_ar or (desc_local if lang_code == "ar" else desc_local)
+            elif lng == "tr":
+                text = description_tr or (desc_local if lang_code == "tr" else desc_local)
             elif lng == "en":
-                text = desc_en or desc_local
+                text = desc_en or description_en or desc_local
             else:
-                text = desc_local  # fallback: use local text for missing languages
+                text = desc_local
             descs.append({"language": lng, "text": text})
         return descs
 
@@ -632,7 +643,10 @@ def _build_variants(
         combinations = [(opt,) for opt in primary_options]
 
     # Step 4: Distribute images across variants
+    # BUG FIX (Band 12): If color_uploaded_map is provided, use it to assign
+    # each color variant its own images instead of distributing evenly.
     # Strategy:
+    #   - color_uploaded_map provided → assign per-color images to matching variants
     #   - 1 variant  → all images
     #   - N variants, images >= N → distribute evenly
     #   - N variants, images < N  → all images duplicated to every variant
@@ -640,7 +654,16 @@ def _build_variants(
     n_images   = len(uploaded_file_names)
     images_per_variant: list[list] = []
 
-    if n_variants <= 1 or n_images == 0:
+    if color_uploaded_map and n_variants > 1:
+        # Per-color image assignment: match primary option_id to color_uploaded_map
+        for combo in combinations:
+            primary_opt_id = combo[0]
+            color_imgs = color_uploaded_map.get(primary_opt_id, [])
+            if not color_imgs:
+                # Fallback: use all images if this color has no specific images
+                color_imgs = uploaded_file_names
+            images_per_variant.append(color_imgs)
+    elif n_variants <= 1 or n_images == 0:
         images_per_variant = [uploaded_file_names] * max(1, n_variants)
     elif n_images < n_variants:
         images_per_variant = [uploaded_file_names] * n_variants
@@ -2228,6 +2251,31 @@ async def handle_form_input(
     _saved_langs = context.user_data.get("post_languages")
     if _saved_langs and "post_languages" not in extracted_data:
         extracted_data["post_languages"] = _saved_langs
+
+    # BUG FIX (Band 15): Merge new extraction with existing product_details instead of
+    # replacing it wholesale. This prevents AI from overwriting fields the user didn't touch.
+    # Strategy: only overwrite a field if the new extraction actually provided a non-empty value.
+    old_details = context.user_data.get("product_details", {})
+    if old_details:
+        merged = dict(old_details)  # start from old
+        for k, v in extracted_data.items():
+            # Always overwrite these structural/meta fields
+            if k in ("post_languages", "_source", "category_id"):
+                merged[k] = v
+                continue
+            # For dicts (shared_attributes, selector_attributes list): merge if non-empty
+            if isinstance(v, dict) and v:
+                merged[k] = v
+            elif isinstance(v, list) and v:
+                merged[k] = v
+            elif isinstance(v, str) and v.strip():
+                merged[k] = v
+            elif isinstance(v, (int, float)) and v not in (0, 0.0, 1, 100):
+                # Only overwrite numeric defaults if they look intentional
+                merged[k] = v
+            # else: keep old value
+        extracted_data = merged
+
     context.user_data["product_details"] = extracted_data
     # Save the original raw text so handle_fix_missing can combine it with corrections
     context.user_data["original_text"] = text
@@ -2364,6 +2412,26 @@ async def handle_fix_missing(
     _saved_langs2 = context.user_data.get("post_languages")
     if _saved_langs2 and "post_languages" not in extracted_data:
         extracted_data["post_languages"] = _saved_langs2
+
+    # BUG FIX (Band 15): Merge new extraction with existing product_details
+    # so that only the fields the user explicitly corrected get updated.
+    old_details2 = context.user_data.get("product_details", {})
+    if old_details2 and extracted_data is not old_details2:
+        merged2 = dict(old_details2)
+        for k, v in extracted_data.items():
+            if k in ("post_languages", "_source", "category_id"):
+                merged2[k] = v
+                continue
+            if isinstance(v, dict) and v:
+                merged2[k] = v
+            elif isinstance(v, list) and v:
+                merged2[k] = v
+            elif isinstance(v, str) and v.strip():
+                merged2[k] = v
+            elif isinstance(v, (int, float)) and v not in (0, 0.0, 1, 100):
+                merged2[k] = v
+        extracted_data = merged2
+
     context.user_data["product_details"] = extracted_data
 
     await processing_msg.delete()
@@ -3808,6 +3876,9 @@ async def handle_final_publish(
 
     product_details = context.user_data.get("product_details", {})
     image_file_ids  = context.user_data.get("images", [])
+    # BUG FIX (Band 12): Per-color image map — {color_option_id: [file_id, ...]}
+    # Used to assign correct images to each color variant instead of distributing evenly
+    color_images_map_final = context.user_data.get("color_images_map_final", {})
     raw_attributes  = context.user_data.get("raw_attributes", [])
     processed_attrs = context.user_data.get("processed_attributes", {})
     category_id     = (
@@ -3887,9 +3958,43 @@ async def handle_final_publish(
 
     logger.info("📊 Image upload summary: %d/%d uploaded successfully", len(uploaded_file_names), len(image_file_ids))
 
-    # ── Step 5: Build product payload ─────────────────────────────────────────
-    product_name = product_details.get("name", product_details.get("raw_text", "")[:80])
-    description  = product_details.get("description", "")
+    # ── BUG FIX (Band 12): Build per-color uploaded filename map ─────────────────
+    # image_file_ids is a flat list built by extending color_images_map_final in order:
+    #   all_images = []; for c in colors: all_images.extend(color_images_map.get(c["id"], []))
+    # So we can rebuild the per-color S3 filename map by tracking the same order.
+    # uploaded_file_names[i] corresponds to image_file_ids[i] (successful uploads only).
+    # We build a mapping: file_id → s3_filename, then reconstruct per-color map.
+    color_uploaded_map: dict = {}  # {color_option_id: [s3_filename, ...]}
+    if color_images_map_final and uploaded_file_names:
+        # Build file_id → s3_filename index (positional, skipping failed uploads)
+        file_id_to_s3: dict = {}
+        upload_idx = 0
+        for fid in image_file_ids:
+            # Check if this file_id was successfully uploaded (results list matches image_file_ids order)
+            result_idx = image_file_ids.index(fid) if fid in image_file_ids else -1
+            if result_idx >= 0 and result_idx < len(results) and isinstance(results[result_idx], bytes):
+                if upload_idx < len(uploaded_file_names):
+                    file_id_to_s3[fid] = uploaded_file_names[upload_idx]
+                    upload_idx += 1
+        # Now map each color to its S3 filenames
+        for color_id, fids in color_images_map_final.items():
+            s3_names = [file_id_to_s3[fid] for fid in fids if fid in file_id_to_s3]
+            if s3_names:
+                color_uploaded_map[color_id] = s3_names
+        logger.info("🎨 color_uploaded_map built: %d colors, keys=%s",
+                    len(color_uploaded_map), list(color_uploaded_map.keys())[:5])
+
+    # ── Step 5: Build product payload ───────────────────────────────────────────
+    # Support both old format (name/description) and new multilingual format (name_ar/tr/en)
+    product_name_ar = product_details.get("name_ar", "")
+    product_name_tr = product_details.get("name_tr", "")
+    product_name_en = product_details.get("name_en", "")
+    description_ar  = product_details.get("description_ar", "")
+    description_tr  = product_details.get("description_tr", "")
+    description_en  = product_details.get("description_en", "")
+    # Fallback: if new multilingual fields exist, use them; otherwise use old fields
+    product_name = product_name_ar or product_details.get("name", product_details.get("raw_text", "")[:80])
+    description  = description_ar  or product_details.get("description", "")
     price_raw    = product_details.get("price", "0")
     min_quantity = int(product_details.get("min_quantity", product_details.get("min_order", 1)))
     stock_count  = int(product_details.get("stock_count", product_details.get("stock", 100)))
@@ -4073,6 +4178,14 @@ async def handle_final_publish(
         ai_selector_attrs   = ai_selector_attrs,
         raw_attributes      = raw_attributes,
         id_to_key           = id_to_key,
+        product_name_ar     = product_name_ar,
+        product_name_tr     = product_name_tr,
+        product_name_en     = product_name_en,
+        description_ar      = description_ar,
+        description_tr      = description_tr,
+        description_en      = description_en,
+        # BUG FIX (Band 12): pass per-color S3 filename map
+        color_uploaded_map  = color_uploaded_map,
     )
 
     # v6.2: product_no format: TK-YYYYMMDD-XXXX (date-based, globally unique)

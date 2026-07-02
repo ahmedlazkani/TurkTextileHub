@@ -129,8 +129,12 @@ def _build_extraction_prompt(user_text: str, attributes: List[dict]) -> str:
     # This mirrors the exact structure expected by _check_missing_required()
     # and the KAYISOFT POST api/seller/products endpoint.
     output_example = {
-        "name": "شال شيفون صيفي",
-        "description": "شال شيفون مناسب للصيف ومريح لكل الوجوه",
+        "name_ar": "شال شيفون صيفي",
+        "name_tr": "Yaz Şifon Şal",
+        "name_en": "Summer Chiffon Scarf",
+        "description_ar": "شال شيفون مناسب للصيف ومريح لكل الوجوه",
+        "description_tr": "Yaz için ideal şifon şal, her yüze uygun.",
+        "description_en": "A lightweight chiffon scarf perfect for summer, suits all face shapes.",
         "price": "120",
         "min_quantity": 200,
         "stock_count": 4000,
@@ -201,22 +205,18 @@ RULE 3 — FREE TEXT ATTRIBUTES:
   Normalize measurements: "180 سم ب 70 سم" → "180x70"
 
 RULE 4 — TOP-LEVEL FIELDS (all required unless missing from input):
-  "name":
-    • Short, clean product title in Arabic (3-6 words max)
-    • Include key product type + material if mentioned
-    • Example: "شال شيفون فاخر" or "طاقية نينجا فيسكوز"
+  "name_ar": Short, clean product title in ARABIC (3-6 words max). Include product type + material.
+  "name_tr": Same title translated to TURKISH (3-6 words max).
+  "name_en": Same title translated to ENGLISH (3-6 words max).
 
-  "description":
-    • Write a PROFESSIONAL 3-sentence marketing description in Arabic
-    • Sentence 1: Lead with the product's premium quality or unique material
-    • Sentence 2: Highlight the main benefit, comfort, or design feature
-    • Sentence 3: Describe the ideal use case, occasion, or target customer
-    • Style: confident, elegant, commercial — like a luxury brand copywriter
+  "description_ar":
+    • Write a PROFESSIONAL 2-3 sentence B2B wholesale description in ARABIC
+    • Focus on material, key features, and target use case
+    • Style: direct, factual, professional — NOT marketing hype
     • Do NOT copy the supplier's raw text verbatim
-    • Example input:  "شال شيفون صيفي جودة عالية"
-    • Example output: "شال شيفون فاخر مصنوع من أجود أنواع القماش الخفيف والناعم. \
- يمنحك إطلالة أنيقة ومريحة تناسب كل يوم وكل مناسبة. \
- مثالي للمرأة العصرية التي تبحث عن الأناقة والراحة في آنٍ واحد."
+    • Example: "شال شيفون خفيف مناسب للصيف. متوفر بألوان متعددة ومقاسات مختلفة."
+  "description_tr": Same description translated to TURKISH.
+  "description_en": Same description translated to ENGLISH.
 
   "price":         Numeric string only — "200 ليرة" → "200", "200 lira" → "200"
   "min_quantity":  Integer — "300 قطعة" → 300
@@ -860,7 +860,7 @@ async def generate_channel_post(
         "Attribute label mapping (use these exact labels):\n"
         "  الجنس / Cinsiyet / Gender\n"
         "  القماش / Kumaş / Fabric\n"
-        "  نوع الوشاح / Eşarp Türü / Scarf Type\n"
+        "  نوع المنتج / Ürün Türü / Product Type\n"
         "  المقاسات / Beden / Size  ← ONLY if size exists in attributes\n"
         "  اللون / Renk / Color\n"
         "  النقشة / Desen / Pattern\n"
