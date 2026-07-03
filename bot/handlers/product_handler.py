@@ -1815,34 +1815,11 @@ async def start_add_product(
     # ── Rationale: same as subcategories — full-width rows prevent name truncation
     # is_visible_for_creating=True means this category accepts new products
     # Also build a name lookup map so later steps can show the selected category name
-    # ── Task 7: Sort categories — gender groups first (Women→Men→Kids), then alphabetical ──
-    _GENDER_PRIORITY = {
-        # Arabic
-        "نساء": 0, "سيدات": 0, "حريمي": 0,
-        "رجال": 1, "رجالي": 1,
-        "أطفال": 2, "اطفال": 2, "بنات": 2, "أولاد": 2,
-        # Turkish
-        "kadın": 0, "bayan": 0, "kadin": 0,
-        "erkek": 1,
-        "çocuk": 2, "cocuk": 2, "kız": 2, "bebek": 2,
-        # English
-        "women": 0, "ladies": 0,
-        "men": 1, "male": 1,
-        "kids": 2, "children": 2, "boys": 2, "girls": 2,
-    }
-
-    def _cat_sort_key(cat_dict):
-        name_lower = cat_dict.get("name", "").lower().strip()
-        # Check if any gender keyword is a substring of the name
-        priority = 99
-        for keyword, p in _GENDER_PRIORITY.items():
-            if keyword in name_lower:
-                priority = p
-                break
-        return (priority, name_lower)
-
+    # ── Band 1 FIX: Sort categories by ui_order (ascending) as provided by the API ──
+    # ui_order is the canonical display order defined by the backend.
+    # Fallback to 9999 for categories without ui_order so they appear last.
     visible_cats = [c for c in categories if c.get("is_visible_for_creating", True)]
-    visible_cats.sort(key=_cat_sort_key)
+    visible_cats.sort(key=lambda c: (int(c.get("ui_order") or 9999), c.get("name", "").lower()))
 
     categories_map = {}
     buttons_flat = []
@@ -1936,9 +1913,9 @@ async def handle_category_selection(
     #    (Telegram limits inline button text to ~20 chars per button in 2-col layout).
     #    One-per-row gives each button the full message width, so names like
     #    "Erkek Spor Giyim & Aksesuar" are always fully visible.
-    # ── Task 7: Sort subcategories alphabetically ──
+    # ── Band 1 FIX: Sort subcategories by ui_order (ascending) as provided by the API ──
     visible_subs = [s for s in subcategories if s.get("is_visible_for_creating", True)]
-    visible_subs.sort(key=lambda s: s.get("name", "").lower().strip())
+    visible_subs.sort(key=lambda s: (int(s.get("ui_order") or 9999), s.get("name", "").lower()))
 
     subcategories_map = {}
     # Each sub-list is a single row → one button per row (full-width, no truncation)
@@ -5041,24 +5018,9 @@ async def handle_back_to_category(
         await query.edit_message_text(_err.get(lang, _err["en"]), parse_mode=ParseMode.HTML)
         return ConversationHandler.END
 
-    _GENDER_PRIORITY = {
-        "نساء": 0, "سيدات": 0, "حريمي": 0,
-        "رجال": 1, "رجالي": 1,
-        "أطفال": 2, "اطفال": 2,
-        "kadın": 0, "bayan": 0, "kadin": 0,
-        "erkek": 1,
-        "çocuk": 2, "cocuk": 2, "bebek": 2,
-        "women": 0, "ladies": 0, "men": 1, "kids": 2, "children": 2,
-    }
-    def _sort_key(c):
-        n = c.get("name", "").lower().strip()
-        p = 99
-        for kw, pv in _GENDER_PRIORITY.items():
-            if kw in n: p = pv; break
-        return (p, n)
-
+    # ── Band 1 FIX: Sort by ui_order (ascending) — canonical order from the API ──
     visible_cats = [c for c in categories if c.get("is_visible_for_creating", True)]
-    visible_cats.sort(key=_sort_key)
+    visible_cats.sort(key=lambda c: (int(c.get("ui_order") or 9999), c.get("name", "").lower()))
     categories_map = {}
     keyboard = []
     for cat in visible_cats:
@@ -5108,8 +5070,9 @@ async def handle_back_to_subcategory(
         return await handle_back_to_category(update, context)
 
     cat_name = context.user_data.get("selected_category_name", "")
+    # ── Band 1 FIX: Sort by ui_order (ascending) — canonical order from the API ──
     visible_subs = [s for s in subcategories if s.get("is_visible_for_creating", True)]
-    visible_subs.sort(key=lambda s: s.get("name", "").lower().strip())
+    visible_subs.sort(key=lambda s: (int(s.get("ui_order") or 9999), s.get("name", "").lower()))
 
     subcategories_map = {}
     keyboard = []

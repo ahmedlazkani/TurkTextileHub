@@ -537,6 +537,89 @@
       letter-spacing: .02em;
     }
 
+    /* ═══════════════════════════════════════════════════════════
+       TOAST NOTIFICATION — Band 3: show clear error message
+    ═══════════════════════════════════════════════════════════ */
+    #toast-container {
+      position:   fixed;
+      bottom:     90px;   /* above MainButton */
+      left:       50%;
+      transform:  translateX(-50%);
+      z-index:    9999;
+      display:    flex;
+      flex-direction: column;
+      align-items: center;
+      gap:        8px;
+      pointer-events: none;
+      width:      min(90vw, 360px);
+    }
+
+    .toast {
+      display:        flex;
+      align-items:    center;
+      gap:            10px;
+      padding:        12px 16px;
+      border-radius:  14px;
+      font-size:      0.88rem;
+      font-weight:    600;
+      line-height:    1.35;
+      box-shadow:     0 4px 20px rgba(0,0,0,0.18);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      opacity:        0;
+      transform:      translateY(12px);
+      transition:     opacity .25s ease, transform .25s ease;
+      pointer-events: auto;
+      width:          100%;
+    }
+
+    .toast.show {
+      opacity:   1;
+      transform: translateY(0);
+    }
+
+    .toast-error {
+      background: rgba(229, 62, 62, 0.92);
+      color:      #fff;
+    }
+
+    .toast-icon {
+      font-size:   1.2rem;
+      flex-shrink: 0;
+    }
+
+    .toast-msg { flex: 1; }
+
+    /* ═══════════════════════════════════════════════════════════
+       DONE BUTTON — Band 2: dismiss keyboard on iOS
+    ═══════════════════════════════════════════════════════════ */
+    #done-bar {
+      display:         none;   /* shown via JS when keyboard opens */
+      position:        fixed;
+      bottom:          0;
+      left:            0;
+      right:           0;
+      z-index:         500;
+      background:      #d1d3d8;  /* iOS keyboard toolbar colour */
+      border-top:      1px solid #b0b3b8;
+      padding:         6px 14px;
+      justify-content: flex-end;
+      align-items:     center;
+    }
+
+    #done-bar.visible { display: flex; }
+
+    #done-btn {
+      background:    transparent;
+      border:        none;
+      color:         #007aff;   /* iOS blue */
+      font-size:     1rem;
+      font-weight:   600;
+      padding:       4px 8px;
+      cursor:        pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+
     /* Language selector */
     .lang-selector {
       display:   flex;
@@ -576,6 +659,18 @@
 </head>
 
 <body>
+  <!-- ══════════════════════════════════════════════════════════
+       TOAST CONTAINER — Band 3: error messages
+  ══════════════════════════════════════════════════════════ -->
+  <div id="toast-container"></div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       DONE BAR — Band 2: dismiss keyboard toolbar (iOS)
+  ══════════════════════════════════════════════════════════ -->
+  <div id="done-bar">
+    <button id="done-btn" onclick="dismissKeyboard()">تم ✓</button>
+  </div>
+
   <!-- ══════════════════════════════════════════════════════════
        SUCCESS OVERLAY — shown briefly before window closes
   ══════════════════════════════════════════════════════════ -->
@@ -816,6 +911,7 @@
         btn_save:           "✅ حفظ بيانات المنتج",
         select_placeholder: "— اختر —",
         field_required:     "هذا الحقل مطلوب",
+        toast_required_fields: "يرجى تعبئة جميع الحقول المطلوبة — محددة بالإطار الأحمر",
       },
       tr: {
         header_title:       "📦 Yeni Ürün Ekle",
@@ -845,6 +941,7 @@
         btn_save:           "✅ Ürün Bilgilerini Kaydet",
         select_placeholder: "— Seçin —",
         field_required:     "Bu alan zorunludur",
+        toast_required_fields: "Lütfen zorunlu alanları doldurun — kırmızı çerçeveli alanlar eksik",
       },
       en: {
         header_title:       "📦 Add New Product",
@@ -874,6 +971,7 @@
         btn_save:           "✅ Save Product Data",
         select_placeholder: "— Select —",
         field_required:     "This field is required",
+        toast_required_fields: "Please fill in all required fields — highlighted in red",
       },
     };
     const T = I18N[LANG] || I18N["en"];
@@ -1001,6 +1099,67 @@
       return [];
     }
 
+    /* ────────────────────────────────────────────────────────
+       TOAST — Band 3: show clear error notification
+    ──────────────────────────────────────────────────────── */
+    let _toastTimer = null;
+
+    function showToast(msg, type = 'error', duration = 3500) {
+      const container = document.getElementById('toast-container');
+      if (!container) return;
+
+      // Remove existing toasts
+      container.innerHTML = '';
+
+      const icon = type === 'error' ? '⚠️' : '✅';
+      const el = document.createElement('div');
+      el.className = `toast toast-${type}`;
+      el.innerHTML = `<span class="toast-icon">${icon}</span><span class="toast-msg">${msg}</span>`;
+      container.appendChild(el);
+
+      // Trigger animation
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => el.classList.add('show'));
+      });
+
+      // Auto-dismiss
+      clearTimeout(_toastTimer);
+      _toastTimer = setTimeout(() => {
+        el.classList.remove('show');
+        setTimeout(() => { if (container.contains(el)) container.removeChild(el); }, 300);
+      }, duration);
+
+      // Haptic feedback via Telegram API
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('error');
+    }
+
+    /* ────────────────────────────────────────────────────────
+       DONE BAR — Band 2: dismiss keyboard on iOS
+    ──────────────────────────────────────────────────────── */
+    function dismissKeyboard() {
+      // Blur the active element to close keyboard
+      if (document.activeElement) document.activeElement.blur();
+      document.getElementById('done-bar').classList.remove('visible');
+    }
+
+    // Show done-bar when any input/textarea gets focus, hide on blur
+    document.addEventListener('focusin', function(e) {
+      const tag = e.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+        document.getElementById('done-bar').classList.add('visible');
+      }
+    });
+    document.addEventListener('focusout', function() {
+      // Small delay so tap on done-btn registers before hiding
+      setTimeout(() => {
+        const active = document.activeElement;
+        const tag = active ? active.tagName : '';
+        if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') {
+          document.getElementById('done-bar').classList.remove('visible');
+        }
+      }, 150);
+    });
+
     /** Mark a field card as having an error */
     function showError(cardId, errorId) {
       document.getElementById(cardId).classList.add("has-error");
@@ -1114,6 +1273,20 @@
           if (cardEl) cardEl.classList.remove("has-error");
           if (errEl)  errEl.classList.remove("visible");
         }
+      }
+
+      // ── Band 3 FIX: show toast with count of missing fields ──
+      if (!valid) {
+        const errCount = document.querySelectorAll('.field-card.has-error, .field-card[class*="has-error"]').length;
+        const T = I18N[LANG] || I18N.ar;
+        const msg = T.toast_required_fields
+          ? T.toast_required_fields.replace('{n}', errCount)
+          : `يرجى تعبئة جميع الحقول المطلوبة (محددة باللون الأحمر)`;
+        showToast(msg, 'error');
+
+        // Scroll to first error field
+        const firstErr = document.querySelector('.field-card.has-error');
+        if (firstErr) firstErr.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
 
       return valid;
