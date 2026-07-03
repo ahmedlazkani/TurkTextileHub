@@ -745,8 +745,23 @@
       <div class="field-error" id="error-price">يجب أن يكون السعر أكبر من 0</div>
     </div>
 
-    <!-- ─── 4. الحد الأدنى للطلب (مخفي — يُرسل 1 افتراضياً، يُعبأ من التطبيق) ─── -->
-    <input type="hidden" id="field-minqty" value="1" />
+    <!-- ─── 4. الحد الأدنى للطلب (اختياري — افتراضي 100، يمكن التعديل من التطبيق) ─── -->
+    <div class="field-card" id="card-minqty">
+      <div class="field-label">
+        <span class="icon">📦</span>
+        <span id="label-minqty">الحد الأدنى للطلب</span>
+        <span class="optional-tag" id="tag-optional-minqty">اختياري</span>
+      </div>
+      <input
+        type="number"
+        id="field-minqty"
+        placeholder="مثال: 100"
+        value="100"
+        min="1"
+        step="1"
+        inputmode="numeric"
+      />
+    </div>
 
     <!-- ─── 5. المخزون (مخفي — يُرسل 500 افتراضياً) ─────────────────────────── -->
     <!-- Stock field is intentionally hidden from the supplier form.
@@ -807,7 +822,7 @@
     <div class="field-card" id="card-sizes">
       <div class="field-label">
         <span class="icon">📐</span>
-        المقاسات
+        <span id="label-sizes">المقاسات</span>
         <span class="optional-tag">اختياري</span>
       </div>
       <input
@@ -818,7 +833,7 @@
         autocomplete="off"
         inputmode="text"
       />
-      <div class="field-hint" style="font-size:0.72rem;color:var(--tg-hint);margin-top:4px;">
+      <div class="field-hint" id="hint-sizes" style="font-size:0.72rem;color:var(--tg-hint);margin-top:4px;">
         اكتب المقاسات المتاحة مفصولة بفواصل أو اكتب مقاس موحد إذا كان المنتج بمقاس واحد
       </div>
     </div>
@@ -827,21 +842,21 @@
     <div class="field-card" id="section-languages">
       <div class="field-label">
         <span class="icon">🌐</span>
-        لغات البوست على القناة
-        <span style="font-size:0.7rem;color:var(--tg-hint);font-weight:400;margin-inline-start:4px;">اختياري</span>
+        <span id="label-langs">لغات البوست على القناة</span>
+        <span class="optional-tag">اختياري</span>
       </div>
       <div style="display:flex; gap:10px; flex-wrap:wrap;">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;background:var(--tg-bg);border:1.5px solid var(--tg-btn);border-radius:10px;padding:8px 14px;font-size:0.9rem;font-weight:600;">
           <input type="checkbox" id="lang-ar" value="ar" checked style="width:16px;height:16px;accent-color:var(--tg-btn);" />
-          🇸🇦 عربي
+          <span id="label-lang-ar">🇸🇦 عربي</span>
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;background:var(--tg-bg);border:1.5px solid var(--tg-btn);border-radius:10px;padding:8px 14px;font-size:0.9rem;font-weight:600;">
           <input type="checkbox" id="lang-tr" value="tr" checked style="width:16px;height:16px;accent-color:var(--tg-btn);" />
-          🇹🇷 تركي
+          <span id="label-lang-tr">🇹🇷 تركي</span>
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;background:var(--tg-bg);border:1.5px solid var(--tg-btn);border-radius:10px;padding:8px 14px;font-size:0.9rem;font-weight:600;">
           <input type="checkbox" id="lang-en" value="en" checked style="width:16px;height:16px;accent-color:var(--tg-btn);" />
-          🇬🇧 إنكليزي
+          <span id="label-lang-en">🇬🇧 إنكليزي</span>
         </label>
       </div>
     </div>
@@ -896,7 +911,7 @@
         placeholder_price:  "مثال: 200",
         error_price:        "يجب أن يكون السعر أكبر من 0",
         label_minqty:       "الحد الأدنى للطلب",
-        placeholder_minqty: "مثال: 300",
+        placeholder_minqty: "مثال: 100",
         error_minqty:       "يجب أن يكون الحد الأدنى 1 على الأقل",
         label_code:         "كود المنتج",
         placeholder_code:   "مثال: TK-143",
@@ -905,6 +920,12 @@
         placeholder_notes:  "مثال:\n• ماذا يحتوي كل باكيت: 4 قطع (S، M، L، XL)\n• السعر: بفاتورة / بدون فاتورة",
         label_langs:        "لغات البوست على القناة",
         error_langs:        "يجب اختيار لغة واحدة على الأقل",
+        label_sizes:        "المقاسات",
+        placeholder_sizes:  "مثال: S, M, L, XL أو مقاس موحد",
+        hint_sizes:         "اكتب المقاسات المتاحة مفصولة بفواصل أو اكتب مقاس موحد إذا كان المنتج بمقاس واحد",
+        lang_ar:            "🇸🇦 عربي",
+        lang_tr:            "🇹🇷 تركي",
+        lang_en:            "🇬🇧 إنكليزي",
         attrs_divider:      "الخصائص",
         info_photos:        "سيتم طلب <strong>صور المنتج</strong> في الخطوة التالية مباشرةً داخل المحادثة",
         success_text:       "تم الحفظ بنجاح! ✨",
@@ -926,7 +947,7 @@
         placeholder_price:  "Örnek: 200",
         error_price:        "Fiyat 0'dan büyük olmalıdır",
         label_minqty:       "Minimum Sipariş Miktarı",
-        placeholder_minqty: "Örnek: 300",
+        placeholder_minqty: "Örnek: 100",
         error_minqty:       "Minimum miktar en az 1 olmalıdır",
         label_code:         "Ürün Kodu",
         placeholder_code:   "Örnek: TK-143",
@@ -935,6 +956,12 @@
         placeholder_notes:  "Örnek:\n• Paketin içeriği: 4 adet (S, M, L, XL)\n• Fiyat: faturalı / faturasız",
         label_langs:        "Kanal Gönderi Dilleri",
         error_langs:        "En az bir dil seçilmelidir",
+        label_sizes:        "Bedenler",
+        placeholder_sizes:  "Örnek: S, M, L, XL veya tek beden",
+        hint_sizes:         "Mevcut bedenleri virgülle ayırarak yazın veya tek beden ürnüyse tek beden yazın",
+        lang_ar:            "🇸🇦 Arapça",
+        lang_tr:            "🇹🇷 Türkçe",
+        lang_en:            "🇬🇧 İngilizce",
         attrs_divider:      "Özellikler",
         info_photos:        "<strong>Ürün fotoğrafları</strong> bir sonraki adımda sohbet içinde istenecektir",
         success_text:       "Başarıyla kaydedildi! ✨",
@@ -956,7 +983,7 @@
         placeholder_price:  "Example: 200",
         error_price:        "Price must be greater than 0",
         label_minqty:       "Minimum Order Quantity",
-        placeholder_minqty: "Example: 300",
+        placeholder_minqty: "Example: 100",
         error_minqty:       "Minimum quantity must be at least 1",
         label_code:         "Product Code",
         placeholder_code:   "Example: TK-143",
@@ -965,6 +992,12 @@
         placeholder_notes:  "Example:\n• Package contents: 4 pcs (S, M, L, XL)\n• Price: with invoice / without invoice",
         label_langs:        "Channel Post Languages",
         error_langs:        "At least one language must be selected",
+        label_sizes:        "Sizes",
+        placeholder_sizes:  "Example: S, M, L, XL or one size",
+        hint_sizes:         "Write available sizes separated by commas, or write one size if the product has a single size",
+        lang_ar:            "🇸🇦 Arabic",
+        lang_tr:            "🇹🇷 Turkish",
+        lang_en:            "🇬🇧 English",
         attrs_divider:      "Attributes",
         info_photos:        "<strong>Product photos</strong> will be requested in the next step inside the chat",
         success_text:       "Saved successfully! ✨",
@@ -1011,11 +1044,28 @@
           }
         });
       }
-      setLabelText("card-name",  T.label_name);
-      setLabelText("card-desc",  T.label_desc);
-      setLabelText("card-price", T.label_price);
-      setLabelText("card-code",  T.label_code);
-      setLabelText("card-notes", T.label_notes);
+      setLabelText("card-name",   T.label_name);
+      setLabelText("card-desc",   T.label_desc);
+      setLabelText("card-price",  T.label_price);
+      setLabelText("card-minqty", T.label_minqty);
+      setLabelText("card-code",   T.label_code);
+      setLabelText("card-notes",  T.label_notes);
+
+      // Sizes field label, placeholder, and hint
+      const labelSizes = document.getElementById("label-sizes");
+      if (labelSizes) labelSizes.textContent = T.label_sizes;
+      const hintSizes = document.getElementById("hint-sizes");
+      if (hintSizes) hintSizes.textContent = T.hint_sizes;
+
+      // Post languages section label and language checkbox labels
+      const labelLangs = document.getElementById("label-langs");
+      if (labelLangs) labelLangs.textContent = T.label_langs;
+      const labelLangAr = document.getElementById("label-lang-ar");
+      if (labelLangAr) labelLangAr.textContent = T.lang_ar;
+      const labelLangTr = document.getElementById("label-lang-tr");
+      if (labelLangTr) labelLangTr.textContent = T.lang_tr;
+      const labelLangEn = document.getElementById("label-lang-en");
+      if (labelLangEn) labelLangEn.textContent = T.lang_en;
 
       // Optional tags
       document.querySelectorAll(".optional-tag").forEach(el => {
@@ -1033,6 +1083,7 @@
       setPlaceholder("field-minqty", T.placeholder_minqty);
       setPlaceholder("field-code",   T.placeholder_code);
       setPlaceholder("field-notes",  T.placeholder_notes);
+      setPlaceholder("field-sizes",  T.placeholder_sizes);
 
       // Error messages
       const setError = (id, val) => {
@@ -1252,7 +1303,7 @@
       }
 
       // Stock — hidden field with default value 500, no validation needed
-      // Min Quantity — hidden field with default value 1, no validation needed
+      // Min Quantity — optional visible field with default value 100, no validation needed
       // Post Languages — hidden, all 3 sent by default
 
       // Dynamic required attributes
@@ -1714,11 +1765,13 @@
         const el = document.getElementById(id);
         if (el && val !== undefined && val !== null && val !== '') el.value = val;
       };
-      setVal('field-name',  PREFILL.name);
-      setVal('field-desc',  PREFILL.description);
-      setVal('field-price', PREFILL.price);
-      setVal('field-code',  PREFILL.product_code);
-      setVal('field-notes', PREFILL.notes);
+      setVal('field-name',   PREFILL.name);
+      setVal('field-desc',   PREFILL.description);
+      setVal('field-price',  PREFILL.price);
+      setVal('field-minqty', PREFILL.min_quantity);
+      setVal('field-code',   PREFILL.product_code);
+      setVal('field-notes',  PREFILL.notes);
+      setVal('field-sizes',  PREFILL.sizes);
 
       // Update char counters for text fields (counter IDs: counter-name, counter-desc, counter-notes)
       const counterMap = { 'field-name': 'counter-name', 'field-desc': 'counter-desc', 'field-notes': 'counter-notes' };
@@ -1728,8 +1781,13 @@
         if (el && max) updateCounter(counterId, el.value.length, max);
       });
 
-      // Post languages — hidden checkboxes, always send all 3 by default
-      // (no prefill needed for hidden fields)
+      // Post languages — restore from prefill if available
+      if (PREFILL.post_languages && Array.isArray(PREFILL.post_languages)) {
+        ["ar", "tr", "en"].forEach(l => {
+          const cb = document.getElementById(`lang-${l}`);
+          if (cb) cb.checked = PREFILL.post_languages.includes(l);
+        });
+      }
 
       // ── Dynamic attribute controls ───────────────────────────────────────────────────────────────────────────────────────
       // shared_attributes: { attr_id: [opt_id, ...] }
@@ -1811,7 +1869,7 @@
       const name     = document.getElementById("field-name").value.trim();
       const desc     = document.getElementById("field-desc").value.trim();
       const price    = document.getElementById("field-price").value;
-      const minQty   = parseInt(document.getElementById("field-minqty").value);
+      const minQty   = parseInt(document.getElementById("field-minqty").value) || 100;
       const stockRaw = document.getElementById("field-stock").value;
       const stock    = stockRaw ? parseInt(stockRaw) : minQty;
 

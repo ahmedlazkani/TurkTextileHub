@@ -2658,9 +2658,15 @@ async def handle_confirm_details(
         logger.info("[AI_ATTRS_DEBUG] attrs_list=%s", _jdebug.dumps(attrs_list, ensure_ascii=False))
         logger.info("[AI_ATTRS_DEBUG] languages=%s", languages)
 
-        # Add sizes from form if provided
+        # Add sizes from form if provided — but only if no size attribute already exists
+        # in selector_attributes or shared_attributes to avoid duplication (Band 5 fix)
+        _SIZE_KEYWORDS = {"size", "beden", "مقاس", "ebat", "boyut"}
+        _has_size_attr = any(
+            any(kw in (_get_attr_info(a_id).get("name", "") or "").lower() for kw in _SIZE_KEYWORDS)
+            for a_id in list(sel_grouped.keys()) + list(shared_attrs.keys())
+        )
         sizes_val = (product_details.get("sizes") or "").strip()
-        if sizes_val:
+        if sizes_val and not _has_size_attr:
             attrs_list.append({"name": "المقاسات", "value": sizes_val})
 
         post_data = {
@@ -2674,9 +2680,9 @@ async def handle_confirm_details(
         }
         # Show "generating" message
         generating_msgs = {
-            "ar": "🤖 <b>DeepSeek AI</b> يُحسّن بوست القناة...",
-            "tr": "🤖 <b>DeepSeek AI</b> kanal gönderisi oluşturuluyor...",
-            "en": "🤖 <b>DeepSeek AI</b> is crafting your channel post...",
+            "ar": "🤖 <b>AI</b> يُحسّن بوست القناة...",
+            "tr": "🤖 <b>AI</b> kanal gönderisi oluşturuluyor...",
+            "en": "🤖 <b>AI</b> is crafting your channel post...",
         }
         gen_msg = await query.message.reply_text(
             generating_msgs.get(lang, generating_msgs["en"]),
@@ -2766,6 +2772,7 @@ async def handle_confirm_details(
                 "stock_count":         product_details.get("stock_count", 500),
                 "product_code":        product_details.get("product_code", ""),
                 "notes":               product_details.get("notes", ""),
+                "sizes":               product_details.get("sizes", ""),
                 "post_languages":      product_details.get("post_languages", ["ar"]),
                 "shared_attributes":   product_details.get("shared_attributes", {}),
                 "selector_attributes": product_details.get("selector_attributes", []),
@@ -2904,13 +2911,46 @@ async def handle_ai_post_review(
             a_name = _deduplicate_name(a_info.get("name", "") or a_id)
             o_names = []
             for o_id in grp["opt_ids"]:
+                # Band 8 fix: resolve option label properly (not just o_id[:8])
+                _found_label = None
                 for opt in a_info.get("options", []):
                     if opt.get("id") == o_id:
-                        o_names.append(_deduplicate_name(opt.get("name", "") or o_id))
+                        raw_n = opt.get("label") or opt.get("name") or opt.get("value", "")
+                        if "|" in (raw_n or ""):
+                            raw_n = raw_n.split("|", 1)[-1].strip()
+                        _found_label = _deduplicate_name(raw_n) if raw_n else None
                         break
-                else:
-                    o_names.append(o_id[:8])
+                # Fallback: check by value (proxy sets opt.id = opt.value for non-UUID options)
+                if not _found_label:
+                    for opt in a_info.get("options", []):
+                        raw_val = str(opt.get("value", ""))
+                        cmp_val = raw_val.split("|", 1)[-1].strip() if "|" in raw_val else raw_val
+                        if cmp_val == o_id or raw_val == o_id:
+                            raw_n = opt.get("label") or opt.get("name") or cmp_val
+                            if "|" in (raw_n or ""):
+                                raw_n = raw_n.split("|", 1)[-1].strip()
+                            _found_label = _deduplicate_name(raw_n) if raw_n else None
+                            break
+                # Last resort: use o_id as-is if it looks human-readable (not a UUID)
+                import re as _re_regen
+                _UUID_PAT = _re_regen.compile(
+                    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+                    _re_regen.I,
+                )
+                if not _found_label:
+                    _found_label = o_id if not _UUID_PAT.match(o_id) else f"[{o_id[:8]}]"
+                o_names.append(_found_label)
             attrs_list.append({"name": a_name, "value": ", ".join(o_names)})
+
+        # Band 5 fix: add free-text sizes only if no size attribute already in structured attrs
+        _SIZE_KWS = {"size", "beden", "مقاس", "ebat", "boyut"}
+        _regen_has_size = any(
+            any(kw in (all_attrs.get(a_id, {}).get("name", "") or "").lower() for kw in _SIZE_KWS)
+            for a_id in list(sel_grouped_regen.keys()) + list(product_details.get("shared_attributes", {}).keys())
+        )
+        _regen_sizes_val = (product_details.get("sizes") or "").strip()
+        if _regen_sizes_val and not _regen_has_size:
+            attrs_list.append({"name": "المقاسات", "value": _regen_sizes_val})
 
         post_data = {
             "name":         product_details.get("name", ""),
