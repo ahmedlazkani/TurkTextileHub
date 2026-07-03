@@ -3215,7 +3215,8 @@ async def _ask_color_photos(
 ) -> None:
     """
     Sends the prompt asking for photos of the current color.
-    Builds the keyboard: [✅ Done — Next Color] [⏭️ Skip]
+    Photos are MANDATORY — no skip option is presented.
+    Keyboard layout: [📸 Add Another Photo] / [✅ Done — Next Color]
     """
     color   = colors[index]
     current = index + 1
@@ -3240,12 +3241,6 @@ async def _ask_color_photos(
         "tr": f"✅ Tamam — {_next_color_name} Rengine Geç" if _next_color_name else "✅ Tamam — Ürünü Yayınla",
         "en": f"✅ Done — Next: {_next_color_name}" if _next_color_name else "✅ Done — Publish",
     }
-    _FALLBACK_SKIP = {
-        "ar": "⏭️ تخطي هذا اللون",
-        "tr": "⏭️ Bu Rengi Atla",
-        "en": "⏭️ Skip This Color",
-    }
-
     def _gs(key: str, fallback_dict: dict) -> str:
         """get_string with hardcoded fallback."""
         val = get_string(lang, key)
@@ -3264,13 +3259,13 @@ async def _ask_color_photos(
             color_name=color["name"],
         )
 
-    # 3-button layout from the start:
-    # Row 1: 📸 Add Photo (hint — user sends photo directly)
-    # Row 2: ✅ Done (next color)  |  ⏭️ Skip this color
+    # 2-button layout — photos are MANDATORY, no skip option:
+    # Row 1: 📸 Add Another Photo
+    # Row 2: ✅ Done — Next Color  (only enabled after at least 1 photo is sent)
     _ADD_PHOTO_FALLBACK = {
-        "ar": f"📸 إضافة صورة إضافية لـ {color['name']}",
-        "tr": f"📸 {color['name']} için Ek Fotoğraf Ekle",
-        "en": f"📸 Add Another Photo for {color['name']}",
+        "ar": f"📸 إضافة صورة لـ {color['name']}",
+        "tr": f"📸 {color['name']} için Fotoğraf Ekle",
+        "en": f"📸 Add Photo for {color['name']}",
     }
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton(
@@ -3281,10 +3276,6 @@ async def _ask_color_photos(
             InlineKeyboardButton(
                 _gs("color_upload_done_btn", _FALLBACK_DONE),
                 callback_data="color_done",
-            ),
-            InlineKeyboardButton(
-                _gs("color_upload_skip_btn", _FALLBACK_SKIP),
-                callback_data="color_skip",
             ),
         ],
     ])
@@ -3374,12 +3365,6 @@ async def handle_color_image_upload(
         "tr": f"✅ Tamam — {_next_cn} Rengine Geç" if _next_cn else "✅ Tamam — Ürünü Yayınla",
         "en": f"✅ Done — Next: {_next_cn}" if _next_cn else "✅ Done — Publish",
     }
-    _SKIP_FALLBACK = {
-        "ar": "⏭️ تخطي هذا اللون",
-        "tr": "⏭️ Bu Rengi Atla",
-        "en": "⏭️ Skip This Color",
-    }
-
     def _gs2(key: str, fb: dict) -> str:
         v = get_string(lang, key)
         return fb.get(lang, fb["en"]) if v == key else v
@@ -3387,8 +3372,8 @@ async def handle_color_image_upload(
     added_raw = _gs2("color_upload_added", _ADDED_FALLBACK)
     status_text = added_raw.format(color_name=color["name"], count=new_count)
 
-    # After first photo: show "Add another photo" + "Done" buttons
-    # This gives supplier the choice to add more photos or move to next color
+    # After first photo: show "Add another photo" + "Done" buttons.
+    # Photos are MANDATORY — no skip button is shown.
     _ADD_MORE_FALLBACK = {
         "ar": f"📸 إضافة صورة إضافية لـ {color['name']}",
         "tr": f"📸 {color['name']} için Ek Fotoğraf Ekle",
@@ -3403,10 +3388,6 @@ async def handle_color_image_upload(
             InlineKeyboardButton(
                 _gs2("color_upload_done_btn", _DONE_FALLBACK),
                 callback_data="color_done",
-            ),
-            InlineKeyboardButton(
-                _gs2("color_upload_skip_btn", _SKIP_FALLBACK),
-                callback_data="color_skip",
             ),
         ],
     ])
@@ -3436,7 +3417,8 @@ async def handle_color_action(
     context: ContextTypes.DEFAULT_TYPE,
 ) -> int:
     """
-    STATE: COLOR_UPLOAD — handles ✅ Done and ⏭️ Skip buttons.
+    STATE: COLOR_UPLOAD — handles ✅ Done and 📸 Add More buttons.
+    Skip is intentionally removed — photos are mandatory for every color.
     """
     query   = update.callback_query
     await query.answer()
@@ -3451,7 +3433,7 @@ async def handle_color_action(
 
     color    = colors[index]
     color_id = color["id"]
-    action   = query.data  # "color_done", "color_skip", or "color_add_more"
+    action   = query.data  # "color_done" or "color_add_more" (color_skip is disabled)
 
     if action == "color_add_more":
         # Supplier wants to add another photo for the current color
@@ -3469,14 +3451,13 @@ async def handle_color_action(
         return COLOR_UPLOAD
 
     if action == "color_done":
-        # Check if at least one photo was uploaded
+        # Photos are MANDATORY — block Done if no photo has been uploaded for this color
         uploaded = context.user_data.get("color_images_map", {}).get(color_id, [])
         if not uploaded:
-            # Warn supplier and stay in COLOR_UPLOAD
             _no_photo_warn = {
-                "ar": f"⚠️ لم ترفع أي صورة للون <b>{color['name']}</b>.\n\nارفع صورة واحدة على الأقل أو تخطّ هذا اللون.",
-                "tr": f"⚠️ <b>{color['name']}</b> rengi için hiç fotoğraf yüklemediniz.\n\nEn az 1 fotoğraf yükleyin veya bu rengi atlayın.",
-                "en": f"⚠️ No photos uploaded for <b>{color['name']}</b>.\n\nUpload at least 1 photo or skip this color.",
+                "ar": f"📸 يجب رفع صورة واحدة على الأقل للون <b>{color['name']}</b>.\n\nالصورة إلزامية لكل لون.",
+                "tr": f"📸 <b>{color['name']}</b> rengi için en az 1 fotoğraf zorunludur.\n\nLütfen bir fotoğraf gönderin.",
+                "en": f"📸 At least 1 photo is required for <b>{color['name']}</b>.\n\nPlease send a photo to continue.",
             }
             await query.answer(
                 _no_photo_warn.get(lang, _no_photo_warn["en"]).replace("<b>", "").replace("</b>", ""),
@@ -3487,19 +3468,18 @@ async def handle_color_action(
         # "✅ ColorName — N/5 صورة مضافة" so photos appear above it correctly.
 
     elif action == "color_skip":
-        # Edit current message to show skip notice (no photos were added)
-        _skip_notice = {
-            "ar": f"⏭️ تم تخطي لون <b>{color['name']}</b>.\n\n📱 يمكنك رفع الصور لاحقاً من تطبيق TopKap.",
-            "tr": f"⏭️ <b>{color['name']}</b> rengi atlandı.\n\n📱 Fotoğrafları daha sonra TopKap uygulamasından yükleyebilirsiniz.",
-            "en": f"⏭️ <b>{color['name']}</b> skipped.\n\n📱 You can upload photos later from the TopKap app.",
+        # color_skip is DISABLED — photos are mandatory.
+        # This branch handles any residual callbacks from old keyboards.
+        _skip_blocked = {
+            "ar": f"📸 الصورة إلزامية. يرجى إرسال صورة للون <b>{color['name']}</b>.",
+            "tr": f"📸 Fotoğraf zorunludur. Lütfen <b>{color['name']}</b> rengi için fotoğraf gönderin.",
+            "en": f"📸 Photos are required. Please send a photo for <b>{color['name']}</b>.",
         }
-        try:
-            await query.edit_message_text(
-                _skip_notice.get(lang, _skip_notice["en"]),
-                parse_mode=ParseMode.HTML,
-            )
-        except Exception:
-            pass
+        await query.answer(
+            _skip_blocked.get(lang, _skip_blocked["en"]).replace("<b>", "").replace("</b>", ""),
+            show_alert=True,
+        )
+        return COLOR_UPLOAD
 
     # Advance to next color
     next_index = index + 1
