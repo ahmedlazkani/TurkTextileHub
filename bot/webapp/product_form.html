@@ -828,25 +828,6 @@
       <div class="char-counter" id="counter-notes">0 / 500</div>
     </div>
 
-    <!-- ─── 9. المقاسات (اختياري) ───────────────── -->
-    <div class="field-card" id="card-sizes">
-      <div class="field-label">
-        <span class="icon">📐</span>
-        <span id="label-sizes">المقاسات</span>
-        <span class="optional-tag">اختياري</span>
-      </div>
-      <input
-        type="text"
-        id="field-sizes"
-        placeholder="مثال: S, M, L, XL أو مقاس موحد"
-        maxlength="100"
-        autocomplete="off"
-        inputmode="text"
-      />
-      <div class="field-hint" id="hint-sizes" style="font-size:0.72rem;color:var(--tg-hint);margin-top:4px;">
-        اكتب المقاسات المتاحة مفصولة بفواصل أو اكتب مقاس موحد إذا كان المنتج بمقاس واحد
-      </div>
-    </div>
 
     <!-- ─── 10. لغات البوست ──────────────────── -->
     <div class="field-card" id="section-languages">
@@ -930,9 +911,6 @@
         placeholder_notes:  "مثال:\n• ماذا يحتوي كل باكيت: 4 قطع (S، M، L، XL)\n• السعر: بفاتورة / بدون فاتورة",
         label_langs:        "لغات البوست على القناة",
         error_langs:        "يجب اختيار لغة واحدة على الأقل",
-        label_sizes:        "المقاسات",
-        placeholder_sizes:  "مثال: S, M, L, XL أو مقاس موحد",
-        hint_sizes:         "اكتب المقاسات المتاحة مفصولة بفواصل أو اكتب مقاس موحد إذا كان المنتج بمقاس واحد",
         lang_ar:            "🇸🇦 عربي",
         lang_tr:            "🇹🇷 تركي",
         lang_en:            "🇬🇧 إنكليزي",
@@ -966,9 +944,6 @@
         placeholder_notes:  "Örnek:\n• Paketin içeriği: 4 adet (S, M, L, XL)\n• Fiyat: faturalı / faturasız",
         label_langs:        "Kanal Gönderi Dilleri",
         error_langs:        "En az bir dil seçilmelidir",
-        label_sizes:        "Bedenler",
-        placeholder_sizes:  "Örnek: S, M, L, XL veya tek beden",
-        hint_sizes:         "Mevcut bedenleri virgülle ayırarak yazın veya tek beden ürnüyse tek beden yazın",
         lang_ar:            "🇸🇦 Arapça",
         lang_tr:            "🇹🇷 Türkçe",
         lang_en:            "🇬🇧 İngilizce",
@@ -1002,9 +977,6 @@
         placeholder_notes:  "Example:\n• Package contents: 4 pcs (S, M, L, XL)\n• Price: with invoice / without invoice",
         label_langs:        "Channel Post Languages",
         error_langs:        "At least one language must be selected",
-        label_sizes:        "Sizes",
-        placeholder_sizes:  "Example: S, M, L, XL or one size",
-        hint_sizes:         "Write available sizes separated by commas, or write one size if the product has a single size",
         lang_ar:            "🇸🇦 Arabic",
         lang_tr:            "🇹🇷 Turkish",
         lang_en:            "🇬🇧 English",
@@ -1061,12 +1033,6 @@
       setLabelText("card-code",   T.label_code);
       setLabelText("card-notes",  T.label_notes);
 
-      // Sizes field label, placeholder, and hint
-      const labelSizes = document.getElementById("label-sizes");
-      if (labelSizes) labelSizes.textContent = T.label_sizes;
-      const hintSizes = document.getElementById("hint-sizes");
-      if (hintSizes) hintSizes.textContent = T.hint_sizes;
-
       // Post languages section label and language checkbox labels
       const labelLangs = document.getElementById("label-langs");
       if (labelLangs) labelLangs.textContent = T.label_langs;
@@ -1093,7 +1059,6 @@
       setPlaceholder("field-minqty", T.placeholder_minqty);
       setPlaceholder("field-code",   T.placeholder_code);
       setPlaceholder("field-notes",  T.placeholder_notes);
-      setPlaceholder("field-sizes",  T.placeholder_sizes);
 
       // Error messages
       const setError = (id, val) => {
@@ -1781,7 +1746,6 @@
       setVal('field-minqty', PREFILL.min_quantity);
       setVal('field-code',   PREFILL.product_code);
       setVal('field-notes',  PREFILL.notes);
-      setVal('field-sizes',  PREFILL.sizes);
 
       // Update char counters for text fields (counter IDs: counter-name, counter-desc, counter-notes)
       const counterMap = { 'field-name': 'counter-name', 'field-desc': 'counter-desc', 'field-notes': 'counter-notes' };
@@ -1909,7 +1873,6 @@
 
       const code  = (document.getElementById("field-code")?.value || "").trim();
       const notes = (document.getElementById("field-notes")?.value || "").trim();
-      const sizes = (document.getElementById("field-sizes")?.value || "").trim();
       const langs = ["ar","tr","en"].filter(l => document.getElementById(`lang-${l}`)?.checked);
 
       const payload = {
@@ -1920,7 +1883,6 @@
         stock_count:         stock,
         product_code:        code  || null,
         notes:               notes || null,
-        sizes:               sizes || null,
         post_languages:      langs.length ? langs : ["ar"],
         shared_attributes:   sharedAttrs,
         selector_attributes: selectorAttrs,
