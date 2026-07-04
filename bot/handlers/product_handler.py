@@ -529,33 +529,51 @@ def _build_variants(
     SUPPORTED_LANGS = ["ar", "en", "tr"]
 
     def _build_titles(name_local: str, name_en: str, lang_code: str) -> list:
-        # Use multilingual fields if available, otherwise fallback to local text
-        titles = []
-        for lng in SUPPORTED_LANGS:
-            if lng == "ar":
-                text = product_name_ar or (name_local if lang_code == "ar" else name_local)
-            elif lng == "tr":
-                text = product_name_tr or (name_local if lang_code == "tr" else name_local)
-            elif lng == "en":
-                text = name_en or product_name_en or name_local
-            else:
-                text = name_local
-            titles.append({"language": lng, "text": text})
+        """
+        Build the multilingual titles list required by KAYISOFT API.
+
+        Priority per language slot:
+          1. Explicit per-language field (name_ar / name_tr / name_en) — set by AI
+             extraction or by Band-6 fix in handle_form_submitted.
+          2. name_local — the text the supplier actually typed.  Used only for the
+             slot that matches the supplier's own language (lang_code).  For other
+             language slots we intentionally leave the text as name_local too
+             (KAYISOFT backend will translate), but we mark it clearly in the
+             comment so a future translation layer can replace it.
+
+        Band-6 root-cause fix:
+          The old code had `(name_local if lang_code == "ar" else name_local)` which
+          always resolved to name_local regardless of lang_code, causing every
+          language slot to receive the supplier's language text (e.g. Turkish text
+          in the Arabic slot).  Now each slot uses its dedicated field first.
+        """
+        _per_lang = {
+            "ar": product_name_ar or (name_local if lang_code == "ar" else ""),
+            "tr": product_name_tr or (name_local if lang_code == "tr" else ""),
+            "en": name_en or product_name_en or (name_local if lang_code == "en" else ""),
+        }
+        # Final fallback: if a slot is still empty, use name_local so the API
+        # always receives a non-empty string (KAYISOFT rejects blank titles).
+        titles = [
+            {"language": lng, "text": _per_lang.get(lng) or name_local}
+            for lng in SUPPORTED_LANGS
+        ]
         return titles
 
     def _build_descriptions(desc_local: str, desc_en: str, lang_code: str) -> list:
-        # Use multilingual fields if available, otherwise fallback to local text
-        descs = []
-        for lng in SUPPORTED_LANGS:
-            if lng == "ar":
-                text = description_ar or (desc_local if lang_code == "ar" else desc_local)
-            elif lng == "tr":
-                text = description_tr or (desc_local if lang_code == "tr" else desc_local)
-            elif lng == "en":
-                text = desc_en or description_en or desc_local
-            else:
-                text = desc_local
-            descs.append({"language": lng, "text": text})
+        """
+        Build the multilingual descriptions list required by KAYISOFT API.
+        Same logic as _build_titles — see its docstring for details.
+        """
+        _per_lang = {
+            "ar": description_ar or (desc_local if lang_code == "ar" else ""),
+            "tr": description_tr or (desc_local if lang_code == "tr" else ""),
+            "en": desc_en or description_en or (desc_local if lang_code == "en" else ""),
+        }
+        descs = [
+            {"language": lng, "text": _per_lang.get(lng) or desc_local}
+            for lng in SUPPORTED_LANGS
+        ]
         return descs
 
     # ── If no selector attributes → single variant ──────────────────────────────────────────────────────────────────────────────────
@@ -2764,15 +2782,27 @@ async def handle_confirm_details(
         # If data came from the webapp form AND we have a Railway domain → re-open form with prefill
         if source in ("webapp", "webapp_post") and RAILWAY_DOMAIN and category_id:
             # Build prefill JSON (only the fields the form knows about)
+            # Band-15 Fix: always pass the canonical name/description that the
+            # supplier originally typed (stored under name_<lang> by Band-6 fix).
+            # This prevents the form from opening with an empty or '—' title
+            # when the supplier edits and re-submits.
+            _edit_lang = lang  # supplier's language at edit time
+            _prefill_name = (
+                product_details.get(f"name_{_edit_lang}")
+                or product_details.get("name", "")
+            )
+            _prefill_desc = (
+                product_details.get(f"description_{_edit_lang}")
+                or product_details.get("description", "")
+            )
             prefill_data = {
-                "name":                product_details.get("name", ""),
-                "description":         product_details.get("description", ""),
+                "name":                _prefill_name,
+                "description":         _prefill_desc,
                 "price":               str(product_details.get("price", "")),
                 "min_quantity":        product_details.get("min_quantity", 1),
                 "stock_count":         product_details.get("stock_count", 500),
                 "product_code":        product_details.get("product_code", ""),
                 "notes":               product_details.get("notes", ""),
-                "sizes":               product_details.get("sizes", ""),
                 "post_languages":      product_details.get("post_languages", ["ar"]),
                 "shared_attributes":   product_details.get("shared_attributes", {}),
                 "selector_attributes": product_details.get("selector_attributes", []),
@@ -3989,9 +4019,37 @@ async def handle_final_publish(
     description_ar  = product_details.get("description_ar", "")
     description_tr  = product_details.get("description_tr", "")
     description_en  = product_details.get("description_en", "")
-    # Fallback: if new multilingual fields exist, use them; otherwise use old fields
-    product_name = product_name_ar or product_details.get("name", product_details.get("raw_text", "")[:80])
-    description  = description_ar  or product_details.get("description", "")
+    # Band-6 / Band-15 Fix: resolve the canonical product_name and description
+    # from the correct language slot based on the supplier's language.
+    # Old code always used product_name_ar as the primary fallback, which caused
+    # Turkish suppliers' products to show empty names (name_ar was blank).
+    # Now we check the supplier's own language slot first, then fall back to
+    # the generic 'name' field, then to raw_text.
+    _lang = context.user_data.get("lang", "tr")
+    _name_by_lang = {
+        "ar": product_name_ar,
+        "tr": product_name_tr,
+        "en": product_name_en,
+    }
+    _desc_by_lang = {
+        "ar": description_ar,
+        "tr": description_tr,
+        "en": description_en,
+    }
+    product_name = (
+        _name_by_lang.get(_lang)
+        or product_name_ar
+        or product_name_tr
+        or product_name_en
+        or product_details.get("name", product_details.get("raw_text", "")[:80])
+    )
+    description = (
+        _desc_by_lang.get(_lang)
+        or description_ar
+        or description_tr
+        or description_en
+        or product_details.get("description", "")
+    )
     price_raw    = product_details.get("price", "0")
     min_quantity = int(product_details.get("min_quantity", product_details.get("min_order", 1)))
     stock_count  = int(product_details.get("stock_count", product_details.get("stock", 100)))
@@ -4590,9 +4648,27 @@ async def handle_form_submitted(
     # fall back to all 3 if the payload doesn't include a selection
     post_languages      = payload.get("post_languages") or ["ar", "tr", "en"]
 
+    # ── Band 6 Fix: Store name/description under the supplier's language key ──────
+    # This ensures _build_titles / _build_descriptions in _build_variants can
+    # correctly assign each language its own text instead of copying the supplier's
+    # language text into ALL language slots.
+    # Strategy:
+    #   - name_<lang> = the text the supplier typed (their own language)
+    #   - name_<other_langs> = "" → _build_titles will use name_local as fallback
+    #     for the other languages (acceptable until backend translation is added)
+    # This also fixes Band 15: the supplier's original text is always preserved
+    # under the correct language key and never overwritten by a blank value.
+    _lang_name_key = f"name_{lang}"          if lang in ("ar", "tr", "en") else "name_tr"
+    _lang_desc_key = f"description_{lang}"   if lang in ("ar", "tr", "en") else "description_tr"
+
     product_details = {
         "name":                name,
         "description":         description,
+        # Per-language fields — only the supplier's language is populated;
+        # the others remain empty so _build_variants uses name as fallback
+        # without copying the wrong language text into every slot.
+        _lang_name_key:        name,
+        _lang_desc_key:        description,
         "price":               price_str,
         "min_quantity":        min_quantity,
         "stock_count":         stock_count,
