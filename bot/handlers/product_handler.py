@@ -2686,10 +2686,24 @@ async def handle_confirm_details(
         logger.info("[AI_ATTRS_DEBUG] languages=%s", languages)
 
         # Add sizes from form if provided — but only if no size attribute already exists
-        # in selector_attributes or shared_attributes to avoid duplication (Band 5 fix)
-        _SIZE_KEYWORDS = {"size", "beden", "مقاس", "ebat", "boyut"}
+        # in selector_attributes or shared_attributes to avoid duplication (Band 5 fix).
+        # Band 5 improvement: check BOTH 'name' AND 'key' fields of the attribute dict,
+        # because KAYISOFT may return the human-readable name in 'name' (e.g. "Beden") or
+        # in 'key' (e.g. "size"), and the previous check only looked at 'name'.
+        _SIZE_KEYWORDS = {"size", "beden", "maqas", "مقاس", "ebat", "boyut", "ölçü", "olcu", "measure"}
+
+        def _is_size_attr(a_id: str) -> bool:
+            """Return True if the attribute identified by a_id is a size/dimension attribute."""
+            info = _get_attr_info(a_id)
+            # Check both 'name' (human-readable) and 'key' (API slug) fields
+            for field in ("name", "key", "label"):
+                val = (info.get(field) or "").lower()
+                if any(kw in val for kw in _SIZE_KEYWORDS):
+                    return True
+            return False
+
         _has_size_attr = any(
-            any(kw in (_get_attr_info(a_id).get("name", "") or "").lower() for kw in _SIZE_KEYWORDS)
+            _is_size_attr(a_id)
             for a_id in list(sel_grouped.keys()) + list(shared_attrs.keys())
         )
         sizes_val = (product_details.get("sizes") or "").strip()
@@ -2981,10 +2995,21 @@ async def handle_ai_post_review(
                 o_names.append(_found_label)
             attrs_list.append({"name": a_name, "value": ", ".join(o_names)})
 
-        # Band 5 fix: add free-text sizes only if no size attribute already in structured attrs
-        _SIZE_KWS = {"size", "beden", "مقاس", "ebat", "boyut"}
+        # Band 5 fix: add free-text sizes only if no size attribute already in structured attrs.
+        # Band 5 improvement: check 'name', 'key', AND 'label' fields to catch Turkish/Arabic names.
+        _SIZE_KWS_REGEN = {"size", "beden", "maqas", "مقاس", "ebat", "boyut", "ölçü", "olcu", "measure"}
+
+        def _is_size_attr_regen(a_id: str) -> bool:
+            """Return True if the attribute is a size/dimension attribute (Regenerate path)."""
+            info = all_attrs.get(a_id, {})
+            for field in ("name", "key", "label"):
+                val = (info.get(field) or "").lower()
+                if any(kw in val for kw in _SIZE_KWS_REGEN):
+                    return True
+            return False
+
         _regen_has_size = any(
-            any(kw in (all_attrs.get(a_id, {}).get("name", "") or "").lower() for kw in _SIZE_KWS)
+            _is_size_attr_regen(a_id)
             for a_id in list(sel_grouped_regen.keys()) + list(product_details.get("shared_attributes", {}).keys())
         )
         _regen_sizes_val = (product_details.get("sizes") or "").strip()

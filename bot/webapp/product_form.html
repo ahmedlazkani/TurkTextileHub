@@ -921,6 +921,7 @@
         select_placeholder: "— اختر —",
         field_required:     "هذا الحقل مطلوب",
         toast_required_fields: "يرجى تعبئة جميع الحقول المطلوبة — محددة بالإطار الأحمر",
+        done_btn:           "تم ✓",
       },
       tr: {
         header_title:       "📦 Yeni Ürün Ekle",
@@ -954,6 +955,7 @@
         select_placeholder: "— Seçin —",
         field_required:     "Bu alan zorunludur",
         toast_required_fields: "Lütfen zorunlu alanları doldurun — kırmızı çerçeveli alanlar eksik",
+        done_btn:           "Tamam ✓",
       },
       en: {
         header_title:       "📦 Add New Product",
@@ -987,6 +989,7 @@
         select_placeholder: "— Select —",
         field_required:     "This field is required",
         toast_required_fields: "Please fill in all required fields — highlighted in red",
+        done_btn:           "Done ✓",
       },
     };
     const T = I18N[LANG] || I18N["en"];
@@ -1083,6 +1086,10 @@
 
       // MainButton text
       if (tg && tg.MainButton) tg.MainButton.setText(T.btn_save);
+
+      // Done button (keyboard dismiss toolbar) — Band 2
+      const doneBtn = document.getElementById('done-btn');
+      if (doneBtn) doneBtn.textContent = T.done_btn;
     })();
     const USER_ID     = urlParams.get("user_id")      || "";
 
@@ -1753,6 +1760,29 @@
         const el  = document.getElementById(fieldId);
         const max = parseInt(el?.getAttribute('maxlength') || '0');
         if (el && max) updateCounter(counterId, el.value.length, max);
+      });
+
+      // Band 20 — Clear red-border validation state for pre-filled base fields.
+      // When the form is opened in edit mode, fields are hydrated with existing values
+      // but the validation CSS classes (has-error / error visible) may already be set
+      // from a previous failed submit attempt.  We clear them here so the supplier
+      // does not see red borders on fields that are already correctly filled.
+      const BASE_FIELD_CARD_MAP = [
+        { cardId: 'card-name',   fieldId: 'field-name',   errorId: 'error-name'  },
+        { cardId: 'card-desc',   fieldId: 'field-desc',   errorId: 'error-desc'  },
+        { cardId: 'card-price',  fieldId: 'field-price',  errorId: 'error-price' },
+      ];
+      BASE_FIELD_CARD_MAP.forEach(({ cardId, fieldId, errorId }) => {
+        const card  = document.getElementById(cardId);
+        const field = document.getElementById(fieldId);
+        const err   = document.getElementById(errorId);
+        if (!card || !field) return;
+        if (field.value && field.value.trim()) {
+          // Field has a value — remove error state and mark as filled
+          card.classList.remove('has-error');
+          if (err) err.classList.remove('visible');
+          card.classList.add('is-filled');
+        }
       });
 
       // Post languages — restore from prefill if available
