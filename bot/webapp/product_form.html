@@ -1859,9 +1859,35 @@
         }
       });
 
+      // Band-20 Fix: clear red borders from ALL dynamic attribute cards
+      // that have been successfully restored by prefill (shared + selector).
+      // The previous fix only cleared the three base cards (name/desc/price);
+      // dynamic attribute cards (color, size, material, etc.) kept their
+      // has-error class from the previous failed-submit attempt.
+      const _allPrefillAttrIds = [
+        ...Object.keys(PREFILL.shared_attributes   || {}),
+        ...(PREFILL.selector_attributes || []).map(s => s.attribute_id),
+      ];
+      // Deduplicate
+      [...new Set(_allPrefillAttrIds)].forEach(attrId => {
+        const card  = document.getElementById('card-attr-' + attrId);
+        if (!card) return;
+        const state = attrState[attrId];
+        const val   = state && state.value;
+        // Only clear if the attribute actually has a value after prefill
+        const hasValue = val && (Array.isArray(val) ? val.length > 0 : true);
+        if (hasValue) {
+          card.classList.remove('has-error');
+          card.classList.add('is-filled');
+          // Hide inline error message if present
+          const errEl = card.querySelector('.field-error');
+          if (errEl) errEl.classList.remove('visible');
+        }
+      });
+
       // Trigger validation so MainButton shows if all required fields are filled
       validateAndToggleMainButton();
-      console.log('[TopKap] Prefill applied ✔');
+      console.log('[TopKap] Prefill applied ✔ (Band-20: dynamic attr errors cleared)');
     }
 
     /* ────────────────────────────────────────────────────────
