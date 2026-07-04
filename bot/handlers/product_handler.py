@@ -860,7 +860,8 @@ def _build_variants_preview(lang: str, variants: list, attr_map: dict) -> str:
         lines.append(f"🎨 <b>{name}:</b> {', '.join(values)}")
 
     lines.append("")
-    lines.append(f"💰 {price} ₺  |  📦 {stock} pcs")
+    # Band-14 Fix: price is always displayed in USD ($) not TL (₺)
+    lines.append(f"💰 {price} $  |  📦 {stock} pcs")
     lines.append("")
 
     confirm_prompts = {
@@ -944,7 +945,8 @@ def _build_channel_post(
         f"{sep}\n"
         f"📝 {description}\n"
         f"{sep}\n"
-        f"{L['price']}: <b>{price} ₺</b>\n"
+        # Band-14 Fix: price is always displayed in USD ($) not TL (₺)
+        f"{L['price']}: <b>{price} $</b>\n"
         f"{L['min_order']}: {min_order}\n"
         f"{L['supplier']}: {supplier_name}\n"
         f"{L['ships']}\n"
@@ -991,6 +993,10 @@ async def _publish_to_channel(
     share_link_chat: str = "",     # KAYISOFT deep link: start-chat-variant
     share_link_details: str = "",  # KAYISOFT deep link: product-variant details
     post_languages: list = None,   # languages for the AI post; defaults to ["ar","tr","en"]
+    # Band-18: supplier notes (e.g. invoice info, pack contents) forwarded to AI post
+    notes: str = None,
+    # Band-19: supplier product code forwarded to AI post (shown in caption)
+    product_code: str = None,
 ) -> bool:
     """
     Publishes a professional product post to the supplier's Telegram channel.
@@ -1058,8 +1064,10 @@ async def _publish_to_channel(
         "description":  description,
         "price":        price,
         "min_quantity": min_order,
-        "product_code": None,
-        "notes":        None,
+        # Band-18: pass real notes so the AI includes them in the channel post
+        # Band-19: pass real product_code so the AI shows it in the caption
+        "product_code": product_code or None,
+        "notes":        notes or None,
         "attributes":   attributes or [],
     }
     # Use the languages selected by the supplier; fall back to all 3 if not specified
@@ -1385,7 +1393,8 @@ def _build_extraction_summary(
         header, "",
         f"{L['name']}: <b>{name}</b>",
         f"{L['desc']}: {description}",
-        f"{L['price']}: <b>{price} ₺</b>",
+        # Band-14 Fix: price is always displayed in USD ($) not TL (₺)
+        f"{L['price']}: <b>{price} $</b>",
     ]
 
     # Show extracted attributes if any
@@ -4243,10 +4252,20 @@ async def handle_final_publish(
         color_uploaded_map  = color_uploaded_map,
     )
 
-    # v6.2: product_no format: TK-YYYYMMDD-XXXX (date-based, globally unique)
-    _today = datetime.now(timezone.utc).strftime("%Y%m%d")
-    _rand  = uuid.uuid4().hex[:6].upper()
-    product_no = f"TK-{_today}-{_rand}"
+    # Band-19 Fix: use the supplier's own product code if provided;
+    # otherwise fall back to the auto-generated TK-YYYYMMDD-XXXX format.
+    # The supplier's code is stored under 'product_code' in product_details
+    # (set by handle_form_submitted or handle_manual_text_input).
+    _supplier_code = product_details.get("product_code") or product_details.get("product_no") or ""
+    if _supplier_code:
+        product_no = str(_supplier_code).strip()
+        logger.info("Band-19: using supplier product_code=%r as product_no", product_no)
+    else:
+        # Auto-generate a unique code: TK-YYYYMMDD-XXXXXX
+        _today = datetime.now(timezone.utc).strftime("%Y%m%d")
+        _rand  = uuid.uuid4().hex[:6].upper()
+        product_no = f"TK-{_today}-{_rand}"
+        logger.info("Band-19: no supplier code provided, auto-generated product_no=%r", product_no)
 
     # Build the complete product payload matching KAYISOFT API spec exactly
     product_payload = {
@@ -4440,6 +4459,10 @@ async def handle_final_publish(
             share_link_chat=share_link_chat,
             share_link_details=share_link_details,
             post_languages=_post_languages,
+            # Band-18: pass supplier notes to AI post generator
+            notes=product_details.get("notes") or None,
+            # Band-19: pass supplier product code to AI post generator
+            product_code=product_details.get("product_code") or None,
         )
     else:
         logger.warning(
@@ -4647,6 +4670,12 @@ async def handle_form_submitted(
     # Use the languages selected by the supplier in the form;
     # fall back to all 3 if the payload doesn't include a selection
     post_languages      = payload.get("post_languages") or ["ar", "tr", "en"]
+    # Band-18 / Band-19 Fix: preserve optional supplier fields that were previously
+    # silently dropped when product_details was built.  The webapp already sends
+    # these fields correctly; they were just never stored, so the AI post generator
+    # and KAYISOFT payload builder never received them.
+    product_code = str(payload.get("product_code") or "").strip() or None
+    notes        = str(payload.get("notes")        or "").strip() or None
 
     # ── Band 6 Fix: Store name/description under the supplier's language key ──────
     # This ensures _build_titles / _build_descriptions in _build_variants can
@@ -4675,6 +4704,12 @@ async def handle_form_submitted(
         "shared_attributes":   shared_attributes,
         "selector_attributes": selector_attributes,
         "post_languages":      post_languages,
+        # Band-18: notes are forwarded to the AI post generator so they appear
+        # in the channel post caption (e.g. invoice info, pack contents).
+        "notes":               notes,
+        # Band-19: product_code is forwarded to KAYISOFT API as product_no
+        # instead of the auto-generated TK-YYYYMMDD-XXXX placeholder.
+        "product_code":        product_code,
         "_source":             "webapp_post",
     }
     context.user_data["product_details"] = product_details
@@ -4937,7 +4972,8 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
         header, "",
         f"{L['name']}: <b>{name}</b>",
         f"{L['desc']}: {description}",
-        f"{L['price']}: <b>{price} ₺</b>",
+        # Band-14 Fix: price is always displayed in USD ($) not TL (₺)
+        f"{L['price']}: <b>{price} $</b>",
         f"{L['stock']}: {stock}",
     ]
 
