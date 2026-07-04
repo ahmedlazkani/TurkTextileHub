@@ -673,13 +673,17 @@ def _build_variants(
     images_per_variant: list[list] = []
 
     if color_uploaded_map and n_variants > 1:
-        # Per-color image assignment: match primary option_id to color_uploaded_map
+        # Band-12 Fix: Per-color image assignment.
+        # Each variant (primary option) gets ONLY its own color's images.
+        # If a color has no images in the map, it gets an empty list — NOT all images.
+        # The old fallback (color_imgs = uploaded_file_names) was the root cause:
+        # it assigned ALL uploaded images to every unmatched color, making every
+        # color appear to have the same photos as the first color.
         for combo in combinations:
             primary_opt_id = combo[0]
             color_imgs = color_uploaded_map.get(primary_opt_id, [])
-            if not color_imgs:
-                # Fallback: use all images if this color has no specific images
-                color_imgs = uploaded_file_names
+            # No fallback to uploaded_file_names — empty list is intentional.
+            # A color with no photos should not inherit another color's photos.
             images_per_variant.append(color_imgs)
     elif n_variants <= 1 or n_images == 0:
         images_per_variant = [uploaded_file_names] * max(1, n_variants)
@@ -4019,31 +4023,44 @@ async def handle_final_publish(
 
     logger.info("📊 Image upload summary: %d/%d uploaded successfully", len(uploaded_file_names), len(image_file_ids))
 
-    # ── BUG FIX (Band 12): Build per-color uploaded filename map ─────────────────
+    # ── Band 12 Fix: Build per-color uploaded filename map ───────────────────────
     # image_file_ids is a flat list built by extending color_images_map_final in order:
     #   all_images = []; for c in colors: all_images.extend(color_images_map.get(c["id"], []))
-    # So we can rebuild the per-color S3 filename map by tracking the same order.
-    # uploaded_file_names[i] corresponds to image_file_ids[i] (successful uploads only).
-    # We build a mapping: file_id → s3_filename, then reconstruct per-color map.
+    #
+    # The key insight: results[i] corresponds EXACTLY to image_file_ids[i].
+    # uploaded_file_names is built by iterating results IN ORDER and appending only
+    # successful uploads — so we must track the same positional order.
+    #
+    # Bug in previous version: used list.index(fid) which returns the FIRST occurrence,
+    # causing wrong S3 filename assignment when the same file_id appeared multiple times,
+    # or when a failed download shifted the upload_idx counter incorrectly.
+    #
+    # Fix: iterate image_file_ids with explicit enumerate so each position maps correctly
+    # to results[i] (download success/fail) and uploaded_file_names (upload order).
     color_uploaded_map: dict = {}  # {color_option_id: [s3_filename, ...]}
     if color_images_map_final and uploaded_file_names:
-        # Build file_id → s3_filename index (positional, skipping failed uploads)
+        # Build file_id → s3_filename index using explicit positional mapping
         file_id_to_s3: dict = {}
         upload_idx = 0
-        for fid in image_file_ids:
-            # Check if this file_id was successfully uploaded (results list matches image_file_ids order)
-            result_idx = image_file_ids.index(fid) if fid in image_file_ids else -1
-            if result_idx >= 0 and result_idx < len(results) and isinstance(results[result_idx], bytes):
+        for pos, fid in enumerate(image_file_ids):
+            # results[pos] is the download result for image_file_ids[pos]
+            # isinstance(..., bytes) means download succeeded → was uploaded to S3
+            if pos < len(results) and isinstance(results[pos], bytes):
                 if upload_idx < len(uploaded_file_names):
+                    # Map this file_id to its S3 filename
+                    # Note: if same file_id appears twice (duplicate), last wins — acceptable
                     file_id_to_s3[fid] = uploaded_file_names[upload_idx]
                     upload_idx += 1
-        # Now map each color to its S3 filenames
+        # Now map each color to its S3 filenames, preserving upload order per color
         for color_id, fids in color_images_map_final.items():
             s3_names = [file_id_to_s3[fid] for fid in fids if fid in file_id_to_s3]
             if s3_names:
                 color_uploaded_map[color_id] = s3_names
-        logger.info("🎨 color_uploaded_map built: %d colors, keys=%s",
-                    len(color_uploaded_map), list(color_uploaded_map.keys())[:5])
+        logger.info(
+            "🎨 Band-12: color_uploaded_map built: %d colors → %s",
+            len(color_uploaded_map),
+            {cid[:8]: len(imgs) for cid, imgs in color_uploaded_map.items()}
+        )
 
     # ── Step 5: Build product payload ───────────────────────────────────────────
     # Support both old format (name/description) and new multilingual format (name_ar/tr/en)
