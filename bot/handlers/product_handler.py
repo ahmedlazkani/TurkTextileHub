@@ -2938,16 +2938,35 @@ async def handle_ai_post_review(
                 if opt_id in seen_oids:
                     continue
                 seen_oids.add(opt_id)
+                _found_opt_label = None
                 for opt in attr_info.get("options", []):
                     if opt.get("id") == opt_id:
                         # Prefer label (already deduped by proxy) over name
                         raw_n = opt.get("label") or opt.get("name", "") or opt_id
                         if "|" in (raw_n or ""):
                             raw_n = raw_n.split("|", 1)[-1].strip()
-                        option_names.append(_deduplicate_name(raw_n))
+                        _found_opt_label = _deduplicate_name(raw_n)
                         break
-                else:
-                    option_names.append(_deduplicate_name(str(opt_id)))
+                # Band-8 Fix: fallback — search by value if id lookup failed
+                if not _found_opt_label:
+                    for opt in attr_info.get("options", []):
+                        raw_val = str(opt.get("value", ""))
+                        cmp_val = raw_val.split("|", 1)[-1].strip() if "|" in raw_val else raw_val
+                        if cmp_val == opt_id or raw_val == opt_id:
+                            raw_n = opt.get("label") or opt.get("name") or cmp_val
+                            if "|" in (raw_n or ""):
+                                raw_n = raw_n.split("|", 1)[-1].strip()
+                            _found_opt_label = _deduplicate_name(raw_n) if raw_n else None
+                            break
+                # Last resort: use opt_id only if it looks human-readable (not a UUID)
+                import re as _re_shared
+                _UUID_PAT_S = _re_shared.compile(
+                    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+                    _re_shared.I,
+                )
+                if not _found_opt_label:
+                    _found_opt_label = opt_id if not _UUID_PAT_S.match(str(opt_id)) else f"[{str(opt_id)[:8]}]"
+                option_names.append(_found_opt_label)
             if option_names:
                 attrs_list.append({"name": attr_name, "value": ", ".join(option_names)})
 
@@ -3020,9 +3039,27 @@ async def handle_ai_post_review(
         if _regen_sizes_val and not _regen_has_size:
             attrs_list.append({"name": "المقاسات", "value": _regen_sizes_val})
 
+        # Band-6 Fix (Regenerate path): resolve name/description from the supplier's
+        # language slot so DeepSeek receives the correct language text.
+        # Fallback chain: name_<lang> → name_tr → name_ar → name_en → generic name field.
+        _regen_lang = lang
+        _regen_name = (
+            product_details.get(f"name_{_regen_lang}")
+            or product_details.get("name_tr")
+            or product_details.get("name_ar")
+            or product_details.get("name_en")
+            or product_details.get("name", "")
+        )
+        _regen_desc = (
+            product_details.get(f"description_{_regen_lang}")
+            or product_details.get("description_tr")
+            or product_details.get("description_ar")
+            or product_details.get("description_en")
+            or product_details.get("description", "")
+        )
         post_data = {
-            "name":         product_details.get("name", ""),
-            "description":  product_details.get("description", ""),
+            "name":         _regen_name,
+            "description":  _regen_desc,
             "price":        product_details.get("price", ""),
             "min_quantity": product_details.get("min_quantity", 1),
             "product_code": product_details.get("product_code", ""),
@@ -3268,6 +3305,12 @@ async def _start_color_upload(
     context.user_data["color_upload_list"]  = colors
     context.user_data["color_upload_index"] = 0
     context.user_data["color_images_map"]   = {}   # {color_option_id: [file_id, ...]}
+    # Band-21 Fix: reset image_hashes at the START of the color-upload session.
+    # image_hashes is a global dedup set shared across all colors — if not cleared
+    # here, hashes from a previous product session (or a previous attempt) remain
+    # in memory, causing the very first upload of a new session to be flagged as
+    # "already added" even though it is genuinely new.
+    context.user_data["image_hashes"] = set()
 
     msg = update.callback_query.message if from_query else update.message
     await _ask_color_photos(msg, context, lang, colors, 0)
@@ -3554,6 +3597,12 @@ async def handle_color_action(
     context.user_data["color_upload_index"] = next_index
 
     if next_index < len(colors):
+        # Band-21 Fix: clear image_hashes when moving to the next color.
+        # Each color has its own independent photo set — hashes from the previous
+        # color must not block uploads for the next color.
+        # Note: we intentionally do NOT clear color_images_map here — it accumulates
+        # across all colors and is only read after all colors are done.
+        context.user_data["image_hashes"] = set()
         # Send next color prompt as a NEW message (so photos appear above it correctly)
         await _ask_color_photos(query.message, context, lang, colors, next_index)
         return COLOR_UPLOAD
@@ -4872,15 +4921,30 @@ async def handle_webapp_data(
     shared_attributes   = payload.get("shared_attributes",   {}) or {}
     selector_attributes = payload.get("selector_attributes", []) or []
 
+    # Band-15 / Band-6 Fix (legacy path): same as handle_form_submitted —
+    # store name/description under the supplier's language key so that
+    # handle_details_edit can restore the correct text when re-opening the form.
+    # Without this, editing via the legacy tg.sendData() path would produce
+    # empty name_<lang> fields and show '—' in the edit form.
+    _legacy_lang = context.user_data.get("lang", "tr")
+    _legacy_name_key = f"name_{_legacy_lang}"        if _legacy_lang in ("ar", "tr", "en") else "name_tr"
+    _legacy_desc_key = f"description_{_legacy_lang}" if _legacy_lang in ("ar", "tr", "en") else "description_tr"
+    product_code_legacy = str(payload.get("product_code") or "").strip() or None
+    notes_legacy        = str(payload.get("notes")        or "").strip() or None
+
     product_details = {
         "name":                name,
         "description":         description,
+        _legacy_name_key:      name,
+        _legacy_desc_key:      description,
         "price":               price_str,
         "min_quantity":        min_quantity,
         "stock_count":         stock_count,
         "shared_attributes":   shared_attributes,
         "selector_attributes": selector_attributes,
         "post_languages":      payload.get("post_languages") or context.user_data.get("post_languages") or ["ar", "tr", "en"],
+        "product_code":        product_code_legacy,
+        "notes":               notes_legacy,
         "_source":             "webapp",
     }
     context.user_data["product_details"] = product_details
