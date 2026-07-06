@@ -855,7 +855,11 @@ async def generate_channel_post(
         "[For EACH attribute in data, show ONE line:]\n"
         "  [emoji] [Label in correct language]: [value from attributes]\n"
         "💰 [Price label]: [price] $\n"
-        "[🔖 Code: [code]  ← ONLY if product_code provided]\n\n"
+        "[🔖 Code: [code]  ← ONLY if product_code provided]\n"
+        "[📝 Notes label: [notes text]  ← ONLY if notes provided; place AFTER price and code]\n\n"
+
+        "Notes label mapping (use these exact labels per language):\n"
+        "  ملاحظات / Notlar / Notes\n\n"
 
         "Attribute label mapping (use these exact labels):\n"
         "  الجنس / Cinsiyet / Gender\n"

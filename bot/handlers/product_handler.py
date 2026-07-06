@@ -2711,7 +2711,13 @@ async def handle_confirm_details(
             for a_id in list(sel_grouped.keys()) + list(shared_attrs.keys())
         )
         sizes_val = (product_details.get("sizes") or "").strip()
-        if sizes_val and not _has_size_attr:
+        # Band-5 triple-guard: also check if attrs_list already contains a size entry
+        # (covers edge-case where _has_size_attr missed it but it was added via shared/selector path)
+        _attrs_list_has_size = any(
+            any(kw in (entry.get("name") or "").lower() for kw in _SIZE_KEYWORDS)
+            for entry in attrs_list
+        )
+        if sizes_val and not _has_size_attr and not _attrs_list_has_size:
             attrs_list.append({"name": "المقاسات", "value": sizes_val})
 
         post_data = {
@@ -3603,6 +3609,31 @@ async def handle_color_action(
         # Note: we intentionally do NOT clear color_images_map here — it accumulates
         # across all colors and is only read after all colors are done.
         context.user_data["image_hashes"] = set()
+
+        # Band-17 Fix: show a clear transition message so the supplier knows
+        # the current color is done and the next color is starting.
+        next_color_name = colors[next_index]["name"]
+        _transition_msg = {
+            "ar": (
+                f"✅ <b>تم حفظ صور اللون: {color['name']}</b>\n\n"
+                f"🎨 الآن أرسل صور اللون التالي:\n"
+                f"<b>{next_color_name}</b> ({next_index + 1}/{len(colors)})"
+            ),
+            "tr": (
+                f"✅ <b>{color['name']} rengi fotoğrafları kaydedildi</b>\n\n"
+                f"🎨 Şimdi sonraki renk için fotoğraf gönderin:\n"
+                f"<b>{next_color_name}</b> ({next_index + 1}/{len(colors)})"
+            ),
+            "en": (
+                f"✅ <b>Photos saved for: {color['name']}</b>\n\n"
+                f"🎨 Now send photos for the next color:\n"
+                f"<b>{next_color_name}</b> ({next_index + 1}/{len(colors)})"
+            ),
+        }
+        await query.message.reply_text(
+            _transition_msg.get(lang, _transition_msg["en"]),
+            parse_mode=ParseMode.HTML,
+        )
         # Send next color prompt as a NEW message (so photos appear above it correctly)
         await _ask_color_photos(query.message, context, lang, colors, next_index)
         return COLOR_UPLOAD
