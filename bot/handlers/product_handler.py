@@ -1351,8 +1351,25 @@ def _build_extraction_summary(
     Returns:
         str: HTML-formatted summary text ready to send via Telegram
     """
-    name        = data.get("name", "—")
-    description = data.get("description", "—")
+    # Band-3 / Band-15 Fix: resolve name/description from the supplier's language slot
+    # first, then fall back to the generic 'name' field to prevent '—' appearing.
+    _summary_lang = lang if lang in ("ar", "tr", "en") else "tr"
+    name = (
+        data.get(f"name_{_summary_lang}")
+        or data.get("name_tr")
+        or data.get("name_ar")
+        or data.get("name_en")
+        or data.get("name")
+        or "—"
+    )
+    description = (
+        data.get(f"description_{_summary_lang}")
+        or data.get("description_tr")
+        or data.get("description_ar")
+        or data.get("description_en")
+        or data.get("description")
+        or "—"
+    )
     price       = data.get("price", "—")
     min_qty     = data.get("min_quantity", data.get("min_order", "1"))
 
@@ -2820,12 +2837,21 @@ async def handle_confirm_details(
             # This prevents the form from opening with an empty or '—' title
             # when the supplier edits and re-submits.
             _edit_lang = lang  # supplier's language at edit time
+            # Band-3 / Band-15 Fix: use full fallback chain so the form never
+            # opens with an empty title regardless of which language slot was
+            # populated during the original submission.
             _prefill_name = (
                 product_details.get(f"name_{_edit_lang}")
+                or product_details.get("name_tr")
+                or product_details.get("name_ar")
+                or product_details.get("name_en")
                 or product_details.get("name", "")
             )
             _prefill_desc = (
                 product_details.get(f"description_{_edit_lang}")
+                or product_details.get("description_tr")
+                or product_details.get("description_ar")
+                or product_details.get("description_en")
                 or product_details.get("description", "")
             )
             prefill_data = {
@@ -4812,7 +4838,25 @@ async def handle_form_submitted(
     _lang_name_key = f"name_{lang}"          if lang in ("ar", "tr", "en") else "name_tr"
     _lang_desc_key = f"description_{lang}"   if lang in ("ar", "tr", "en") else "description_tr"
 
+    # ── Band-3 Fix: Merge edits on top of the EXISTING product_details ─────────
+    # Problem: when the supplier edits via the webapp form, handle_form_submitted
+    # was building a brand-new product_details dict from scratch.  Any field that
+    # the webapp did NOT re-send (e.g. category_id, product_type, colours that were
+    # already confirmed) would be silently lost — causing the product type to flip
+    # (e.g. T-shirt → scarf) and colours to disappear.
+    #
+    # Fix: start from the existing product_details (if any) and only overwrite the
+    # fields that the webapp actually submitted.  Fields the supplier did not touch
+    # are preserved verbatim from the previous submission.
+    #
+    # Programmatic note: dict unpacking (**existing, **new_fields) means later keys
+    # win — so the freshly-submitted values always take priority over the old ones.
+    existing_details = context.user_data.get("product_details") or {}
+
     product_details = {
+        # ① Preserve ALL previously-stored fields (product_type, colours, etc.)
+        **existing_details,
+        # ② Overwrite only the fields that the webapp form re-submitted
         "name":                name,
         "description":         description,
         # Per-language fields — only the supplier's language is populated;
@@ -4828,10 +4872,13 @@ async def handle_form_submitted(
         "post_languages":      post_languages,
         # Band-18: notes are forwarded to the AI post generator so they appear
         # in the channel post caption (e.g. invoice info, pack contents).
-        "notes":               notes,
+        # Band-3: only overwrite if the supplier actually sent a value; otherwise
+        # keep the previously-stored notes so they are not silently cleared.
+        "notes":               notes if notes is not None else existing_details.get("notes"),
         # Band-19: product_code is forwarded to KAYISOFT API as product_no
         # instead of the auto-generated TK-YYYYMMDD-XXXX placeholder.
-        "product_code":        product_code,
+        # Band-3: same merge logic — keep old code if supplier didn't re-enter one.
+        "product_code":        product_code if product_code is not None else existing_details.get("product_code"),
         "_source":             "webapp_post",
     }
     context.user_data["product_details"] = product_details
@@ -5054,8 +5101,27 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
     Builds an HTML summary of the WebApp form submission.
     Mirrors the style of _build_ai_summary() for a consistent UI.
     """
-    name        = product_details.get("name", "—")
-    description = product_details.get("description", "—") or "—"
+    # Band-3 / Band-15 Fix: resolve name/description from the supplier's language slot
+    # first, then fall back to the generic 'name' field.
+    # This prevents '—' from appearing when product_details stores the text under
+    # name_<lang> but 'name' is empty (e.g. after a merge from the edit flow).
+    _summary_lang = lang if lang in ("ar", "tr", "en") else "tr"
+    name = (
+        product_details.get(f"name_{_summary_lang}")
+        or product_details.get("name_tr")
+        or product_details.get("name_ar")
+        or product_details.get("name_en")
+        or product_details.get("name")
+        or "—"
+    )
+    description = (
+        product_details.get(f"description_{_summary_lang}")
+        or product_details.get("description_tr")
+        or product_details.get("description_ar")
+        or product_details.get("description_en")
+        or product_details.get("description")
+        or "—"
+    )
     price       = product_details.get("price", "0")
     min_qty     = product_details.get("min_quantity", 1)
     stock       = product_details.get("stock_count", min_qty)
