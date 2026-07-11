@@ -162,6 +162,7 @@ UPLOAD_IMAGES      = 5   # Waiting for image uploads
 CONFIRM_VARIANTS   = 6   # Waiting for variant preview confirmation
 CONFIRM_PUBLISH    = 7   # Waiting for final publish confirmation
 COLOR_UPLOAD       = 10  # Waiting for per-color image uploads (color-by-color flow)
+SELECT_POST_LANG   = 11  # Band-7: Waiting for supplier to select post languages (manual path)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -523,58 +524,50 @@ def _build_variants(
                 result[attr_key].append(option_id)
         return result
 
-    # Build titles list — always include English entry (API requirement)
-    # API requires titles/descriptions in ALL supported languages: ar, en, tr
-    # We use the local text as fallback for missing languages
-    SUPPORTED_LANGS = ["ar", "en", "tr"]
+    # Band-1/4 Fix: KAYISOFT API accepts ONE language only — backend translates.
+    # Sending the same Arabic text in all 3 slots caused "language mixing" bug.
+    # Now we send only the supplier's own language slot; backend handles translation.
+    # Reference: API_ENDPOINTS_FULL.md line 95:
+    #   titles: [{"language": "en", "text": "..."}] — ONE language only, backend translates
 
     def _build_titles(name_local: str, name_en: str, lang_code: str) -> list:
         """
-        Build the multilingual titles list required by KAYISOFT API.
+        Build the titles list for KAYISOFT API.
 
-        Priority per language slot:
-          1. Explicit per-language field (name_ar / name_tr / name_en) — set by AI
-             extraction or by Band-6 fix in handle_form_submitted.
-          2. name_local — the text the supplier actually typed.  Used only for the
-             slot that matches the supplier's own language (lang_code).  For other
-             language slots we intentionally leave the text as name_local too
-             (KAYISOFT backend will translate), but we mark it clearly in the
-             comment so a future translation layer can replace it.
-
-        Band-6 root-cause fix:
-          The old code had `(name_local if lang_code == "ar" else name_local)` which
-          always resolved to name_local regardless of lang_code, causing every
-          language slot to receive the supplier's language text (e.g. Turkish text
-          in the Arabic slot).  Now each slot uses its dedicated field first.
+        Band-1/4 Fix: Send ONE language only (supplier's own language).
+        The KAYISOFT backend translates to other languages automatically.
+        Sending all 3 slots with the same Arabic text caused the language-mixing
+        bug where TR and EN fields showed Arabic content.
         """
-        _per_lang = {
-            "ar": product_name_ar or (name_local if lang_code == "ar" else ""),
-            "tr": product_name_tr or (name_local if lang_code == "tr" else ""),
-            "en": name_en or product_name_en or (name_local if lang_code == "en" else ""),
-        }
-        # Final fallback: if a slot is still empty, use name_local so the API
-        # always receives a non-empty string (KAYISOFT rejects blank titles).
-        titles = [
-            {"language": lng, "text": _per_lang.get(lng) or name_local}
-            for lng in SUPPORTED_LANGS
-        ]
-        return titles
+        # Prefer the explicit per-language field if set by AI extraction;
+        # otherwise use the raw text the supplier typed.
+        _slot_text = (
+            (product_name_ar if lang_code == "ar" else None)
+            or (product_name_tr if lang_code == "tr" else None)
+            or (name_en or product_name_en if lang_code == "en" else None)
+            or name_local
+            or ""
+        )
+        # Fallback: if slot_text is still empty, use name_local
+        if not _slot_text:
+            _slot_text = name_local or ""
+        return [{"language": lang_code, "text": _slot_text}]
 
     def _build_descriptions(desc_local: str, desc_en: str, lang_code: str) -> list:
         """
-        Build the multilingual descriptions list required by KAYISOFT API.
-        Same logic as _build_titles — see its docstring for details.
+        Build the descriptions list for KAYISOFT API.
+        Band-1/4 Fix: Send ONE language only — same rationale as _build_titles.
         """
-        _per_lang = {
-            "ar": description_ar or (desc_local if lang_code == "ar" else ""),
-            "tr": description_tr or (desc_local if lang_code == "tr" else ""),
-            "en": desc_en or description_en or (desc_local if lang_code == "en" else ""),
-        }
-        descs = [
-            {"language": lng, "text": _per_lang.get(lng) or desc_local}
-            for lng in SUPPORTED_LANGS
-        ]
-        return descs
+        _slot_text = (
+            (description_ar if lang_code == "ar" else None)
+            or (description_tr if lang_code == "tr" else None)
+            or (desc_en or description_en if lang_code == "en" else None)
+            or desc_local
+            or ""
+        )
+        if not _slot_text:
+            _slot_text = desc_local or ""
+        return [{"language": lang_code, "text": _slot_text}]
 
     # ── If no selector attributes → single variant ──────────────────────────────────────────────────────────────────────────────────
     if not ai_selector_attrs:
@@ -2569,9 +2562,40 @@ async def handle_confirm_details(
     await query.answer()  # Remove Telegram's loading spinner
 
     if query.data == "details_confirm":
-        # ── Supplier confirmed → generate AI channel post ────────────────────────────────────────────
+        # ── Supplier confirmed → check if post_languages already selected ─────────────────────────────
         product_details = context.user_data.get("product_details", {})
-        languages = product_details.get("post_languages") or context.user_data.get("post_languages") or ["ar", "tr", "en"]
+        _source_check = product_details.get("_source", "")
+        languages = product_details.get("post_languages") or context.user_data.get("post_languages")
+
+        # Band-7 Fix: In the manual (AI extraction) path, post_languages is never set
+        # because the webapp flow (which has a language selector) was not used.
+        # Intercept here and ask the supplier to choose post languages before generating.
+        if not languages and _source_check not in ("webapp", "webapp_post"):
+            _lang_prompt = {
+                "ar": "🌐 <b>اختر لغات البوست</b>\n\nاختر اللغات التي تريد نشر البوست بها:",
+                "tr": "🌐 <b>Gönderi Dillerini Seçin</b>\n\nGönderinizin yayınlanmasını istediğiniz dilleri seçin:",
+                "en": "🌐 <b>Select Post Languages</b>\n\nChoose the languages for your channel post:",
+            }
+            _lang_keyboard = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("🇸🇦 عربي",   callback_data="post_lang_ar"),
+                    InlineKeyboardButton("🇹🇷 Türkçe", callback_data="post_lang_tr"),
+                    InlineKeyboardButton("🇬🇧 English", callback_data="post_lang_en"),
+                ],
+                [
+                    InlineKeyboardButton("🌍 الكل / Tümü / All", callback_data="post_lang_all"),
+                ],
+            ])
+            await query.message.reply_text(
+                _lang_prompt.get(lang, _lang_prompt["en"]),
+                parse_mode=ParseMode.HTML,
+                reply_markup=_lang_keyboard,
+            )
+            return SELECT_POST_LANG
+
+        # If languages already set (webapp path or re-confirm), use them
+        if not languages:
+            languages = ["ar", "tr", "en"]
 
         # Build attributes list for DeepSeek
         # NOTE: raw_attributes is a LIST; build a dict keyed by id for fast lookup
@@ -2916,6 +2940,67 @@ async def handle_confirm_details(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Band-7: SELECT POST LANG — Manual path language selection
+# ══════════════════════════════════════════════════════════════════════════════
+async def handle_select_post_lang(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> int:
+    """
+    STATE: SELECT_POST_LANG
+
+    Band-7 Fix: Handles post language selection for the manual (AI extraction) path.
+    The supplier taps one of: Arabic, Turkish, English, or All.
+    After saving the selection, we proceed directly to AI post generation
+    (same flow as details_confirm after language is set).
+    """
+    query   = update.callback_query
+    user    = update.effective_user
+    user_id = str(user.id)
+    lang    = context.user_data.get("lang") or get_user_lang(
+        user_id, telegram_language_code=user.language_code or ""
+    )
+
+    await query.answer()
+
+    _lang_map = {
+        "post_lang_ar":  ["ar"],
+        "post_lang_tr":  ["tr"],
+        "post_lang_en":  ["en"],
+        "post_lang_all": ["ar", "tr", "en"],
+    }
+    selected_langs = _lang_map.get(query.data, ["ar", "tr", "en"])
+    context.user_data["post_languages"] = selected_langs
+    # Also persist inside product_details so downstream code finds it
+    _pd = context.user_data.get("product_details", {})
+    _pd["post_languages"] = selected_langs
+    context.user_data["product_details"] = _pd
+
+    _confirm_msgs = {
+        "ar": f"✅ تم اختيار اللغات: <b>{', '.join(selected_langs)}</b>\nجاري توليد البوست...",
+        "tr": f"✅ Seçilen diller: <b>{', '.join(selected_langs)}</b>\nGönderi oluşturuluyor...",
+        "en": f"✅ Languages selected: <b>{', '.join(selected_langs)}</b>\nGenerating post...",
+    }
+    await query.message.reply_text(
+        _confirm_msgs.get(lang, _confirm_msgs["en"]),
+        parse_mode=ParseMode.HTML,
+    )
+
+    # Now continue the flow: since languages are now set in user_data,
+    # calling handle_confirm_details will skip the language selection branch
+    # and proceed directly to AI post generation.
+    # PTB CallbackQuery uses __slots__ so direct assignment raises AttributeError.
+    # We patch via object.__setattr__ which bypasses the slot restriction safely.
+    _orig_data = query.data
+    try:
+        object.__setattr__(query, "data", "details_confirm")
+        result = await handle_confirm_details(update, context)
+    finally:
+        object.__setattr__(query, "data", _orig_data)  # restore original data
+    return result
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # AI POST REVIEW — Approve / Regenerate / Edit
 # ══════════════════════════════════════════════════════════════════════════════
 async def handle_ai_post_review(
@@ -2956,10 +3041,29 @@ async def handle_ai_post_review(
         )
 
         # Build post_data again
-        # NOTE: raw_attributes is a LIST; build a dict keyed by id for fast lookup
+        # Band-2 Fix: use processed_attributes (same as post_approve path) to ensure
+        # option labels are resolved correctly. Re-fetch from API if session lost.
         attrs_list = []
-        raw_attrs_list = context.user_data.get("raw_attributes", [])
-        all_attrs = {a.get("id"): a for a in raw_attrs_list if a.get("id")}
+        _proc_attrs_regen = context.user_data.get("processed_attributes", {})
+        all_attrs = _proc_attrs_regen.get("all_by_id") or {
+            a.get("id"): a for a in context.user_data.get("raw_attributes", []) if a.get("id")
+        }
+        # If all_attrs is empty (session lost), re-fetch from API
+        if not all_attrs:
+            _cat_id_regen = context.user_data.get("selected_subcategory", "")
+            if _cat_id_regen:
+                try:
+                    _api_regen = KayisoftAPI(telegram_user_id=user_id, language=lang)
+                    _raw_regen = await _api_regen.get_attributes(category_id=_cat_id_regen) or []
+                    _proc_regen = _process_attributes(_raw_regen)
+                    context.user_data["raw_attributes"]       = _raw_regen
+                    context.user_data["processed_attributes"] = _proc_regen
+                    all_attrs = _proc_regen.get("all_by_id") or {
+                        a.get("id"): a for a in _raw_regen if a.get("id")
+                    }
+                    logger.info("[REGEN_DEBUG] re-fetched all_attrs size=%d", len(all_attrs))
+                except Exception as _e_regen:
+                    logger.warning("[REGEN_DEBUG] re-fetch failed: %s", _e_regen)
 
         for attr_id, option_ids in product_details.get("shared_attributes", {}).items():
             attr_info = all_attrs.get(attr_id, {})
@@ -3602,9 +3706,17 @@ async def handle_color_action(
                 "tr": f"📸 <b>{color['name']}</b> rengi için en az 1 fotoğraf zorunludur.\n\nLütfen bir fotoğraf gönderin.",
                 "en": f"📸 At least 1 photo is required for <b>{color['name']}</b>.\n\nPlease send a photo to continue.",
             }
+            _warn_text = _no_photo_warn.get(lang, _no_photo_warn["en"])
+            # Band-5 Fix: show_alert alone may not render on all Telegram clients.
+            # Always send a visible reply_text message as well so the supplier
+            # sees the warning regardless of client version or platform.
             await query.answer(
-                _no_photo_warn.get(lang, _no_photo_warn["en"]).replace("<b>", "").replace("</b>", ""),
+                _warn_text.replace("<b>", "").replace("</b>", ""),
                 show_alert=True,
+            )
+            await query.message.reply_text(
+                _warn_text,
+                parse_mode=ParseMode.HTML,
             )
             return COLOR_UPLOAD
         # color_done: do NOT edit the current message — leave it showing
@@ -4416,6 +4528,11 @@ async def handle_final_publish(
         logger.info("Band-19: no supplier code provided, auto-generated product_no=%r", product_no)
 
     # Build the complete product payload matching KAYISOFT API spec exactly
+    # Band-6 Fix: include 'notes' in the payload so KAYISOFT stores it as
+    # sale-details / Notlar in the product record.
+    # If KAYISOFT ignores unknown fields, there is no harm; if it supports
+    # the field, the notes will appear in the product details page.
+    _notes_val = str(product_details.get("notes") or "").strip() or None
     product_payload = {
         "name":               product_name,
         "product_no":         product_no,
@@ -4423,6 +4540,9 @@ async def handle_final_publish(
         "shared_attributes":  shared_attributes,
         "variants":           variants,
     }
+    if _notes_val:
+        product_payload["notes"] = _notes_val
+        logger.info("Band-6: adding notes=%r to product_payload", _notes_val[:80])
 
     # ── Step 6: Create product via KAYISOFT API ────────────────────────────────
     # ── DEBUG: log full payload to Railway logs for inspection ────────────────────
@@ -5599,6 +5719,13 @@ def get_product_conv_handler() -> ConversationHandler:
                 CallbackQueryHandler(
                     handle_confirm_details,
                     pattern=r"^(details_confirm|details_edit)$",
+                ),
+            ],
+            SELECT_POST_LANG: [
+                # Band-7: Supplier selects post language(s) in the manual path
+                CallbackQueryHandler(
+                    handle_select_post_lang,
+                    pattern=r"^post_lang_(ar|tr|en|all)$",
                 ),
             ],
             AI_POST_REVIEW: [
