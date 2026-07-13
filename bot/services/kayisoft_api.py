@@ -472,6 +472,59 @@ class KayisoftAPI:
 
     # ── 6. Create product ─────────────────────────────────────────────────────
 
+    async def create_product_with_error(self, product_data: dict):
+        """
+        POST api/seller/products — returns (result_dict, error_text).
+
+        Unlike create_product() which returns None on failure,
+        this variant returns the raw error body so the caller can
+        show a meaningful message to the supplier.
+
+        Returns:
+            (dict, None)   on success
+            (None, str)    on HTTP 4xx/5xx — str is the raw error body
+            (None, str)    on network exception
+        """
+        url = f"{self.base_url}/api/seller/products"
+        headers = self._headers()
+        import json as _j
+        import aiohttp as _aio
+        connector = _aio.TCPConnector()
+        async with _aio.ClientSession(connector=connector, connector_owner=True) as session:
+            try:
+                async with session.post(
+                    url,
+                    headers=headers,
+                    json=product_data or {},
+                    timeout=_aio.ClientTimeout(total=30),
+                ) as resp:
+                    text = await resp.text()
+                    logger.info(
+                        "create_product_with_error → HTTP %s | body: %s",
+                        resp.status, text[:3000]
+                    )
+                    if resp.status >= 400:
+                        logger.error(
+                            "create_product_with_error FAILED HTTP %s: %s",
+                            resp.status, text[:500]
+                        )
+                        return None, text[:500]
+                    try:
+                        data = _j.loads(text) if text.strip() else {}
+                        # Log share_links from variants
+                        if isinstance(data, dict):
+                            for _i, _v in enumerate(data.get("variants", [])):
+                                logger.info(
+                                    "create_product variant[%d] id=%s | share_links=%s",
+                                    _i, _v.get("id", "?"), _v.get("share_links", {})
+                                )
+                        return data if data is not None else {}, None
+                    except Exception:
+                        return {}, None
+            except Exception as exc:
+                logger.error("create_product_with_error network error: %s", exc)
+                return None, str(exc)
+
     async def create_product(self, product_data: dict) -> Optional[dict]:
         """
         POST api/seller/products

@@ -773,11 +773,26 @@
       />
     </div>
 
-    <!-- ─── 5. المخزون (مخفي — يُرسل 500 افتراضياً) ─────────────────────────── -->
-    <!-- Stock field is intentionally hidden from the supplier form.
-         A default value of 500 is sent automatically in the payload.
-         Suppliers can update the stock quantity from within the KAYISOFT app. -->
-    <input type="hidden" id="field-stock" value="500" />
+    <!-- ─── 5. المخزون (اختياري — افتراضي 500) ───────────────────── -->
+    <!-- Band-7 Fix: Stock quantity is now visible and editable by the supplier.
+         Default value is 500. Supplier can change it before submitting.
+         Previously this was a hidden field with a fixed value of 500. -->
+    <div class="field-card" id="card-stock">
+      <div class="field-label">
+        <span class="icon">📦</span>
+        <span id="label-stock">كمية المخزون</span>
+        <span class="optional-tag" id="tag-optional-stock">اختياري</span>
+      </div>
+      <input
+        type="number"
+        id="field-stock"
+        placeholder="مثال: 500"
+        value="500"
+        min="1"
+        step="1"
+        inputmode="numeric"
+      />
+    </div>
 
     <!-- ─── 6. الخصائص الديناميكية (placeholder during load) ── -->
     <div class="section-divider" id="attrs-divider" style="display:none;">الخصائص</div>
@@ -838,15 +853,15 @@
       </div>
       <div style="display:flex; gap:10px; flex-wrap:wrap;">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;background:var(--tg-bg);border:1.5px solid var(--tg-btn);border-radius:10px;padding:8px 14px;font-size:0.9rem;font-weight:600;">
-          <input type="checkbox" id="lang-ar" value="ar" checked style="width:16px;height:16px;accent-color:var(--tg-btn);" />
+          <input type="checkbox" id="lang-ar" value="ar" style="width:16px;height:16px;accent-color:var(--tg-btn);" />
           <span id="label-lang-ar">🇸🇦 عربي</span>
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;background:var(--tg-bg);border:1.5px solid var(--tg-btn);border-radius:10px;padding:8px 14px;font-size:0.9rem;font-weight:600;">
-          <input type="checkbox" id="lang-tr" value="tr" checked style="width:16px;height:16px;accent-color:var(--tg-btn);" />
+          <input type="checkbox" id="lang-tr" value="tr" style="width:16px;height:16px;accent-color:var(--tg-btn);" />
           <span id="label-lang-tr">🇹🇷 تركي</span>
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;background:var(--tg-bg);border:1.5px solid var(--tg-btn);border-radius:10px;padding:8px 14px;font-size:0.9rem;font-weight:600;">
-          <input type="checkbox" id="lang-en" value="en" checked style="width:16px;height:16px;accent-color:var(--tg-btn);" />
+          <input type="checkbox" id="lang-en" value="en" style="width:16px;height:16px;accent-color:var(--tg-btn);" />
           <span id="label-lang-en">🇬🇧 إنكليزي</span>
         </label>
       </div>
@@ -904,6 +919,8 @@
         label_minqty:       "الحد الأدنى للطلب",
         placeholder_minqty: "مثال: 100",
         error_minqty:       "يجب أن يكون الحد الأدنى 1 على الأقل",
+        label_stock:        "كمية المخزون",
+        placeholder_stock:  "مثال: 500",
         label_code:         "كود المنتج",
         placeholder_code:   "مثال: TK-143",
         optional:           "اختياري",
@@ -938,6 +955,8 @@
         label_minqty:       "Minimum Sipariş Miktarı",
         placeholder_minqty: "Örnek: 100",
         error_minqty:       "Minimum miktar en az 1 olmalıdır",
+        label_stock:        "Stok Miktarı",
+        placeholder_stock:  "Örnek: 500",
         label_code:         "Ürün Kodu",
         placeholder_code:   "Örnek: TK-143",
         optional:           "isteğe bağlı",
@@ -972,6 +991,8 @@
         label_minqty:       "Minimum Order Quantity",
         placeholder_minqty: "Example: 100",
         error_minqty:       "Minimum quantity must be at least 1",
+        label_stock:        "Stock Quantity",
+        placeholder_stock:  "Example: 500",
         label_code:         "Product Code",
         placeholder_code:   "Example: TK-143",
         optional:           "optional",
@@ -1033,6 +1054,7 @@
       setLabelText("card-desc",   T.label_desc);
       setLabelText("card-price",  T.label_price);
       setLabelText("card-minqty", T.label_minqty);
+      setLabelText("card-stock",  T.label_stock);
       setLabelText("card-code",   T.label_code);
       setLabelText("card-notes",  T.label_notes);
 
@@ -1060,6 +1082,7 @@
       setPlaceholder("field-desc",   T.placeholder_desc);
       setPlaceholder("field-price",  T.placeholder_price);
       setPlaceholder("field-minqty", T.placeholder_minqty);
+      setPlaceholder("field-stock",  T.placeholder_stock);
       setPlaceholder("field-code",   T.placeholder_code);
       setPlaceholder("field-notes",  T.placeholder_notes);
 
@@ -1092,6 +1115,21 @@
       if (doneBtn) doneBtn.textContent = T.done_btn;
     })();
     const USER_ID     = urlParams.get("user_id")      || "";
+
+    /* ────────────────────────────────────────────────────────
+       Band-6 Fix: Default post language = supplier's own language only.
+       Previously all 3 checkboxes were pre-checked (HTML `checked` attr),
+       which forced every submission to include AR+TR+EN even when the
+       supplier only wanted EN+TR.  Now we set the default programmatically
+       so only the supplier's language is ticked on first open.
+       PREFILL hydration (applyPrefill) will override this when editing.
+    ──────────────────────────────────────────────────────── */
+    (function setDefaultPostLanguage() {
+      // Only apply when there is no PREFILL (first open, not an edit)
+      // PREFILL is parsed later, so we defer to DOMContentLoaded
+      // Actually PREFILL is parsed synchronously above, so we can check here.
+      // We run after PREFILL is set (see below).
+    })();
 
     /* ────────────────────────────────────────────────────────
        PREFILL DATA — decoded from ?prefill= URL param (base64 JSON)
@@ -1753,6 +1791,7 @@
       setVal('field-minqty', PREFILL.min_quantity);
       setVal('field-code',   PREFILL.product_code);
       setVal('field-notes',  PREFILL.notes);
+      if (PREFILL.stock_count) setVal('field-stock', PREFILL.stock_count);
 
       // Update char counters for text fields (counter IDs: counter-name, counter-desc, counter-notes)
       const counterMap = { 'field-name': 'counter-name', 'field-desc': 'counter-desc', 'field-notes': 'counter-notes' };
@@ -2026,6 +2065,25 @@
     ──────────────────────────────────────────────────────── */
     // Initially hide MainButton — shown only when basic fields are valid
     if (tg) tg.MainButton.hide();
+
+    // Band-6 Fix: Set default post language checkboxes.
+    // If PREFILL exists → applyPrefill() will set them from saved post_languages.
+    // If no PREFILL (first open) → tick only the supplier's own language (LANG).
+    if (!PREFILL) {
+      // Uncheck all first (they have no `checked` attr in HTML now)
+      ["ar", "tr", "en"].forEach(l => {
+        const cb = document.getElementById(`lang-${l}`);
+        if (cb) cb.checked = false;
+      });
+      // Tick only the supplier's language
+      const supplierLangCb = document.getElementById(`lang-${LANG}`);
+      if (supplierLangCb) supplierLangCb.checked = true;
+      // Fallback: if LANG is not ar/tr/en, tick all three
+      else ["ar", "tr", "en"].forEach(l => {
+        const cb = document.getElementById(`lang-${l}`);
+        if (cb) cb.checked = true;
+      });
+    }
 
     // Apply prefill for static fields immediately (before attributes load)
     // Dynamic attribute controls are prefilled inside loadAttributes() after renderAttributes()

@@ -4552,15 +4552,62 @@ async def handle_final_publish(
         _json.dumps(product_payload, ensure_ascii=False, indent=2)[:4000],
     )
 
-    created_product = await api.create_product(product_payload)
+    # Band-9 Fix: use create_product_with_error to capture the raw error body
+    # from KAYISOFT API so we can show a meaningful message to the supplier.
+    # Previously, create_product() returned None on any 4xx/5xx error, and the
+    # supplier only saw a generic "server error" message with no way to retry.
+    created_product, _api_error_text = await api.create_product_with_error(product_payload)
 
-    if not created_product:
+    if created_product is None:
+        # Build a detailed error message that includes the KAYISOFT error body
+        # (truncated to 300 chars to avoid flooding the chat)
+        _err_detail = ""
+        if _api_error_text:
+            # Try to extract a human-readable message from the JSON error body
+            try:
+                import json as _jerr
+                _err_json = _jerr.loads(_api_error_text)
+                _err_detail = (
+                    _err_json.get("message")
+                    or _err_json.get("error")
+                    or _err_json.get("detail")
+                    or str(_err_json)[:200]
+                )
+            except Exception:
+                _err_detail = _api_error_text[:200]
+
+        _err_msgs = {
+            "ar": (
+                f"{get_string(lang, 'add_product_api_error')}"
+                + (f"\n\n<code>{_err_detail}</code>" if _err_detail else "")
+            ),
+            "tr": (
+                f"{get_string(lang, 'add_product_api_error')}"
+                + (f"\n\n<code>{_err_detail}</code>" if _err_detail else "")
+            ),
+            "en": (
+                f"{get_string(lang, 'add_product_api_error')}"
+                + (f"\n\n<code>{_err_detail}</code>" if _err_detail else "")
+            ),
+        }
+        _retry_labels = {"ar": "🔄 حاول مرة أخرى", "tr": "🔄 Tekrar Dene", "en": "🔄 Try Again"}
+        _retry_keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton(
+                _retry_labels.get(lang, _retry_labels["en"]),
+                callback_data="publish_yes",
+            )
+        ]])
         await query.edit_message_text(
-            get_string(lang, "add_product_api_error"),
+            _err_msgs.get(lang, _err_msgs["en"]),
             parse_mode=ParseMode.HTML,
+            reply_markup=_retry_keyboard,
         )
-        context.user_data.clear()
-        return ConversationHandler.END
+        logger.error(
+            "Band-9: create_product FAILED for user_id=%s — error: %s",
+            user_id, _api_error_text[:300] if _api_error_text else "unknown"
+        )
+        # Do NOT clear user_data so supplier can retry without re-entering data
+        return CONFIRM_PUBLISH
 
     # Extract IDs returned by KAYISOFT API
     product_id  = str(created_product.get("id", "0"))
