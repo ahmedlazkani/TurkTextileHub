@@ -50,8 +50,10 @@
       font-family:  'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans Arabic', sans-serif;
       line-height:  1.55;
       min-height:   100vh;
-      /* Extra bottom padding so MainButton never covers last field */
-      padding-bottom: 100px;
+      /* Extra bottom padding so neither MainButton nor fallback bar covers last field.
+         Band-3 Fix: increased from 100px to 160px to account for the new fallback
+         submit bar (~60px) that is always visible at the bottom. */
+      padding-bottom: 160px;
       -webkit-font-smoothing: antialiased;
     }
 
@@ -629,6 +631,46 @@
       -webkit-tap-highlight-color: transparent;
     }
 
+    /* ═══════════════════════════════════════════════════════════
+       FALLBACK SUBMIT BUTTON — Band-3 Fix
+       Shown when tg.MainButton is unavailable or invisible.
+       Always visible at the bottom of the form so the supplier
+       can always submit regardless of Telegram client version.
+    ═══════════════════════════════════════════════════════════ */
+    #fallback-submit-bar {
+      position:   fixed;
+      bottom:     0;
+      left:       0;
+      right:      0;
+      z-index:    400;
+      padding:    10px 16px;
+      padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+      background: var(--tg-bg);
+      border-top: 1px solid rgba(0,0,0,0.10);
+      box-shadow: 0 -2px 12px rgba(0,0,0,0.08);
+    }
+
+    #fallback-submit-btn {
+      display:       block;
+      width:         100%;
+      padding:       14px 20px;
+      background:    var(--tg-btn);
+      color:         var(--tg-btn-text);
+      border:        none;
+      border-radius: 14px;
+      font-size:     1rem;
+      font-weight:   700;
+      cursor:        pointer;
+      letter-spacing: 0.02em;
+      -webkit-tap-highlight-color: transparent;
+      transition:    opacity 0.15s ease;
+    }
+    #fallback-submit-btn:active { opacity: 0.8; }
+    #fallback-submit-btn:disabled {
+      opacity: 0.45;
+      cursor:  not-allowed;
+    }
+
     /* Language selector */
     .lang-selector {
       display:   flex;
@@ -878,6 +920,16 @@
   </div><!-- /form-body -->
 
   <!-- ═══════════════════════════════════════════════════════════
+       FALLBACK SUBMIT BAR — Band-3 Fix
+       Always visible at the bottom. JS hides it when tg.MainButton
+       is available and working; otherwise it stays visible so the
+       supplier can always submit the form.
+  ═══════════════════════════════════════════════════════════ -->
+  <div id="fallback-submit-bar">
+    <button id="fallback-submit-btn" onclick="handleSubmit()">✅ حفظ بيانات المنتج</button>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════
        JAVASCRIPT
   ═══════════════════════════════════════════════════════════ -->
   <script>
@@ -1109,6 +1161,10 @@
 
       // MainButton text
       if (tg && tg.MainButton) tg.MainButton.setText(T.btn_save);
+
+      // Band-3 Fix: fallback HTML submit button text (same as MainButton)
+      const fallbackBtn = document.getElementById('fallback-submit-btn');
+      if (fallbackBtn) fallbackBtn.textContent = T.btn_save;
 
       // Done button (keyboard dismiss toolbar) — Band 2
       const doneBtn = document.getElementById('done-btn');
@@ -1364,18 +1420,20 @@
     }
 
     function validateAndToggleMainButton() {
-      if (!tg) return;
       // Quick lightweight check (no error display)
       const name  = document.getElementById("field-name").value.trim();
       const desc  = document.getElementById("field-desc").value.trim();
       const price = parseFloat(document.getElementById("field-price").value);
       const basicOk = name.length >= 3 && desc.length >= 3 && price >= 0.01;
 
-      if (basicOk) {
-        tg.MainButton.show();
-      } else {
-        tg.MainButton.hide();
+      // Band-3 Fix: sync both Telegram MainButton and fallback HTML button
+      if (tg && tg.MainButton) {
+        if (basicOk) tg.MainButton.show();
+        else         tg.MainButton.hide();
       }
+      // Fallback HTML button: always visible but disabled when fields incomplete
+      const fallbackBtn = document.getElementById("fallback-submit-btn");
+      if (fallbackBtn) fallbackBtn.disabled = !basicOk;
     }
 
     // Attach live validation to required fields
@@ -2007,9 +2065,12 @@
       if (tg) {
         tg.MainButton.showProgress(false);
         tg.MainButton.disable();
-        // Hide the MainButton so it doesn’t show behind the overlay
+        // Hide the MainButton so it doesn't show behind the overlay
         tg.MainButton.hide();
       }
+      // Band-3 Fix: also disable fallback HTML button to prevent double submission
+      const _fbBtn = document.getElementById('fallback-submit-btn');
+      if (_fbBtn) { _fbBtn.disabled = true; _fbBtn.style.opacity = '0.5'; }
 
       // POST to server first, then close the WebApp.
       // Total visible time: ~1.2 s (enough to read the checkmark).
@@ -2065,6 +2126,9 @@
     ──────────────────────────────────────────────────────── */
     // Initially hide MainButton — shown only when basic fields are valid
     if (tg) tg.MainButton.hide();
+    // Band-3 Fix: initially disable fallback button until basic fields are valid
+    const _initFbBtn = document.getElementById('fallback-submit-btn');
+    if (_initFbBtn) _initFbBtn.disabled = true;
 
     // Band-6 Fix: Set default post language checkboxes.
     // If PREFILL exists → applyPrefill() will set them from saved post_languages.

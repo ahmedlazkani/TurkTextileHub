@@ -1409,6 +1409,8 @@ def _build_extraction_summary(
         f"{L['desc']}: {description}",
         # Band-14 Fix: price is always displayed in USD ($) not TL (₺)
         f"{L['price']}: <b>{price} $</b>",
+        # Band-2 Fix: min_quantity was missing from the AI summary — now shown
+        f"{L['min']}: {min_qty}",
     ]
 
     # Show extracted attributes if any
@@ -4528,11 +4530,12 @@ async def handle_final_publish(
         logger.info("Band-19: no supplier code provided, auto-generated product_no=%r", product_no)
 
     # Build the complete product payload matching KAYISOFT API spec exactly
-    # Band-6 Fix: include 'notes' in the payload so KAYISOFT stores it as
-    # sale-details / Notlar in the product record.
-    # If KAYISOFT ignores unknown fields, there is no harm; if it supports
-    # the field, the notes will appear in the product details page.
-    _notes_val = str(product_details.get("notes") or "").strip() or None
+    # Band-10 Fix: KAYISOFT API does NOT accept a 'notes' field in the
+    # product creation payload — it returns a 4xx error when 'notes' is
+    # present.  We keep notes in product_details for the AI post generator
+    # (it uses them to craft the channel post) but we NEVER send them to
+    # the KAYISOFT API.  Previously Band-6 added notes to the payload
+    # thinking KAYISOFT would store it; that assumption was wrong.
     product_payload = {
         "name":               product_name,
         "product_no":         product_no,
@@ -4540,9 +4543,7 @@ async def handle_final_publish(
         "shared_attributes":  shared_attributes,
         "variants":           variants,
     }
-    if _notes_val:
-        product_payload["notes"] = _notes_val
-        logger.info("Band-6: adding notes=%r to product_payload", _notes_val[:80])
+    # NOTE: 'notes' intentionally excluded — KAYISOFT API rejects it (Band-10)
 
     # ── Step 6: Create product via KAYISOFT API ────────────────────────────────
     # ── DEBUG: log full payload to Railway logs for inspection ────────────────────
@@ -5344,6 +5345,8 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
         f"{L['desc']}: {description}",
         # Band-14 Fix: price is always displayed in USD ($) not TL (₺)
         f"{L['price']}: <b>{price} $</b>",
+        # Band-2 Fix: min_quantity was missing from the summary — now shown
+        f"{L['min']}: {min_qty}",
         f"{L['stock']}: {stock}",
     ]
 
