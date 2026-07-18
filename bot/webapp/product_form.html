@@ -2126,9 +2126,18 @@
     ──────────────────────────────────────────────────────── */
     // Initially hide MainButton — shown only when basic fields are valid
     if (tg) tg.MainButton.hide();
-    // Band-3 Fix: initially disable fallback button until basic fields are valid
+    // Band-3 Fix: fallback button management
+    // If tg.MainButton is available → hide the fallback bar entirely (no duplicate)
+    // If tg.MainButton is NOT available → show fallback bar, disabled until fields valid
     const _initFbBtn = document.getElementById('fallback-submit-btn');
-    if (_initFbBtn) _initFbBtn.disabled = true;
+    const _initFbBar = document.getElementById('fallback-submit-bar');
+    if (tg && tg.MainButton) {
+      // Telegram MainButton is available — hide fallback bar completely
+      if (_initFbBar) _initFbBar.style.display = 'none';
+    } else {
+      // No Telegram MainButton — show fallback bar but disabled until fields valid
+      if (_initFbBtn) _initFbBtn.disabled = true;
+    }
 
     // Band-6 Fix: Set default post language checkboxes.
     // If PREFILL exists → applyPrefill() will set them from saved post_languages.

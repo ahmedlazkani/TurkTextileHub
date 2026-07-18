@@ -672,11 +672,17 @@ def _build_variants(
         # The old fallback (color_imgs = uploaded_file_names) was the root cause:
         # it assigned ALL uploaded images to every unmatched color, making every
         # color appear to have the same photos as the first color.
+        # Collect all available images as a fallback pool
+        _all_available = uploaded_file_names or []
         for combo in combinations:
             primary_opt_id = combo[0]
             color_imgs = color_uploaded_map.get(primary_opt_id, [])
-            # No fallback to uploaded_file_names — empty list is intentional.
-            # A color with no photos should not inherit another color's photos.
+            # KAYISOFT requires at least 1 image per variant.
+            # If a color has no dedicated photos, use the first available image
+            # as a placeholder rather than sending images:[] which KAYISOFT rejects.
+            # This is a safe fallback — the supplier can update photos later.
+            if not color_imgs and _all_available:
+                color_imgs = [_all_available[0]]
             images_per_variant.append(color_imgs)
     elif n_variants <= 1 or n_images == 0:
         images_per_variant = [uploaded_file_names] * max(1, n_variants)
@@ -4242,6 +4248,23 @@ async def handle_final_publish(
             logger.warning("❌ Could not get signed URLs for user %s — signed_urls=%s", user_id, signed_urls)
 
     logger.info("📊 Image upload summary: %d/%d uploaded successfully", len(uploaded_file_names), len(image_file_ids))
+
+    # ── Guard: KAYISOFT requires at least 1 image per variant ─────────────────
+    # If ALL S3 uploads failed (uploaded_file_names is empty), we must NOT send
+    # the payload to KAYISOFT — it will reject it with:
+    #   "in body.variants: The minimum number of images required... at least 1"
+    # Instead, show a clear error message and let the supplier retry.
+    if not uploaded_file_names and image_file_ids:
+        _no_img_msgs = {
+            "ar": "❌ <b>فشل رفع الصور إلى الخادم.</b>\n\nيرجى المحاولة مرة أخرى أو التواصل مع الدعم.",
+            "tr": "❌ <b>Görseller sunucuya yüklenemedi.</b>\n\nLütfen tekrar deneyin veya destek ekibiyle iletişime geçin.",
+            "en": "❌ <b>Failed to upload images to server.</b>\n\nPlease try again or contact support.",
+        }
+        await query.edit_message_text(
+            _no_img_msgs.get(lang, _no_img_msgs["ar"]),
+            parse_mode=ParseMode.HTML,
+        )
+        return ConversationHandler.END
 
     # ── Band 12 Fix: Build per-color uploaded filename map ───────────────────────
     # image_file_ids is a flat list built by extending color_images_map_final in order:
