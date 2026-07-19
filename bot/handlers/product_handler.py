@@ -281,6 +281,17 @@ def _supplier_page_url(supplier_id: str) -> str:
     return f"{base}/supplier/{supplier_id}"
 
 
+def _product_page_url(product_id: str, supplier_id: str) -> str:
+    """
+    Returns the URL for the specific product page on TopGate.
+    Used as fallback when KAYISOFT share_links.details is not available.
+
+    Format: {TOPGATE_WEB_URL}/product/{product_id}?supplier={supplier_id}
+    """
+    base = os.getenv("TOPGATE_WEB_URL", "https://topgate.app")
+    return f"{base}/product/{product_id}?supplier={supplier_id}"
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Filename Generator
 # KAYISOFT API requires: <ISO-8601 timestamp>-<SHA-256 hash>
@@ -1038,7 +1049,9 @@ async def _publish_to_channel(
     #   - share_link_details → btn_page button URL
     # If KAYISOFT did not return share_links, fall back to legacy URL builders.
     _btn_chat_url = share_link_chat    or _product_chat_url(product_id, supplier_id)
-    _btn_page_url = share_link_details or _supplier_page_url(supplier_id)
+    # Band-fix: fallback to product page URL (not supplier page) so the button
+    # always lands on the specific product, not the supplier's homepage.
+    _btn_page_url = share_link_details or _product_page_url(product_id, supplier_id)
 
     _btn_labels = {
         "ar": {"btn_chat": "💬 تواصل مع المورد",  "btn_page": "🛒 عرض المنتج"},
@@ -4654,7 +4667,8 @@ async def handle_final_publish(
     # FALLBACK STRATEGY (if backend hasn't deployed share_links yet):
     #   Build dynalinks from first variant_id using the documented URL pattern.
 
-    # Attempt 1: use share_links from TOP LEVEL of API response (correct location)
+    # ── Extract share_links with 3-tier fallback strategy ────────────────────
+    # Tier 1: share_links at TOP LEVEL of response (documented spec)
     _top_level_links = created_product.get("share_links", {}) or {}
     share_link_chat    = _top_level_links.get("chat", "")    or ""
     share_link_details = _top_level_links.get("details", "") or ""
@@ -4665,15 +4679,25 @@ async def handle_final_publish(
             share_link_chat, share_link_details
         )
     else:
-        # Attempt 2: build dynalinks from first variant_id as fallback
-        _api_variants = created_product.get("variants", [])
-        _first_variant_id = _api_variants[0].get("id", "") if _api_variants else ""
-        _DYNALINKS_BASE = "https://kayisoft.dynalinks.app/topgate"
-        if _first_variant_id:
+        # Tier 2: share_links inside variants[0] (some KAYISOFT versions return it here)
+        _api_variants = created_product.get("variants", []) or []
+        _first_variant = _api_variants[0] if _api_variants else {}
+        _first_variant_id = _first_variant.get("id", "") or ""
+        _variant_links = _first_variant.get("share_links", {}) or {}
+        if _variant_links.get("chat") or _variant_links.get("details"):
+            share_link_chat    = _variant_links.get("chat", "")    or ""
+            share_link_details = _variant_links.get("details", "") or ""
+            logger.info(
+                "🔗 share_links from variants[0].share_links: chat=%s | details=%s",
+                share_link_chat, share_link_details
+            )
+        elif _first_variant_id:
+            # Tier 3: build dynalinks from first variant_id
+            _DYNALINKS_BASE = "https://kayisoft.dynalinks.app/topgate"
             share_link_chat    = f"{_DYNALINKS_BASE}/start-chat-variant?id={_first_variant_id}"
             share_link_details = f"{_DYNALINKS_BASE}/product-variant?id={_first_variant_id}"
             logger.info(
-                "🔗 share_links built from variant_id (fallback): chat=%s | details=%s",
+                "🔗 share_links built from variant_id (tier-3 fallback): chat=%s | details=%s",
                 share_link_chat, share_link_details
             )
         else:
