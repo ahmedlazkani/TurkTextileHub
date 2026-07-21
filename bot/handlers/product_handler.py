@@ -545,46 +545,76 @@ def _build_variants(
         """
         Build the titles list for KAYISOFT API.
 
-        Band-1/4/7 Fix: Send the supplier's text ONLY in their own language slot.
-        KAYISOFT backend is responsible for translating to other languages.
-        
-        Critical: we must NOT copy the supplier's text into other language slots
-        (e.g. Arabic text into TR/EN slots) — that causes the language-mixing bug
-        where TR and EN product pages show Arabic content.
-        
-        We send ONE entry: {language: supplier_lang, text: supplier_text}.
-        The other language slots are intentionally omitted — KAYISOFT fills them
-        via its own translation pipeline.
+        Band-1/4/7/8 Fix: Send ALL three language slots when translations are available.
+        KAYISOFT does NOT auto-translate — we must provide ar, tr, en separately.
+
+        Strategy:
+          - If translate_product_titles ran successfully → product_name_ar/tr/en are all
+            populated with correct translations → send all 3 slots.
+          - If translation failed (fallback) → all 3 slots have the same text → send
+            only the supplier's language slot to avoid showing wrong-language content.
         """
-        # Determine the actual text for the supplier's language slot
-        _slot_text = (
-            (product_name_ar if lang_code == "ar" else None)
-            or (product_name_tr if lang_code == "tr" else None)
-            or (name_en or product_name_en if lang_code == "en" else None)
-            or name_local
-            or ""
-        )
-        if not _slot_text:
-            _slot_text = name_local or ""
-        # Send ONLY the supplier's language — never copy to other slots
-        return [{"language": lang_code, "text": _slot_text}]
+        # Build all three slots from the translated values
+        _ar = product_name_ar or ""
+        _tr = product_name_tr or ""
+        _en = product_name_en or name_en or ""
+
+        # Detect if translations are truly distinct (not all the same fallback text)
+        _texts = {t for t in (_ar, _tr, _en) if t}
+        _all_same = len(_texts) <= 1  # all empty or all identical → translation failed
+
+        if _all_same or not (_ar and _tr and _en):
+            # Translation not available — send only the supplier's own language slot
+            _slot_text = (
+                (_ar if lang_code == "ar" else None)
+                or (_tr if lang_code == "tr" else None)
+                or (_en if lang_code == "en" else None)
+                or name_local
+                or ""
+            )
+            return [{"language": lang_code, "text": _slot_text or name_local or ""}]
+
+        # All 3 translations are distinct → send all 3 slots
+        entries = []
+        if _ar:
+            entries.append({"language": "ar", "text": _ar})
+        if _tr:
+            entries.append({"language": "tr", "text": _tr})
+        if _en:
+            entries.append({"language": "en", "text": _en})
+        return entries if entries else [{"language": lang_code, "text": name_local or ""}]
 
     def _build_descriptions(desc_local: str, desc_en: str, lang_code: str) -> list:
         """
         Build the descriptions list for KAYISOFT API.
-        Band-1/4/7 Fix: Send ONE language only — same rationale as _build_titles.
-        Never copy supplier text into other language slots.
+        Band-1/4/7/8 Fix: Send ALL three language slots when translations are available.
+        Same strategy as _build_titles.
         """
-        _slot_text = (
-            (description_ar if lang_code == "ar" else None)
-            or (description_tr if lang_code == "tr" else None)
-            or (desc_en or description_en if lang_code == "en" else None)
-            or desc_local
-            or ""
-        )
-        if not _slot_text:
-            _slot_text = desc_local or ""
-        return [{"language": lang_code, "text": _slot_text}]
+        _ar = description_ar or ""
+        _tr = description_tr or ""
+        _en = description_en or desc_en or ""
+
+        _texts = {t for t in (_ar, _tr, _en) if t}
+        _all_same = len(_texts) <= 1
+
+        if _all_same or not (_ar and _tr and _en):
+            _slot_text = (
+                (_ar if lang_code == "ar" else None)
+                or (_tr if lang_code == "tr" else None)
+                or (_en if lang_code == "en" else None)
+                or desc_local
+                or ""
+            )
+            return [{"language": lang_code, "text": _slot_text or desc_local or ""}]
+
+        entries = []
+        if _ar:
+            entries.append({"language": "ar", "text": _ar})
+        if _tr:
+            entries.append({"language": "tr", "text": _tr})
+        if _en:
+            entries.append({"language": "en", "text": _en})
+        return entries if entries else [{"language": lang_code, "text": desc_local or ""}]
 
     # ── If no selector attributes → single variant ──────────────────────────────────────────────────────────────────────────────────
     if not ai_selector_attrs:
@@ -5645,6 +5675,30 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
                     # o_id may itself be the option name (text-type attrs)
                     rendered.append(_deduplicate_name(str(o_id)))
             lines.append(f"  🎨 {attr_name}: {', '.join(rendered)}")
+
+    # ── Notes and product_code ─────────────────────────────────────────────────
+    notes_val    = product_details.get("notes")        or ""
+    code_val     = product_details.get("product_code") or ""
+    post_langs   = product_details.get("post_languages") or []
+
+    if notes_val or code_val or post_langs:
+        lines.append("")
+        sep_labels = {"tr": "━━━━━━━━━━━━━━━━━━━━", "ar": "━━━━━━━━━━━━━━━━━━━━", "en": "━━━━━━━━━━━━━━━━━━━━"}
+        lines.append(sep_labels.get(lang, "━━━━━━━━━━━━━━━━━━━━"))
+
+    if code_val:
+        code_labels = {"tr": "🔖 Ürün Kodu", "ar": "🔖 كود المنتج", "en": "🔖 Product Code"}
+        lines.append(f"{code_labels.get(lang, code_labels['en'])}: <b>{code_val}</b>")
+
+    if notes_val:
+        notes_labels = {"tr": "📝 Notlar", "ar": "📝 ملاحظات", "en": "📝 Notes"}
+        lines.append(f"{notes_labels.get(lang, notes_labels['en'])}: {notes_val}")
+
+    if post_langs:
+        lang_flag = {"ar": "🇸🇦 عربي", "tr": "🇹🇷 Türkçe", "en": "🇬🇧 English"}
+        langs_str = " + ".join(lang_flag.get(l, l) for l in post_langs)
+        post_lang_labels = {"tr": "🌐 Gönderi Dilleri", "ar": "🌐 لغات البوست", "en": "🌐 Post Languages"}
+        lines.append(f"{post_lang_labels.get(lang, post_lang_labels['en'])}: {langs_str}")
 
     return "\n".join(lines)
 

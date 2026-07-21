@@ -932,6 +932,28 @@ async def generate_channel_post(
 deepseek_service = DeepSeekService()
 
 
+def _get_api_config() -> tuple:
+    """
+    Returns (api_key, base_url) for the active AI provider.
+    Priority: DeepSeek > OpenAI-compatible > (empty string, empty string)
+    """
+    deepseek_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
+    openai_key   = os.getenv("OPENAI_API_KEY", "").strip()
+
+    if deepseek_key:
+        _base = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1").rstrip("/")
+        if not _base.endswith("/v1"):
+            _base += "/v1"
+        return deepseek_key, _base
+    elif openai_key:
+        _base = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+        if not _base.endswith("/v1"):
+            _base += "/v1"
+        return openai_key, _base
+    else:
+        return "", ""
+
+
 async def translate_product_titles(
     name: str,
     description: str,
@@ -986,8 +1008,12 @@ Rules:
 - Keep descriptions concise (max 200 chars per language)
 - Never add extra fields or commentary"""
 
+    # Use the correct model based on which API key is active
+    deepseek_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
+    _model = "deepseek-chat" if deepseek_key else os.getenv("FALLBACK_AI_MODEL", "gpt-4.1-mini")
+
     payload = {
-        "model":       "deepseek-chat",
+        "model":       _model,
         "messages":    [{"role": "user", "content": prompt}],
         "temperature": 0.3,
         "max_tokens":  600,
