@@ -143,7 +143,7 @@ from telegram.ext import (
 
 from bot.services.language_service import get_string, get_user_lang
 from bot.services.kayisoft_api import KayisoftAPI
-from bot.services.deepseek_service import deepseek_service, generate_channel_post
+from bot.services.deepseek_service import deepseek_service, generate_channel_post, translate_product_titles
 from bot.handlers.channel_stats import track_product_published
 
 logger = logging.getLogger(__name__)
@@ -545,13 +545,18 @@ def _build_variants(
         """
         Build the titles list for KAYISOFT API.
 
-        Band-1/4 Fix: Send ONE language only (supplier's own language).
-        The KAYISOFT backend translates to other languages automatically.
-        Sending all 3 slots with the same Arabic text caused the language-mixing
-        bug where TR and EN fields showed Arabic content.
+        Band-1/4/7 Fix: Send the supplier's text ONLY in their own language slot.
+        KAYISOFT backend is responsible for translating to other languages.
+        
+        Critical: we must NOT copy the supplier's text into other language slots
+        (e.g. Arabic text into TR/EN slots) — that causes the language-mixing bug
+        where TR and EN product pages show Arabic content.
+        
+        We send ONE entry: {language: supplier_lang, text: supplier_text}.
+        The other language slots are intentionally omitted — KAYISOFT fills them
+        via its own translation pipeline.
         """
-        # Prefer the explicit per-language field if set by AI extraction;
-        # otherwise use the raw text the supplier typed.
+        # Determine the actual text for the supplier's language slot
         _slot_text = (
             (product_name_ar if lang_code == "ar" else None)
             or (product_name_tr if lang_code == "tr" else None)
@@ -559,15 +564,16 @@ def _build_variants(
             or name_local
             or ""
         )
-        # Fallback: if slot_text is still empty, use name_local
         if not _slot_text:
             _slot_text = name_local or ""
+        # Send ONLY the supplier's language — never copy to other slots
         return [{"language": lang_code, "text": _slot_text}]
 
     def _build_descriptions(desc_local: str, desc_en: str, lang_code: str) -> list:
         """
         Build the descriptions list for KAYISOFT API.
-        Band-1/4 Fix: Send ONE language only — same rationale as _build_titles.
+        Band-1/4/7 Fix: Send ONE language only — same rationale as _build_titles.
+        Never copy supplier text into other language slots.
         """
         _slot_text = (
             (description_ar if lang_code == "ar" else None)
@@ -2592,25 +2598,36 @@ async def handle_confirm_details(
         # because the webapp flow (which has a language selector) was not used.
         # Intercept here and ask the supplier to choose post languages before generating.
         if not languages and _source_check not in ("webapp", "webapp_post"):
+            # Band-7 Fix (v2): Multi-select toggle UI — supplier can pick any combination
+            # of languages (e.g. AR+TR without EN). Default: supplier's own language pre-selected.
+            _default_langs = {lang} if lang in ("ar", "tr", "en") else {"ar"}
+            context.user_data["pending_post_langs"] = list(_default_langs)
+
+            def _build_lang_keyboard(selected: list) -> InlineKeyboardMarkup:
+                sel = set(selected)
+                ar_mark = "✅" if "ar" in sel else "⬜"
+                tr_mark = "✅" if "tr" in sel else "⬜"
+                en_mark = "✅" if "en" in sel else "⬜"
+                return InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton(f"{ar_mark} 🇸🇦 عربي",   callback_data="post_lang_toggle_ar"),
+                        InlineKeyboardButton(f"{tr_mark} 🇹🇷 Türkçe", callback_data="post_lang_toggle_tr"),
+                        InlineKeyboardButton(f"{en_mark} 🇬🇧 English", callback_data="post_lang_toggle_en"),
+                    ],
+                    [
+                        InlineKeyboardButton("✔️ تأكيد / Onayla / Confirm", callback_data="post_lang_confirm"),
+                    ],
+                ])
+
             _lang_prompt = {
-                "ar": "🌐 <b>اختر لغات البوست</b>\n\nاختر اللغات التي تريد نشر البوست بها:",
-                "tr": "🌐 <b>Gönderi Dillerini Seçin</b>\n\nGönderinizin yayınlanmasını istediğiniz dilleri seçin:",
-                "en": "🌐 <b>Select Post Languages</b>\n\nChoose the languages for your channel post:",
+                "ar": "🌐 <b>اختر لغات البوست</b>\n\nاضغط على اللغة لتحديدها أو إلغاء تحديدها، ثم اضغط <b>تأكيد</b>:",
+                "tr": "🌐 <b>Gönderi Dillerini Seçin</b>\n\nDil seçmek veya seçimi kaldırmak için tıklayın, ardından <b>Onayla</b>:",
+                "en": "🌐 <b>Select Post Languages</b>\n\nTap to toggle each language, then tap <b>Confirm</b>:",
             }
-            _lang_keyboard = InlineKeyboardMarkup([
-                [
-                    InlineKeyboardButton("🇸🇦 عربي",   callback_data="post_lang_ar"),
-                    InlineKeyboardButton("🇹🇷 Türkçe", callback_data="post_lang_tr"),
-                    InlineKeyboardButton("🇬🇧 English", callback_data="post_lang_en"),
-                ],
-                [
-                    InlineKeyboardButton("🌍 الكل / Tümü / All", callback_data="post_lang_all"),
-                ],
-            ])
             await query.message.reply_text(
                 _lang_prompt.get(lang, _lang_prompt["en"]),
                 parse_mode=ParseMode.HTML,
-                reply_markup=_lang_keyboard,
+                reply_markup=_build_lang_keyboard(list(_default_langs)),
             )
             return SELECT_POST_LANG
 
@@ -2984,14 +3001,49 @@ async def handle_select_post_lang(
 
     await query.answer()
 
-    _lang_map = {
-        "post_lang_ar":  ["ar"],
-        "post_lang_tr":  ["tr"],
-        "post_lang_en":  ["en"],
-        "post_lang_all": ["ar", "tr", "en"],
-    }
-    selected_langs = _lang_map.get(query.data, ["ar", "tr", "en"])
+    # Band-7 Fix (v2): Multi-select toggle UI
+    # post_lang_toggle_* → toggle that language on/off in pending_post_langs
+    # post_lang_confirm  → finalize selection and proceed to post generation
+    action = query.data  # e.g. "post_lang_toggle_ar" or "post_lang_confirm"
+
+    pending = list(context.user_data.get("pending_post_langs") or [lang] if lang in ("ar", "tr", "en") else ["ar"])
+
+    if action.startswith("post_lang_toggle_"):
+        toggled = action.replace("post_lang_toggle_", "")  # "ar", "tr", or "en"
+        if toggled in pending:
+            pending.remove(toggled)
+        else:
+            pending.append(toggled)
+        # Ensure at least one language is always selected
+        if not pending:
+            pending = [toggled]  # re-add the one they just removed
+        context.user_data["pending_post_langs"] = pending
+
+        # Rebuild keyboard with updated checkmarks
+        sel = set(pending)
+        ar_mark = "✅" if "ar" in sel else "⬜"
+        tr_mark = "✅" if "tr" in sel else "⬜"
+        en_mark = "✅" if "en" in sel else "⬜"
+        updated_keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(f"{ar_mark} 🇸🇦 عربي",   callback_data="post_lang_toggle_ar"),
+                InlineKeyboardButton(f"{tr_mark} 🇹🇷 Türkçe", callback_data="post_lang_toggle_tr"),
+                InlineKeyboardButton(f"{en_mark} 🇬🇧 English", callback_data="post_lang_toggle_en"),
+            ],
+            [
+                InlineKeyboardButton("✔️ تأكيد / Onayla / Confirm", callback_data="post_lang_confirm"),
+            ],
+        ])
+        try:
+            await query.message.edit_reply_markup(reply_markup=updated_keyboard)
+        except Exception:
+            pass  # message may not be editable; ignore
+        return SELECT_POST_LANG  # stay in this state waiting for confirm
+
+    # action == "post_lang_confirm" → finalize
+    selected_langs = pending if pending else ["ar", "tr", "en"]
     context.user_data["post_languages"] = selected_langs
+    context.user_data.pop("pending_post_langs", None)
     # Also persist inside product_details so downstream code finds it
     _pd = context.user_data.get("product_details", {})
     _pd["post_languages"] = selected_langs
@@ -3115,14 +3167,27 @@ async def handle_ai_post_review(
                                 raw_n = raw_n.split("|", 1)[-1].strip()
                             _found_opt_label = _deduplicate_name(raw_n) if raw_n else None
                             break
-                # Last resort: use opt_id only if it looks human-readable (not a UUID)
+                # Last resort: search raw_attributes directly for this option
+                if not _found_opt_label:
+                    for _raw_attr in context.user_data.get("raw_attributes", []):
+                        for _raw_opt in _raw_attr.get("options", []):
+                            if _raw_opt.get("id") == opt_id:
+                                _rn = _raw_opt.get("label") or _raw_opt.get("name") or _raw_opt.get("value", "")
+                                if "|" in (_rn or ""):
+                                    _rn = _rn.split("|", 1)[-1].strip()
+                                _found_opt_label = _deduplicate_name(_rn) if _rn else None
+                                break
+                        if _found_opt_label:
+                            break
+                # Absolute last resort: use opt_id only if it looks human-readable (not a UUID)
                 import re as _re_shared
                 _UUID_PAT_S = _re_shared.compile(
                     r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
                     _re_shared.I,
                 )
                 if not _found_opt_label:
-                    _found_opt_label = opt_id if not _UUID_PAT_S.match(str(opt_id)) else f"[{str(opt_id)[:8]}]"
+                    _found_opt_label = opt_id if not _UUID_PAT_S.match(str(opt_id)) else f"?"
+                    logger.warning("[REGEN_IDS] Could not resolve opt_id=%s for attr_id=%s", opt_id[:8] if len(opt_id) > 8 else opt_id, attr_id[:8] if len(attr_id) > 8 else attr_id)
                 option_names.append(_found_opt_label)
             if option_names:
                 attrs_list.append({"name": attr_name, "value": ", ".join(option_names)})
@@ -3164,14 +3229,27 @@ async def handle_ai_post_review(
                                 raw_n = raw_n.split("|", 1)[-1].strip()
                             _found_label = _deduplicate_name(raw_n) if raw_n else None
                             break
-                # Last resort: use o_id as-is if it looks human-readable (not a UUID)
+                # Last resort: search raw_attributes directly
+                if not _found_label:
+                    for _raw_attr2 in context.user_data.get("raw_attributes", []):
+                        for _raw_opt2 in _raw_attr2.get("options", []):
+                            if _raw_opt2.get("id") == o_id:
+                                _rn2 = _raw_opt2.get("label") or _raw_opt2.get("name") or _raw_opt2.get("value", "")
+                                if "|" in (_rn2 or ""):
+                                    _rn2 = _rn2.split("|", 1)[-1].strip()
+                                _found_label = _deduplicate_name(_rn2) if _rn2 else None
+                                break
+                        if _found_label:
+                            break
+                # Absolute last resort: use o_id as-is if it looks human-readable (not a UUID)
                 import re as _re_regen
                 _UUID_PAT = _re_regen.compile(
                     r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
                     _re_regen.I,
                 )
                 if not _found_label:
-                    _found_label = o_id if not _UUID_PAT.match(o_id) else f"[{o_id[:8]}]"
+                    _found_label = o_id if not _UUID_PAT.match(o_id) else "?"
+                    logger.warning("[REGEN_IDS] Could not resolve selector opt_id=%s", o_id[:8] if len(o_id) > 8 else o_id)
                 o_names.append(_found_label)
             attrs_list.append({"name": a_name, "value": ", ".join(o_names)})
 
@@ -5082,8 +5160,13 @@ async def handle_form_submitted(
         "price":               price_str,
         "min_quantity":        min_quantity,
         "stock_count":         stock_count,
-        "shared_attributes":   shared_attributes,
-        "selector_attributes": selector_attributes,
+        # Band-3 Fix: merge shared_attributes (new over old) so that attributes
+        # the supplier did NOT change in this edit session are preserved.
+        # e.g. if supplier only changed colours, size/material attributes stay intact.
+        "shared_attributes":   {**existing_details.get("shared_attributes", {}), **shared_attributes} if shared_attributes else existing_details.get("shared_attributes", {}),
+        # selector_attributes is a list — replace fully if supplier sent new values,
+        # otherwise keep the old list (same merge logic as notes/product_code).
+        "selector_attributes": selector_attributes if selector_attributes else existing_details.get("selector_attributes", []),
         "post_languages":      post_languages,
         # Band-18: notes are forwarded to the AI post generator so they appear
         # in the channel post caption (e.g. invoice info, pack contents).
@@ -5097,6 +5180,36 @@ async def handle_form_submitted(
         "_source":             "webapp_post",
     }
     context.user_data["product_details"] = product_details
+
+    # ── Band-1/4/7 Fix: Translate name & description into all 3 languages ────────
+    # KAYISOFT does NOT auto-translate. We must send correct text in each language
+    # slot (ar/tr/en) to prevent language-mixing on the product page.
+    # We do this asynchronously here (after form submit, before confirm) so it
+    # doesn't block the publish pipeline.
+    try:
+        _translated = await translate_product_titles(
+            name=name,
+            description=description,
+            source_lang=lang,
+        )
+        # Merge translated fields into product_details
+        product_details.update({
+            "name_ar":         _translated.get("name_ar", name),
+            "name_tr":         _translated.get("name_tr", name),
+            "name_en":         _translated.get("name_en", name),
+            "description_ar":  _translated.get("description_ar", description),
+            "description_tr":  _translated.get("description_tr", description),
+            "description_en":  _translated.get("description_en", description),
+        })
+        context.user_data["product_details"] = product_details
+        logger.info(
+            "[TRANSLATE] name_ar=%r name_tr=%r name_en=%r",
+            _translated.get("name_ar", "")[:40],
+            _translated.get("name_tr", "")[:40],
+            _translated.get("name_en", "")[:40],
+        )
+    except Exception as _te:
+        logger.warning("[TRANSLATE] Failed to translate product titles: %s — using original text", _te)
 
     logger.info(
         "handle_form_submitted: valid form data. "
@@ -5819,10 +5932,10 @@ def get_product_conv_handler() -> ConversationHandler:
                 ),
             ],
             SELECT_POST_LANG: [
-                # Band-7: Supplier selects post language(s) in the manual path
+                # Band-7 (v2): Multi-select toggle UI — toggle individual languages or confirm
                 CallbackQueryHandler(
                     handle_select_post_lang,
-                    pattern=r"^post_lang_(ar|tr|en|all)$",
+                    pattern=r"^post_lang_(toggle_(ar|tr|en)|confirm)$",
                 ),
             ],
             AI_POST_REVIEW: [

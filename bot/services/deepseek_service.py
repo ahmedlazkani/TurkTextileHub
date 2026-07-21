@@ -930,3 +930,104 @@ async def generate_channel_post(
 # Import and use this instance throughout the bot:
 #   from bot.services.deepseek_service import deepseek_service
 deepseek_service = DeepSeekService()
+
+
+async def translate_product_titles(
+    name: str,
+    description: str,
+    source_lang: str,
+) -> dict:
+    """
+    Translate product name and description into all three languages (ar, tr, en).
+
+    Band-1/4/7 Fix: KAYISOFT does NOT auto-translate — we must send the correct
+    text in each language slot.  This function uses the AI to produce clean
+    translations so that TR and EN product pages never show Arabic content.
+
+    Args:
+        name:         Product name in the supplier's language
+        description:  Product description in the supplier's language
+        source_lang:  Supplier's language code ("ar", "tr", or "en")
+
+    Returns:
+        dict with keys: name_ar, name_tr, name_en, description_ar, description_tr, description_en
+        Falls back to the original text for all slots on error.
+    """
+    _key, _base = _get_api_config()
+    if not _key or not name:
+        # No API key or empty name — return original text in all slots
+        return {
+            "name_ar": name, "name_tr": name, "name_en": name,
+            "description_ar": description, "description_tr": description, "description_en": description,
+        }
+
+    lang_names = {"ar": "Arabic", "tr": "Turkish", "en": "English"}
+    source_lang_name = lang_names.get(source_lang, "Arabic")
+
+    prompt = f"""You are a professional translator for a textile e-commerce platform.
+Translate the following product name and description from {source_lang_name} into Arabic, Turkish, and English.
+
+Product Name: {name}
+Product Description: {description}
+
+Respond ONLY with valid JSON in this exact format (no markdown, no explanation):
+{{
+  "name_ar": "...",
+  "name_tr": "...",
+  "name_en": "...",
+  "description_ar": "...",
+  "description_tr": "...",
+  "description_en": "..."
+}}
+
+Rules:
+- Keep the {source_lang_name} version unchanged (copy it exactly as provided)
+- Translate accurately for textile/fashion context
+- Keep descriptions concise (max 200 chars per language)
+- Never add extra fields or commentary"""
+
+    payload = {
+        "model":       "deepseek-chat",
+        "messages":    [{"role": "user", "content": prompt}],
+        "temperature": 0.3,
+        "max_tokens":  600,
+    }
+    headers = {
+        "Authorization": f"Bearer {_key}",
+        "Content-Type":  "application/json",
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{_base}/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=20),
+            ) as resp:
+                if resp.status >= 400:
+                    body = await resp.text()
+                    logger.error("translate_product_titles: API HTTP %d — %s", resp.status, body[:200])
+                    raise ValueError(f"API error {resp.status}")
+                result  = await resp.json()
+                content = result["choices"][0]["message"]["content"].strip()
+                # Strip markdown code fences if present
+                if content.startswith("```"):
+                    content = content.split("```")[1]
+                    if content.startswith("json"):
+                        content = content[4:]
+                translated = json.loads(content)
+                logger.info(
+                    "translate_product_titles: OK — name_ar=%r name_tr=%r name_en=%r",
+                    translated.get("name_ar", "")[:30],
+                    translated.get("name_tr", "")[:30],
+                    translated.get("name_en", "")[:30],
+                )
+                return translated
+    except Exception as e:
+        logger.warning("translate_product_titles: failed (%s) — using original text for all slots", e)
+        # Graceful fallback: use original text in all slots
+        return {
+            "name_ar": name, "name_tr": name, "name_en": name,
+            "description_ar": description, "description_tr": description, "description_en": description,
+        }
