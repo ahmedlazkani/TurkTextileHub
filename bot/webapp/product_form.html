@@ -1067,6 +1067,61 @@
     };
     const T = I18N[LANG] || I18N["en"];
 
+    // ── Band-9 Fix (v9): Attribute name translation map ────────────────────────
+    // KAYISOFT API returns attribute names in Turkish only (e.g. "Renk", "Beden").
+    // This map translates them to the supplier's language (ar/en) when LANG ≠ "tr".
+    // Keys are lowercase Turkish names or attr keys from KAYISOFT.
+    // Programmatic change: added translateAttrName(name, key) called in renderAttributes()
+    //   at the label rendering step instead of using attr.name directly.
+    const ATTR_NAME_MAP = {
+      "renk":           { tr: "Renk",           ar: "لون",       en: "Color" },
+      "color":          { tr: "Renk",           ar: "لون",       en: "Color" },
+      "beden":          { tr: "Beden",          ar: "مقاس",      en: "Size" },
+      "size":           { tr: "Beden",          ar: "مقاس",      en: "Size" },
+      "malzeme":        { tr: "Malzeme",        ar: "الخامة",    en: "Material" },
+      "material":       { tr: "Malzeme",        ar: "الخامة",    en: "Material" },
+      "desen":          { tr: "Desen",          ar: "نقش",       en: "Pattern" },
+      "pattern":        { tr: "Desen",          ar: "نقش",       en: "Pattern" },
+      "cinsiyet":       { tr: "Cinsiyet",       ar: "الجنس",      en: "Gender" },
+      "gender":         { tr: "Cinsiyet",       ar: "الجنس",      en: "Gender" },
+      "yas":            { tr: "Yaş",            ar: "العمر",      en: "Age" },
+      "age":            { tr: "Yaş",            ar: "العمر",      en: "Age" },
+      "sezon":          { tr: "Sezon",          ar: "الموسم",      en: "Season" },
+      "season":         { tr: "Sezon",          ar: "الموسم",      en: "Season" },
+      "yaka":           { tr: "Yaka",           ar: "نوع الياقة",  en: "Collar" },
+      "collar":         { tr: "Yaka",           ar: "نوع الياقة",  en: "Collar" },
+      "kol":            { tr: "Kol",            ar: "نوع الكم",   en: "Sleeve" },
+      "sleeve":         { tr: "Kol",            ar: "نوع الكم",   en: "Sleeve" },
+      "model":          { tr: "Model",          ar: "الموديل",    en: "Model" },
+      "stil":           { tr: "Stil",           ar: "الأسلوب",    en: "Style" },
+      "style":          { tr: "Stil",           ar: "الأسلوب",    en: "Style" },
+      "sale-details":   { tr: "Satış Detayları",  ar: "تفاصيل البيع", en: "Sale Details" },
+      "urun-kodu":      { tr: "Ürün Kodu",      ar: "كود المنتج",  en: "Product Code" },
+      "product-code":   { tr: "Ürün Kodu",      ar: "كود المنتج",  en: "Product Code" },
+      "kumas":          { tr: "Kumaş",          ar: "القماش",    en: "Fabric" },
+      "fabric":         { tr: "Kumaş",          ar: "القماش",    en: "Fabric" },
+      "bakim":          { tr: "Bakım",          ar: "تعليمات العناية", en: "Care" },
+      "care":           { tr: "Bakım",          ar: "تعليمات العناية", en: "Care" },
+      "paket":          { tr: "Paket",          ar: "التغليف",    en: "Package" },
+      "package":        { tr: "Paket",          ar: "التغليف",    en: "Package" },
+    };
+
+    /**
+     * Translate an attribute name to the current UI language.
+     * Falls back to the original name if no translation is found.
+     * @param {string} name  - The raw name from KAYISOFT API (usually Turkish)
+     * @param {string} key   - The attribute key from KAYISOFT API (e.g. "color", "beden")
+     * @returns {string}     - Translated name in LANG
+     */
+    function translateAttrName(name, key) {
+      if (LANG === "tr") return name;  // Turkish — use API name as-is
+      const lookupKey  = (key  || "").toLowerCase().trim();
+      const lookupName = (name || "").toLowerCase().trim();
+      const entry = ATTR_NAME_MAP[lookupKey] || ATTR_NAME_MAP[lookupName];
+      if (entry) return entry[LANG] || entry["en"] || name;
+      return name;  // No translation found — show original
+    }
+
     // ── Apply language direction ─────────────────────────────────────────────
     (function applyLangDir() {
       const htmlEl = document.getElementById("html-root");
@@ -1593,7 +1648,7 @@
         const labelHtml = `
           <div class="field-label">
             <span class="icon">${isVar ? "🎨" : "📌"}</span>
-            ${escHtml(attr.name)}
+            ${escHtml(translateAttrName(attr.name, attr.key))}
             ${isReq  ? '<span class="required-star">*</span>' : ""}
             ${isVar  ? `<span class="variant-badge">🎨 ${LANG === 'ar' ? 'خيارات' : (LANG === 'tr' ? 'Varyant' : 'Variant')}</span>` : ""}
           </div>
@@ -1706,7 +1761,7 @@
                    id="ctrl-attr-${attrId}"
                    data-attr="${attrId}"
                    inputmode="decimal"
-                   placeholder="${escHtml(attr.name)}..."
+                   placeholder="${escHtml(translateAttrName(attr.name, attr.key))}..."
                    step="any" />
           `;
 
@@ -1733,7 +1788,7 @@
             <input type="text"
                    id="ctrl-attr-${attrId}"
                    data-attr="${attrId}"
-                   placeholder="${escHtml(attr.name)}..." />
+                   placeholder="${escHtml(translateAttrName(attr.name, attr.key))}..." />
           `;
         }
 

@@ -2928,24 +2928,21 @@ async def handle_confirm_details(
             # supplier originally typed (stored under name_<lang> by Band-6 fix).
             # This prevents the form from opening with an empty or '—' title
             # when the supplier edits and re-submits.
-            _edit_lang = lang  # supplier's language at edit time
-            # Band-3 / Band-15 Fix: use full fallback chain so the form never
-            # opens with an empty title regardless of which language slot was
-            # populated during the original submission.
-            _prefill_name = (
-                product_details.get(f"name_{_edit_lang}")
-                or product_details.get("name_tr")
-                or product_details.get("name_ar")
-                or product_details.get("name_en")
-                or product_details.get("name", "")
-            )
-            _prefill_desc = (
-                product_details.get(f"description_{_edit_lang}")
-                or product_details.get("description_tr")
-                or product_details.get("description_ar")
-                or product_details.get("description_en")
-                or product_details.get("description", "")
-            )
+            # Band-9 Fix (v9): ALWAYS use the original supplier text (product_details["name"])
+            # as the prefill name/description — NOT the AI-translated version.
+            #
+            # Root cause of Band-3 bug:
+            #   After form submit, translate_product_titles() writes name_tr/name_ar/name_en
+            #   with AI translations.  These translations can be wrong (e.g. "T-shirt" → "Eşarp").
+            #   The old prefill logic used name_{lang} first, so the supplier saw the wrong
+            #   translated name in the edit form, saved it, and all product details changed.
+            #
+            # Fix: prefill always uses the raw supplier input ("name" key), which is the
+            #   exact text the supplier typed.  Translated slots (name_ar/tr/en) are only
+            #   used internally for KAYISOFT API and channel posts — never shown back to
+            #   the supplier in the edit form.
+            _prefill_name = product_details.get("name", "")
+            _prefill_desc = product_details.get("description", "")
             prefill_data = {
                 "name":                _prefill_name,
                 "description":         _prefill_desc,
@@ -3144,32 +3141,60 @@ async def handle_ai_post_review(
         )
 
         # Build post_data again
-        # Band-2 Fix: use processed_attributes (same as post_approve path) to ensure
-        # option labels are resolved correctly. Re-fetch from API if session lost.
+        # Band-9 Fix (v9): ALWAYS re-fetch attributes from API on Regenerate.
+        # Root cause of Band-2 bug:
+        #   processed_attributes is stored in user_data (in-memory).  After a Railway
+        #   restart or long idle, user_data is cleared and all_attrs becomes empty.
+        #   The old code only re-fetched when all_attrs was empty — but the real problem
+        #   is that shared_attributes keys may be attr_key strings (e.g. "color") instead
+        #   of UUIDs, so all_attrs.get(attr_id) returns {} even when all_attrs is populated.
+        #
+        # Fix: always re-fetch from API on Regenerate to guarantee fresh, correct data.
+        # This adds ~200ms latency but ensures option labels are always resolved correctly.
+        #
+        # Programmatic change: moved re-fetch BEFORE the fallback check, making it
+        #   unconditional.  The fallback (use existing session data) is kept as a safety net.
         attrs_list = []
-        _proc_attrs_regen = context.user_data.get("processed_attributes", {})
-        all_attrs = _proc_attrs_regen.get("all_by_id") or {
-            a.get("id"): a for a in context.user_data.get("raw_attributes", []) if a.get("id")
+        _cat_id_regen = context.user_data.get("selected_subcategory", "")
+        if _cat_id_regen:
+            try:
+                _api_regen = KayisoftAPI(telegram_user_id=user_id, language=lang)
+                _raw_regen = await _api_regen.get_attributes(category_id=_cat_id_regen) or []
+                _proc_regen = _process_attributes(_raw_regen)
+                context.user_data["raw_attributes"]       = _raw_regen
+                context.user_data["processed_attributes"] = _proc_regen
+                all_attrs = _proc_regen.get("all_by_id") or {
+                    a.get("id"): a for a in _raw_regen if a.get("id")
+                }
+                logger.info("[REGEN_DEBUG] fresh re-fetch: all_attrs size=%d", len(all_attrs))
+            except Exception as _e_regen:
+                logger.warning("[REGEN_DEBUG] re-fetch failed, falling back to session: %s", _e_regen)
+                _proc_attrs_regen = context.user_data.get("processed_attributes", {})
+                all_attrs = _proc_attrs_regen.get("all_by_id") or {
+                    a.get("id"): a for a in context.user_data.get("raw_attributes", []) if a.get("id")
+                }
+        else:
+            # No category_id in session — use whatever is cached
+            _proc_attrs_regen = context.user_data.get("processed_attributes", {})
+            all_attrs = _proc_attrs_regen.get("all_by_id") or {
+                a.get("id"): a for a in context.user_data.get("raw_attributes", []) if a.get("id")
+            }
+            logger.warning("[REGEN_DEBUG] no selected_subcategory — using cached all_attrs size=%d", len(all_attrs))
+
+        # Build secondary lookup by attr_key (e.g. "color", "material") in addition to UUID.
+        # This handles the case where shared_attributes keys are attr_key strings instead of UUIDs
+        # (which happens when product_details was built from a previous publish cycle).
+        _all_attrs_by_key_regen = {
+            a.get("key", ""): a
+            for a in context.user_data.get("raw_attributes", [])
+            if a.get("key")
         }
-        # If all_attrs is empty (session lost), re-fetch from API
-        if not all_attrs:
-            _cat_id_regen = context.user_data.get("selected_subcategory", "")
-            if _cat_id_regen:
-                try:
-                    _api_regen = KayisoftAPI(telegram_user_id=user_id, language=lang)
-                    _raw_regen = await _api_regen.get_attributes(category_id=_cat_id_regen) or []
-                    _proc_regen = _process_attributes(_raw_regen)
-                    context.user_data["raw_attributes"]       = _raw_regen
-                    context.user_data["processed_attributes"] = _proc_regen
-                    all_attrs = _proc_regen.get("all_by_id") or {
-                        a.get("id"): a for a in _raw_regen if a.get("id")
-                    }
-                    logger.info("[REGEN_DEBUG] re-fetched all_attrs size=%d", len(all_attrs))
-                except Exception as _e_regen:
-                    logger.warning("[REGEN_DEBUG] re-fetch failed: %s", _e_regen)
 
         for attr_id, option_ids in product_details.get("shared_attributes", {}).items():
-            attr_info = all_attrs.get(attr_id, {})
+            # Band-9 Fix (v9): look up by UUID first, then by attr_key string.
+            # shared_attributes may use either UUID keys (from webapp) or key strings
+            # (from a previous publish cycle where id_to_key conversion was applied).
+            attr_info = all_attrs.get(attr_id) or _all_attrs_by_key_regen.get(attr_id) or {}
             attr_name = _deduplicate_name(attr_info.get("name", "") or attr_id)
             seen_oids = set()
             option_names = []
@@ -4629,6 +4654,25 @@ async def handle_final_publish(
 
     logger.info("📋 shared_attributes (smart-typed): %s", str(shared_attributes)[:500])
 
+    # ── Band-9 Fix (v9): Inject notes as 'sale-details' shared attribute ──────────
+    # Ahmed confirmed that 'sale-details' is a custom attribute added to ALL categories
+    # in KAYISOFT with key = "sale-details".  It is a string-based attribute (no options),
+    # so the value is sent as a plain string.
+    #
+    # Previously, notes were excluded from the API payload entirely (Band-10 fix) because
+    # sending 'notes' as a top-level field caused a 4xx error.  Now we inject the notes
+    # text into shared_attributes under the correct key so KAYISOFT stores it in the
+    # product's variant details as expected.
+    #
+    # Programmatic change: shared_attributes["sale-details"] = notes_text
+    # This runs AFTER the shared_attributes loop above so it is never overwritten.
+    _notes_text = str(product_details.get("notes") or "").strip()
+    if _notes_text:
+        shared_attributes["sale-details"] = _notes_text
+        logger.info("📝 Injected notes as sale-details: %r", _notes_text[:80])
+    else:
+        logger.info("📝 No notes to inject as sale-details (field is empty)")
+
     # Build selector_attributes: [{attribute_id, option_id}] — variant-defining
     # NOTE: selector_attributes in variants also need key-based format per PDF spec
     # The conversion is done inside _build_variants using id_to_key map
@@ -4674,12 +4718,9 @@ async def handle_final_publish(
         logger.info("Band-19: no supplier code provided, auto-generated product_no=%r", product_no)
 
     # Build the complete product payload matching KAYISOFT API spec exactly
-    # Band-10 Fix: KAYISOFT API does NOT accept a 'notes' field in the
-    # product creation payload — it returns a 4xx error when 'notes' is
-    # present.  We keep notes in product_details for the AI post generator
-    # (it uses them to craft the channel post) but we NEVER send them to
-    # the KAYISOFT API.  Previously Band-6 added notes to the payload
-    # thinking KAYISOFT would store it; that assumption was wrong.
+    # Band-10 Fix: KAYISOFT API does NOT accept a 'notes' field as a top-level key.
+    # Band-9 Fix (v9): notes are now injected into shared_attributes["sale-details"]
+    # (see block above) so KAYISOFT stores them correctly in the product variant details.
     product_payload = {
         "name":               product_name,
         "product_no":         product_no,
