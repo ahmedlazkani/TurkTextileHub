@@ -2298,58 +2298,88 @@ async def handle_form_input(
         parse_mode=ParseMode.HTML,
     )
 
-    # DeepSeek AI extraction
-    # Passes raw_attributes so AI knows which options are valid for each attribute
-    extracted_data = await deepseek_service.analyze_product_text(
-        text=text,
-        expected_attributes=raw_attributes,
-    )
+    # Band-5 (Husam): Partial edit mode — only update the specific field(s) the supplier mentioned
+    _partial_edit = context.user_data.pop("_partial_edit_mode", False)
 
-    # Fallback: use raw text if AI fails completely
-    if not extracted_data:
-        extracted_data = {
-            "name":               text[:80],
-            "description":        text,
-            "price":              "0",
-            "min_quantity":       1,
-            "stock_count":        100,
-            "shared_attributes":  {},
-            "selector_attributes": [],
-        }
-        logger.warning(
-            "DeepSeek extraction failed for user %s — using raw text fallback",
-            user_id,
+    if _partial_edit:
+        # In partial edit mode: use AI to extract ONLY the fields mentioned in the text
+        # then merge them on top of the existing product_details
+        old_details = context.user_data.get("product_details", {})
+        extracted_data = await deepseek_service.analyze_product_text(
+            text=text,
+            expected_attributes=raw_attributes,
         )
-
-    # Preserve the language selection made before entering manual flow
-    # (stored earlier as context.user_data["post_languages"] when user chose language)
-    _saved_langs = context.user_data.get("post_languages")
-    if _saved_langs and "post_languages" not in extracted_data:
-        extracted_data["post_languages"] = _saved_langs
-
-    # BUG FIX (Band 15): Merge new extraction with existing product_details instead of
-    # replacing it wholesale. This prevents AI from overwriting fields the user didn't touch.
-    # Strategy: only overwrite a field if the new extraction actually provided a non-empty value.
-    old_details = context.user_data.get("product_details", {})
-    if old_details:
-        merged = dict(old_details)  # start from old
+        if not extracted_data:
+            extracted_data = {}
+        # Merge: only update fields that the AI actually extracted (non-default values)
+        merged = dict(old_details)
         for k, v in extracted_data.items():
-            # Always overwrite these structural/meta fields
             if k in ("post_languages", "_source", "category_id"):
-                merged[k] = v
-                continue
-            # For dicts (shared_attributes, selector_attributes list): merge if non-empty
+                continue  # never overwrite meta fields in partial edit
             if isinstance(v, dict) and v:
                 merged[k] = v
             elif isinstance(v, list) and v:
                 merged[k] = v
-            elif isinstance(v, str) and v.strip():
+            elif isinstance(v, str) and v.strip() and v.strip() not in ("0", "—"):
                 merged[k] = v
             elif isinstance(v, (int, float)) and v not in (0, 0.0, 1, 100):
-                # Only overwrite numeric defaults if they look intentional
                 merged[k] = v
-            # else: keep old value
         extracted_data = merged
+        logger.info("handle_form_input: partial edit mode — merged fields for user %s", user_id)
+    else:
+        # Full extraction mode (first entry)
+        # DeepSeek AI extraction
+        # Passes raw_attributes so AI knows which options are valid for each attribute
+        extracted_data = await deepseek_service.analyze_product_text(
+            text=text,
+            expected_attributes=raw_attributes,
+        )
+
+        # Fallback: use raw text if AI fails completely
+        if not extracted_data:
+            extracted_data = {
+                "name":               text[:80],
+                "description":        text,
+                "price":              "0",
+                "min_quantity":       1,
+                "stock_count":        100,
+                "shared_attributes":  {},
+                "selector_attributes": [],
+            }
+            logger.warning(
+                "DeepSeek extraction failed for user %s — using raw text fallback",
+                user_id,
+            )
+
+        # Preserve the language selection made before entering manual flow
+        # (stored earlier as context.user_data["post_languages"] when user chose language)
+        _saved_langs = context.user_data.get("post_languages")
+        if _saved_langs and "post_languages" not in extracted_data:
+            extracted_data["post_languages"] = _saved_langs
+
+        # BUG FIX (Band 15): Merge new extraction with existing product_details instead of
+        # replacing it wholesale. This prevents AI from overwriting fields the user didn't touch.
+        # Strategy: only overwrite a field if the new extraction actually provided a non-empty value.
+        old_details = context.user_data.get("product_details", {})
+        if old_details:
+            merged = dict(old_details)  # start from old
+            for k, v in extracted_data.items():
+                # Always overwrite these structural/meta fields
+                if k in ("post_languages", "_source", "category_id"):
+                    merged[k] = v
+                    continue
+                # For dicts (shared_attributes, selector_attributes list): merge if non-empty
+                if isinstance(v, dict) and v:
+                    merged[k] = v
+                elif isinstance(v, list) and v:
+                    merged[k] = v
+                elif isinstance(v, str) and v.strip():
+                    merged[k] = v
+                elif isinstance(v, (int, float)) and v not in (0, 0.0, 1, 100):
+                    # Only overwrite numeric defaults if they look intentional
+                    merged[k] = v
+                # else: keep old value
+            extracted_data = merged
 
     context.user_data["product_details"] = extracted_data
     # Save the original raw text so handle_fix_missing can combine it with corrections
@@ -2991,14 +3021,70 @@ async def handle_confirm_details(
                 parse_mode=ParseMode.HTML,
             )
         else:
-            # Fallback: no Railway domain or data came from manual text entry
-            edit_prompts = {
-                "tr": "✏️ Ürün bilgilerini yeniden girin:",
-                "ar": "✏️ أعد كتابة تفاصيل المنتج:",
-                "en": "✏️ Please re-enter your product details:",
+            # Band-5 (Husam): Instead of asking the supplier to rewrite everything,
+            # show a summary of current fields and let them edit a specific field.
+            product_details = context.user_data.get("product_details", {})
+
+            # Build current values summary
+            _cur_name  = product_details.get("name", "—")
+            _cur_desc  = product_details.get("description", "—")
+            _cur_price = product_details.get("price", "—")
+            _cur_minq  = product_details.get("min_quantity", "—")
+            _cur_stock = product_details.get("stock_count", "—")
+            _cur_code  = product_details.get("product_code") or "—"
+            _cur_notes = product_details.get("notes") or "—"
+
+            edit_field_msgs = {
+                "ar": (
+                    "✏️ <b>تعديل بيانات المنتج</b>\n"
+                    "━━━━━━━━━━━━━━━━━━━━\n"
+                    "<b>القيم الحالية:</b>\n"
+                    f"• الاسم: {_cur_name}\n"
+                    f"• الوصف: {_cur_desc[:80]}{'...' if len(_cur_desc) > 80 else ''}\n"
+                    f"• السعر: {_cur_price}\n"
+                    f"• الحد الأدنى للطلب: {_cur_minq}\n"
+                    f"• المخزون: {_cur_stock}\n"
+                    f"• كود المنتج: {_cur_code}\n"
+                    f"• ملاحظات: {_cur_notes}\n"
+                    "━━━━━━━━━━━━━━━━━━━━\n"
+                    "📝 <b>اكتب التعديل المطلوب</b> — يمكنك تعديل حقل واحد أو أكثر:\n"
+                    "<i>مثال: السعر 45 دولار، أو أضف لون أخضر، أو الوصف: قميص قطن فاخر</i>"
+                ),
+                "tr": (
+                    "✏️ <b>Ürün Bilgilerini Düzenle</b>\n"
+                    "━━━━━━━━━━━━━━━━━━━━\n"
+                    "<b>Mevcut değerler:</b>\n"
+                    f"• Ad: {_cur_name}\n"
+                    f"• Açıklama: {_cur_desc[:80]}{'...' if len(_cur_desc) > 80 else ''}\n"
+                    f"• Fiyat: {_cur_price}\n"
+                    f"• Min. Sipariş: {_cur_minq}\n"
+                    f"• Stok: {_cur_stock}\n"
+                    f"• Ürün Kodu: {_cur_code}\n"
+                    f"• Notlar: {_cur_notes}\n"
+                    "━━━━━━━━━━━━━━━━━━━━\n"
+                    "📝 <b>Değiştirmek istediğiniz alanı yazın:</b>\n"
+                    "<i>Örnek: fiyat 45 dolar, veya yeşil renk ekle, veya açıklama: premium pamuk gömlek</i>"
+                ),
+                "en": (
+                    "✏️ <b>Edit Product Details</b>\n"
+                    "━━━━━━━━━━━━━━━━━━━━\n"
+                    "<b>Current values:</b>\n"
+                    f"• Name: {_cur_name}\n"
+                    f"• Description: {_cur_desc[:80]}{'...' if len(_cur_desc) > 80 else ''}\n"
+                    f"• Price: {_cur_price}\n"
+                    f"• Min. Order: {_cur_minq}\n"
+                    f"• Stock: {_cur_stock}\n"
+                    f"• Product Code: {_cur_code}\n"
+                    f"• Notes: {_cur_notes}\n"
+                    "━━━━━━━━━━━━━━━━━━━━\n"
+                    "📝 <b>Type what you want to change:</b>\n"
+                    "<i>Example: price 45 USD, or add green color, or description: premium cotton shirt</i>"
+                ),
             }
+            # Mark that the next FILL_FORM input is a partial edit (not a full re-entry)
+            context.user_data["_partial_edit_mode"] = True
             await query.message.reply_text(
-                edit_prompts.get(lang, edit_prompts["en"]),
+                edit_field_msgs.get(lang, edit_field_msgs["en"]),
                 parse_mode=ParseMode.HTML,
             )
         return FILL_FORM

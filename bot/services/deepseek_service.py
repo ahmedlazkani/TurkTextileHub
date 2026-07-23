@@ -805,7 +805,7 @@ async def generate_channel_post(
         f"Product Name   : {product_data.get('name', '')}\n"
         f"Description    : {product_data.get('description', '') or '(not provided)'}\n"
         f"Price          : ${product_data.get('price', '')}\n"
-
+        f"Min. Order     : {product_data.get('min_quantity', product_data.get('min_order', '1'))} pieces\n"
         f"Product Code   : {product_data.get('product_code') or '(not provided)'}\n"
         f"Notes          : {product_data.get('notes') or '(none)'}\n"
         f"Attributes     :\n{attrs_text or '  (none)'}"

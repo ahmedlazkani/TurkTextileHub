@@ -117,7 +117,7 @@ CONNECTION_ERROR = {
         "━━━━━━━━━━━━━━━━━━━━\n"
         "📱 <b>Çözüm:</b> TopKap uygulamasını açın\n"
         "   Ayarlar → Telegram Botu → Yeniden Bağla\n\n"
-        "📞 Sorun devam ederse: @TopKapSupport"
+        "📞 Sorun devam ederse: topkap.support@kayisoft.net"
     ),
     "ar": (
         "❌ <b>فشل ربط الحساب</b>\n\n"
@@ -132,7 +132,7 @@ CONNECTION_ERROR = {
         "━━━━━━━━━━━━━━━━━━━━\n"
         "📱 <b>الحل:</b> افتح تطبيق TopKap\n"
         "   الإعدادات ← بوت تيليغرام ← إعادة الربط\n\n"
-        "📞 إذا استمرت المشكلة: @TopKapSupport"
+        "📞 إذا استمرت المشكلة: topkap.support@kayisoft.net"
     ),
     "en": (
         "❌ <b>Account Connection Failed</b>\n\n"
@@ -147,7 +147,7 @@ CONNECTION_ERROR = {
         "━━━━━━━━━━━━━━━━━━━━\n"
         "📱 <b>Solution:</b> Open the TopKap app\n"
         "   Settings → Telegram Bot → Reconnect\n\n"
-        "📞 If the issue persists: @TopKapSupport"
+        "📞 If the issue persists: topkap.support@kayisoft.net"
     ),
 }
 
@@ -313,7 +313,7 @@ HELP_GUIDE = {
         "TopGate Profilimi Paylaş butonuna basın.\n"
         "Hazır mesajı kanalınıza kopyalayın.\n\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "📞 <b>Destek için:</b> @TopKapSupport"
+        "📞 <b>Destek için:</b> topkap.support@kayisoft.net"
     ),
     "ar": (
         "❓ <b>مركز مساعدة TopKap</b>\n\n"
@@ -340,7 +340,7 @@ HELP_GUIDE = {
         "اضغط زر 'شارك ملفي على TopGate'.\n"
         "انسخ الرسالة الجاهزة وانشرها على قناتك.\n\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "📞 <b>للدعم:</b> @TopKapSupport"
+        "📞 <b>للدعم:</b> topkap.support@kayisoft.net"
     ),
     "en": (
         "❓ <b>TopKap Help Center</b>\n\n"
@@ -367,7 +367,7 @@ HELP_GUIDE = {
         "Press 'Share My TopGate Profile' button.\n"
         "Copy the ready message and post it to your channel.\n\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "📞 <b>Support:</b> @TopKapSupport"
+        "📞 <b>Support:</b> topkap.support@kayisoft.net"
     ),
 }
 
@@ -629,10 +629,7 @@ async def handle_menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 )
         except Exception:
             pass
-        await update.message.reply_text(
-            get_string(lang, "why_topkap"),
-            parse_mode=ParseMode.HTML,
-        )
+    # البند 1 (حسام): الصورة تكفي — لا حاجة للنص الإضافي بعدها
 
     else:
         # Fallback: show main menu
