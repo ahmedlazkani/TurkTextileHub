@@ -5150,6 +5150,53 @@ async def handle_final_publish(
 # Cancel Handler
 # ══════════════════════════════════════════════════════════════════════════════
 
+async def handle_lost_state(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> int:
+    """
+    Fallback handler: triggered when a message/photo arrives outside any expected
+    ConversationHandler state — typically after a Railway restart that clears
+    in-memory state. Sends a clear recovery message and ends the conversation.
+    """
+    user    = update.effective_user
+    user_id = str(user.id)
+    lang    = context.user_data.get("lang") or get_user_lang(
+        user_id,
+        telegram_language_code=(user.language_code or "") if user else "",
+    )
+    _lost_msgs = {
+        "ar": (
+            "⚠️ <b>انتهت جلسة إضافة المنتج.</b>\n\n"
+            "يحدث هذا عند إعادة تشغيل الخادم في منتصف العملية.\n"
+            "اضغط /start لبدء إضافة منتج جديد."
+        ),
+        "tr": (
+            "⚠️ <b>Ürün ekleme oturumu sona erdi.</b>\n\n"
+            "Bu durum, işlem sırasında sunucu yeniden başlatıldığında oluşur.\n"
+            "Yeni ürün eklemek için /start yazın."
+        ),
+        "en": (
+            "⚠️ <b>Product session expired.</b>\n\n"
+            "This happens when the server restarts mid-process.\n"
+            "Type /start to begin adding a new product."
+        ),
+    }
+    context.user_data.clear()
+    if update.message:
+        await update.message.reply_text(
+            _lost_msgs.get(lang, _lost_msgs["en"]),
+            parse_mode=ParseMode.HTML,
+        )
+    elif update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.message.reply_text(
+            _lost_msgs.get(lang, _lost_msgs["en"]),
+            parse_mode=ParseMode.HTML,
+        )
+    return ConversationHandler.END
+
+
 async def cancel_product(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -5157,7 +5204,6 @@ async def cancel_product(
     """
     Cancels the product addition flow at any step.
     Clears all stored product data from context.
-
     Triggered by /cancel command.
     """
     user    = update.effective_user
@@ -6168,6 +6214,13 @@ def get_product_conv_handler() -> ConversationHandler:
         },
         fallbacks=[
             CommandHandler("cancel", cancel_product),
+            # Recovery handler: fires when any message/photo/callback arrives
+            # outside an expected state (e.g. after Railway restart clears memory).
+            # Shows a clear "session expired" message instead of silent ignore.
+            MessageHandler(filters.PHOTO, handle_lost_state),
+            MessageHandler(filters.Document.IMAGE, handle_lost_state),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, handle_lost_state),
+            CallbackQueryHandler(handle_lost_state),
         ],
         allow_reentry=True,
         name="add_product_conversation",
