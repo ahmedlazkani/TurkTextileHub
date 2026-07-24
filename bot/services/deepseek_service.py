@@ -856,8 +856,12 @@ async def generate_channel_post(
         "[For EACH attribute in data, show ONE line:]\n"
         "  [emoji] [Label in correct language]: [value from attributes]\n"
         "💰 [Price label]: [price] $\n"
+        "📦 [Min. Order label]: [min_quantity] pieces  ← ALWAYS include this line\n"
         "[🔖 Code: [code]  ← ONLY if product_code provided]\n"
-        "[📝 Notes label: [notes text]  ← ONLY if notes provided; place AFTER price and code]\n\n"
+        "[📝 Notes label: [notes text]  ← ONLY if notes provided; place AFTER price, min order and code]\n\n"
+
+        "Min. Order label mapping (use these exact labels per language):\n"
+        "  الحد الأدنى للطلب / Min. Sipariş / Min. Order\n\n"
 
         "Notes label mapping (use these exact labels per language):\n"
         "  ملاحظات / Notlar / Notes\n\n"

@@ -622,14 +622,10 @@ async def handle_menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif action == "why_topkap":
         try:
             with open(WHY_TOPKAP_IMAGE, "rb") as photo:
-                await update.message.reply_photo(
-                    photo=photo,
-                    caption=get_string(lang, "onboarding_stats"),
-                    parse_mode=ParseMode.HTML,
-                )
+                await update.message.reply_photo(photo=photo)
         except Exception:
             pass
-    # البند 1 (حسام): الصورة تكفي — لا حاجة للنص الإضافي بعدها
+        # الصورة فقط — بدون caption أو نص إضافي
 
     else:
         # Fallback: show main menu
