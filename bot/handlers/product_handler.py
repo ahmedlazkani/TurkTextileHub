@@ -722,9 +722,28 @@ def _build_variants(
         # color appear to have the same photos as the first color.
         # Collect all available images as a fallback pool
         _all_available = uploaded_file_names or []
+        # Band-6 Fix (Notes2): detailed logging to diagnose intermittent image distribution issues
+        logger.info(
+            "[IMG_DIST] color_uploaded_map keys: %s",
+            [k[:8] for k in color_uploaded_map.keys()]
+        )
         for combo in combinations:
             primary_opt_id = combo[0]
             color_imgs = color_uploaded_map.get(primary_opt_id, [])
+            # Band-6 Fix: log each lookup so we can see if primary_opt_id matches map keys
+            if color_imgs:
+                logger.info(
+                    "[IMG_DIST] variant primary_opt_id=%s → %d images: %s",
+                    primary_opt_id[:8], len(color_imgs),
+                    [f[:20] for f in color_imgs]
+                )
+            else:
+                logger.warning(
+                    "[IMG_DIST] variant primary_opt_id=%s NOT FOUND in color_uploaded_map — "
+                    "using fallback image. Map keys: %s",
+                    primary_opt_id[:8],
+                    [k[:8] for k in color_uploaded_map.keys()]
+                )
             # KAYISOFT requires at least 1 image per variant.
             # If a color has no dedicated photos, use the first available image
             # as a placeholder rather than sending images:[] which KAYISOFT rejects.
@@ -2313,7 +2332,11 @@ async def handle_form_input(
 
     if _partial_edit:
         # In partial edit mode: use AI to extract ONLY the fields mentioned in the text
-        # then merge them on top of the existing product_details
+        # then merge them on top of the existing product_details.
+        # Band-3 Fix (Notes2): Protect core identity fields (name, description) from
+        # being overwritten unless the supplier explicitly mentions them in the edit text.
+        # This prevents AI from hallucinating a new name/description when the supplier
+        # only says e.g. "add green color" or "change price to 50".
         old_details = context.user_data.get("product_details", {})
         extracted_data = await deepseek_service.analyze_product_text(
             text=text,
@@ -2321,11 +2344,29 @@ async def handle_form_input(
         )
         if not extracted_data:
             extracted_data = {}
+        # Detect if supplier explicitly mentioned name or description in their edit text
+        _text_lower = text.lower()
+        _name_keywords = (
+            "name", "title", "اسم", "عنوان", "isim", "başlık",
+            "name_ar", "name_tr", "name_en",
+        )
+        _desc_keywords = (
+            "description", "desc", "وصف", "açıklama",
+            "description_ar", "description_tr", "description_en",
+        )
+        _supplier_changed_name = any(kw in _text_lower for kw in _name_keywords)
+        _supplier_changed_desc = any(kw in _text_lower for kw in _desc_keywords)
         # Merge: only update fields that the AI actually extracted (non-default values)
         merged = dict(old_details)
         for k, v in extracted_data.items():
+            # Never overwrite meta fields in partial edit
             if k in ("post_languages", "_source", "category_id"):
-                continue  # never overwrite meta fields in partial edit
+                continue
+            # Protect name/description unless supplier explicitly mentioned them
+            if k in ("name", "name_ar", "name_tr", "name_en") and not _supplier_changed_name:
+                continue  # keep old name
+            if k in ("description", "description_ar", "description_tr", "description_en") and not _supplier_changed_desc:
+                continue  # keep old description
             if isinstance(v, dict) and v:
                 merged[k] = v
             elif isinstance(v, list) and v:
@@ -2335,7 +2376,11 @@ async def handle_form_input(
             elif isinstance(v, (int, float)) and v not in (0, 0.0, 1, 100):
                 merged[k] = v
         extracted_data = merged
-        logger.info("handle_form_input: partial edit mode — merged fields for user %s", user_id)
+        logger.info(
+            "handle_form_input: partial edit mode — merged fields for user %s "
+            "(name_protected=%s, desc_protected=%s)",
+            user_id, not _supplier_changed_name, not _supplier_changed_desc,
+        )
     else:
         # Full extraction mode (first entry)
         # DeepSeek AI extraction
@@ -3036,12 +3081,23 @@ async def handle_confirm_details(
             product_details = context.user_data.get("product_details", {})
 
             # Build current values summary
-            _cur_name  = product_details.get("name", "—")
-            _cur_desc  = product_details.get("description", "—")
-            _cur_price = product_details.get("price", "—")
-            _cur_minq  = product_details.get("min_quantity", "—")
-            _cur_stock = product_details.get("stock_count", "—")
-            _cur_code  = product_details.get("product_code") or "—"
+            # Band-4 Fix (Notes2): product_details keys differ by path:
+            #   webapp path  → name_ar / name_tr / description_ar / description_tr
+            #   manual path  → name / description
+            # Search all possible keys so we never show "—" when data exists.
+            def _first_val(d: dict, *keys, fallback="—") -> str:
+                for k in keys:
+                    v = d.get(k)
+                    if v is not None and str(v).strip():
+                        return str(v).strip()
+                return fallback
+
+            _cur_name  = _first_val(product_details, "name", "name_ar", "name_tr", "name_en")
+            _cur_desc  = _first_val(product_details, "description", "description_ar", "description_tr", "description_en")
+            _cur_price = _first_val(product_details, "price")
+            _cur_minq  = _first_val(product_details, "min_quantity", "min_order")
+            _cur_stock = _first_val(product_details, "stock_count", "stock")
+            _cur_code  = product_details.get("product_code") or product_details.get("product_no") or "—"
             _cur_notes = product_details.get("notes") or "—"
 
             edit_field_msgs = {
@@ -3330,15 +3386,19 @@ async def handle_ai_post_review(
                                 break
                         if _found_opt_label:
                             break
-                # Absolute last resort: use opt_id only if it looks human-readable (not a UUID)
+                # Absolute last resort: use opt_id only if it looks human-readable (not a UUID).
+                # Band-2 Fix (Notes2): skip UUID values entirely instead of showing "?" or raw UUID.
                 import re as _re_shared
                 _UUID_PAT_S = _re_shared.compile(
                     r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
                     _re_shared.I,
                 )
                 if not _found_opt_label:
-                    _found_opt_label = opt_id if not _UUID_PAT_S.match(str(opt_id)) else f"?"
-                    logger.warning("[REGEN_IDS] Could not resolve opt_id=%s for attr_id=%s", opt_id[:8] if len(opt_id) > 8 else opt_id, attr_id[:8] if len(attr_id) > 8 else attr_id)
+                    if _UUID_PAT_S.match(str(opt_id)):
+                        logger.warning("[REGEN_IDS] Skipping unresolved UUID opt_id=%s for attr_id=%s", opt_id[:8] if len(opt_id) > 8 else opt_id, attr_id[:8] if len(attr_id) > 8 else attr_id)
+                        continue  # skip — don't show raw UUID in post
+                    _found_opt_label = opt_id  # non-UUID string: safe to show as-is
+                    logger.warning("[REGEN_IDS] Using raw opt_id string (non-UUID): %s", opt_id)
                 option_names.append(_found_opt_label)
             if option_names:
                 attrs_list.append({"name": attr_name, "value": ", ".join(option_names)})
@@ -3392,15 +3452,19 @@ async def handle_ai_post_review(
                                 break
                         if _found_label:
                             break
-                # Absolute last resort: use o_id as-is if it looks human-readable (not a UUID)
+                # Absolute last resort: use o_id as-is if it looks human-readable (not a UUID).
+                # Band-2 Fix (Notes2): skip UUID values entirely instead of showing "?" or raw UUID.
                 import re as _re_regen
                 _UUID_PAT = _re_regen.compile(
                     r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
                     _re_regen.I,
                 )
                 if not _found_label:
-                    _found_label = o_id if not _UUID_PAT.match(o_id) else "?"
-                    logger.warning("[REGEN_IDS] Could not resolve selector opt_id=%s", o_id[:8] if len(o_id) > 8 else o_id)
+                    if _UUID_PAT.match(o_id):
+                        logger.warning("[REGEN_IDS] Skipping unresolved UUID selector opt_id=%s", o_id[:8] if len(o_id) > 8 else o_id)
+                        continue  # skip — don't show raw UUID in post
+                    _found_label = o_id  # non-UUID string: safe to show as-is
+                    logger.warning("[REGEN_IDS] Using raw selector opt_id string (non-UUID): %s", o_id)
                 o_names.append(_found_label)
             attrs_list.append({"name": a_name, "value": ", ".join(o_names)})
 
