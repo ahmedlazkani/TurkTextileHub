@@ -909,25 +909,39 @@ async def generate_channel_post(
         "Content-Type":  "application/json",
     }
 
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{_base}/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=30),
-            ) as resp:
-                if resp.status >= 400:
-                    body = await resp.text()
-                    logger.error("generate_channel_post: API HTTP %d — %s", resp.status, body[:300])
-                    return None
-                result  = await resp.json()
-                content = result["choices"][0]["message"]["content"].strip()
-                logger.info("generate_channel_post: generated %d chars", len(content))
-                return content
-    except Exception as e:
-        logger.error("generate_channel_post: error — %s", e)
-        return None
+    # Band-6 Fix: retry once on timeout/error before giving up
+    for _attempt in range(2):
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{_base}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=60),  # raised from 30 → 60s
+                ) as resp:
+                    if resp.status >= 400:
+                        body = await resp.text()
+                        logger.error("generate_channel_post: API HTTP %d — %s", resp.status, body[:300])
+                        # Don't retry on 4xx (auth/validation errors)
+                        if resp.status < 500:
+                            return None
+                        # Retry on 5xx server errors
+                        if _attempt == 0:
+                            logger.warning("generate_channel_post: 5xx error, retrying...")
+                            continue
+                        return None
+                    result  = await resp.json()
+                    content = result["choices"][0]["message"]["content"].strip()
+                    logger.info("generate_channel_post: generated %d chars (attempt %d)", len(content), _attempt + 1)
+                    return content
+        except Exception as e:
+            logger.error("generate_channel_post: error on attempt %d — %s", _attempt + 1, e)
+            if _attempt == 0:
+                logger.warning("generate_channel_post: retrying after error...")
+                import asyncio as _asyncio
+                await _asyncio.sleep(2)  # brief pause before retry
+                continue
+    return None
 
 
 # ── Module-level singleton ────────────────────────────────────────────────

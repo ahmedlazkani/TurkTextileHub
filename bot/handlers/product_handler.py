@@ -130,6 +130,7 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     InputMediaPhoto,
+    ReplyKeyboardRemove,
 )
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import (
@@ -1047,6 +1048,9 @@ async def _publish_to_channel(
     notes: str = None,
     # Band-19: supplier product code forwarded to AI post (shown in caption)
     product_code: str = None,
+    # Band-10 Fix: pre-approved AI post text (from handle_ai_post_review)
+    # If provided, skip DeepSeek call and use this directly as the caption.
+    pre_generated_caption: str = None,
 ) -> bool:
     """
     Publishes a professional product post to the supplier's Telegram channel.
@@ -1125,24 +1129,30 @@ async def _publish_to_channel(
     # Use the languages selected by the supplier; fall back to all 3 if not specified
     if not post_languages:
         post_languages = ["ar", "tr", "en"]
-    logger.info("🤖 Generating AI channel post via DeepSeek (languages=%s)...", post_languages)
-    ai_caption = await _gen_post(product_data_for_ai, post_languages)
-    if ai_caption:
-        caption = ai_caption
-        logger.info("✅ AI channel post generated (%d chars)", len(caption))
+    # Band-10 Fix: use pre-approved caption if provided (from handle_ai_post_review)
+    # This ensures the exact text the supplier approved is what gets posted to the channel.
+    if pre_generated_caption:
+        caption = pre_generated_caption
+        logger.info("✅ Using pre-approved AI channel post (%d chars)", len(caption))
     else:
-        # Fallback: use static caption from _build_channel_post
-        logger.warning("⚠️ AI post generation failed — using static caption fallback")
-        caption, _ = _build_channel_post(
-            lang=lang,
-            product_name=product_name,
-            description=description,
-            price=price,
-            min_order=min_order,
-            supplier_name=supplier_name,
-            product_id=product_id,
-            supplier_id=supplier_id,
-        )
+        logger.info("🤖 Generating AI channel post via DeepSeek (languages=%s)...", post_languages)
+        ai_caption = await _gen_post(product_data_for_ai, post_languages)
+        if ai_caption:
+            caption = ai_caption
+            logger.info("✅ AI channel post generated (%d chars)", len(caption))
+        else:
+            # Fallback: use static caption from _build_channel_post
+            logger.warning("⚠️ AI post generation failed — using static caption fallback")
+            caption, _ = _build_channel_post(
+                lang=lang,
+                product_name=product_name,
+                description=description,
+                price=price,
+                min_order=min_order,
+                supplier_name=supplier_name,
+                product_id=product_id,
+                supplier_id=supplier_id,
+            )
 
     try:
         if len(image_file_ids) > 1:
@@ -4409,6 +4419,21 @@ async def handle_final_publish(
         or context.user_data.get("selected_category", "")
     )
 
+    # Band-10 Fix: if raw_attributes is empty (Railway restart / session loss),
+    # re-fetch from KAYISOFT API so attrs_list_pub is built correctly for the channel post.
+    if not raw_attributes and category_id:
+        try:
+            _api_pub = KayisoftAPI(telegram_user_id=user_id, language=lang)
+            _raw_pub = await _api_pub.get_attributes(category_id=category_id) or []
+            if _raw_pub:
+                raw_attributes = _raw_pub
+                context.user_data["raw_attributes"] = _raw_pub
+                logger.info("[BAND10] re-fetched raw_attributes: %d attrs", len(_raw_pub))
+            else:
+                logger.warning("[BAND10] re-fetch returned empty for category_id=%s", category_id)
+        except Exception as _e:
+            logger.warning("[BAND10] re-fetch failed: %s", _e)
+
     # ── DEBUG: log user_data keys and image count ────────────────────────────────────────────────────
     logger.info(
         "🔑 handle_final_publish: user_data keys=%s",
@@ -5041,6 +5066,11 @@ async def handle_final_publish(
 
         # Honour the language selection made by the supplier (webapp or manual flow)
         _post_languages = product_details.get("post_languages") or ["ar", "tr", "en"]
+        # Band-10 Fix: retrieve the pre-approved AI post text so the channel
+        # receives EXACTLY what the supplier approved in handle_ai_post_review.
+        _pre_approved_post = context.user_data.get("ai_channel_post") or None
+        if _pre_approved_post:
+            logger.info("[BAND10] Using pre-approved channel post (%d chars)", len(_pre_approved_post))
         channel_published = await _publish_to_channel(
             context=context,
             channel_id=channel_id,
@@ -5061,6 +5091,8 @@ async def handle_final_publish(
             notes=product_details.get("notes") or None,
             # Band-19: pass supplier product code to AI post generator
             product_code=product_details.get("product_code") or None,
+            # Band-10 Fix: pass pre-approved post so DeepSeek is not called again
+            pre_generated_caption=_pre_approved_post,
         )
     else:
         logger.warning(
@@ -6026,6 +6058,13 @@ async def handle_manual_entry_fallback(
         )
 
     await query.edit_message_text(form_prompt, parse_mode=ParseMode.HTML)
+    # Band-4 Fix: dismiss the persistent ReplyKeyboard so the supplier can type freely
+    # without the keyboard covering the input field on mobile.
+    await query.message.reply_text(
+        "✍️",
+        reply_markup=ReplyKeyboardRemove(),
+        parse_mode=ParseMode.HTML,
+    )
     logger.info("handle_manual_entry_fallback: user_id=%s switched to manual text entry", user_id)
     return FILL_FORM
 
