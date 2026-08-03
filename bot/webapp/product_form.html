@@ -60,7 +60,7 @@
     /* ═══════════════════════════════════════════════════════════
        HEADER
     ═══════════════════════════════════════════════════════════ */
-    .header {
+        .header {
       position:   sticky;
       top:        0;
       z-index:    100;
@@ -69,17 +69,49 @@
       border-bottom: 1px solid rgba(0,0,0,0.06);
       backdrop-filter: blur(10px);
     }
-
+    /* Band-1 Fix (Notes2): header top row with title + lang switcher */
+    .header-top-row {
+      display:         flex;
+      align-items:     center;
+      justify-content: space-between;
+      gap:             8px;
+    }
     .header-title {
       font-size:   1.15rem;
       font-weight: 700;
       letter-spacing: -.01em;
+      flex: 1;
     }
-
     .header-sub {
       font-size:  0.78rem;
       color:      var(--tg-hint);
-      margin-top: 2px;
+      margin-top: 4px;
+    }
+    /* Language switcher buttons */
+    .lang-switcher {
+      display:    flex;
+      gap:        4px;
+      flex-shrink: 0;
+    }
+    .lang-sw-btn {
+      font-size:     0.68rem;
+      font-weight:   600;
+      padding:       3px 7px;
+      border-radius: 6px;
+      border:        1.5px solid rgba(0,0,0,0.15);
+      background:    transparent;
+      color:         var(--tg-hint);
+      cursor:        pointer;
+      transition:    all 0.15s ease;
+      letter-spacing: 0.03em;
+    }
+    .lang-sw-btn.active {
+      border-color: var(--tg-btn);
+      background:   rgba(38,120,216,0.12);
+      color:        var(--tg-btn);
+    }
+    .lang-sw-btn:active {
+      transform: scale(0.93);
     }
 
     /* ═══════════════════════════════════════════════════════════
@@ -735,7 +767,17 @@
        HEADER
   ══════════════════════════════════════════════════════════ -->
   <header class="header">
-    <div class="header-title">📦 إضافة منتج جديد</div>
+    <div class="header-top-row">
+      <div class="header-title">📦 إضافة منتج جديد</div>
+      <!-- Band-1 Fix (Notes2): Language switcher — lets supplier change form language
+           without closing and reopening the webapp. Useful when Telegram account
+           language differs from the supplier's preferred language. -->
+      <div class="lang-switcher" id="lang-switcher">
+        <button class="lang-sw-btn" id="sw-ar" onclick="switchLang('ar')">AR</button>
+        <button class="lang-sw-btn" id="sw-tr" onclick="switchLang('tr')">TR</button>
+        <button class="lang-sw-btn" id="sw-en" onclick="switchLang('en')">EN</button>
+      </div>
+    </div>
     <div class="header-sub">يرجى تعبئة معلومات المنتج أدناه</div>
   </header>
 
@@ -1253,6 +1295,105 @@
       const doneBtn = document.getElementById('done-btn');
       if (doneBtn) doneBtn.textContent = T.done_btn;
     })();
+
+    /* ────────────────────────────────────────────────────────
+       Band-1 Fix (Notes2): switchLang — changes the form language on the fly.
+       Called by the AR/TR/EN buttons in the header.
+       Does NOT reload the page — just updates LANG, T, dir, and all labels.
+       Also re-renders the dynamic attributes section so attribute names
+       are translated to the new language immediately.
+    ──────────────────────────────────────────────────────── */
+    // Mutable LANG reference (LANG const is read-only, so we use a wrapper)
+    let _currentLang = LANG;  // starts from URL param
+
+    function switchLang(newLang) {
+      if (_currentLang === newLang) return;  // no-op
+      _currentLang = newLang;
+      // Update global T to new language
+      const newT = I18N[newLang] || I18N["en"];
+      // Update header
+      const hTitle = document.querySelector(".header-title");
+      const hSub   = document.querySelector(".header-sub");
+      if (hTitle) hTitle.textContent = newT.header_title;
+      if (hSub)   hSub.textContent   = newT.header_sub;
+      // Update dir / lang attribute
+      const htmlEl = document.getElementById("html-root");
+      if (htmlEl) {
+        htmlEl.setAttribute("lang", newLang);
+        htmlEl.setAttribute("dir", newLang === "ar" ? "rtl" : "ltr");
+      }
+      // Update field labels
+      function setLabelText2(cardId, text) {
+        const label = document.querySelector(`#${cardId} .field-label`);
+        if (!label) return;
+        Array.from(label.childNodes).forEach(n => {
+          if (n.nodeType === Node.TEXT_NODE && n.textContent.trim()) {
+            n.textContent = " " + text + " ";
+          }
+        });
+      }
+      setLabelText2("card-name",   newT.label_name);
+      setLabelText2("card-desc",   newT.label_desc);
+      setLabelText2("card-price",  newT.label_price);
+      setLabelText2("card-minqty", newT.label_minqty);
+      setLabelText2("card-stock",  newT.label_stock);
+      setLabelText2("card-code",   newT.label_code);
+      setLabelText2("card-notes",  newT.label_notes);
+      // Post language labels
+      const labelLangs  = document.getElementById("label-langs");  if (labelLangs)  labelLangs.textContent  = newT.label_langs;
+      const labelLangAr = document.getElementById("label-lang-ar"); if (labelLangAr) labelLangAr.textContent = newT.lang_ar;
+      const labelLangTr = document.getElementById("label-lang-tr"); if (labelLangTr) labelLangTr.textContent = newT.lang_tr;
+      const labelLangEn = document.getElementById("label-lang-en"); if (labelLangEn) labelLangEn.textContent = newT.lang_en;
+      // Optional tags
+      document.querySelectorAll(".optional-tag").forEach(el => { el.textContent = newT.optional; });
+      // Placeholders
+      const ph = (id, v) => { const e = document.getElementById(id); if (e) e.placeholder = v; };
+      ph("field-name",   newT.placeholder_name);
+      ph("field-desc",   newT.placeholder_desc);
+      ph("field-price",  newT.placeholder_price);
+      ph("field-minqty", newT.placeholder_minqty);
+      ph("field-stock",  newT.placeholder_stock);
+      ph("field-code",   newT.placeholder_code);
+      ph("field-notes",  newT.placeholder_notes);
+      // Error messages
+      const se = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+      se("error-name",  newT.error_name);
+      se("error-desc",  newT.error_desc);
+      se("error-price", newT.error_price);
+      // Attrs divider
+      const attrDiv = document.getElementById("attrs-divider"); if (attrDiv) attrDiv.textContent = newT.attrs_divider;
+      // Info card
+      const infoText = document.querySelector(".info-card-text"); if (infoText) infoText.innerHTML = newT.info_photos;
+      // MainButton
+      if (tg && tg.MainButton) tg.MainButton.setText(newT.btn_save);
+      const fallbackBtn = document.getElementById('fallback-submit-btn'); if (fallbackBtn) fallbackBtn.textContent = newT.btn_save;
+      const doneBtn = document.getElementById('done-btn'); if (doneBtn) doneBtn.textContent = newT.done_btn;
+      // Re-render dynamic attribute labels with new language
+      // (translateAttrName uses LANG global — we shadow it temporarily)
+      document.querySelectorAll(".attr-section-title").forEach(el => {
+        const attrKey  = el.dataset.attrKey  || "";
+        const attrName = el.dataset.attrName || "";
+        if (attrKey || attrName) {
+          const lookupK = attrKey.toLowerCase().trim();
+          const lookupN = attrName.toLowerCase().trim();
+          const entry   = ATTR_NAME_MAP[lookupK] || ATTR_NAME_MAP[lookupN];
+          if (entry) el.textContent = entry[newLang] || entry["en"] || attrName;
+        }
+      });
+      // Update active button state
+      ["sw-ar", "sw-tr", "sw-en"].forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) btn.classList.toggle("active", id === "sw-" + newLang);
+      });
+    }
+
+    // Mark the initial active lang button
+    (function markActiveLangBtn() {
+      const activeId = "sw-" + _currentLang;
+      const btn = document.getElementById(activeId);
+      if (btn) btn.classList.add("active");
+    })();
+
     const USER_ID     = urlParams.get("user_id")      || "";
 
     /* ────────────────────────────────────────────────────────
@@ -1674,7 +1815,9 @@
 
         // Label row
         const labelHtml = `
-          <div class="field-label">
+          <div class="field-label attr-section-title"
+               data-attr-key="${escHtml(attr.key || '')}"
+               data-attr-name="${escHtml(attr.name || '')}">
             <span class="icon">${isVar ? "🎨" : "📌"}</span>
             ${escHtml(translateAttrName(attr.name, attr.key))}
             ${isReq  ? '<span class="required-star">*</span>' : ""}
