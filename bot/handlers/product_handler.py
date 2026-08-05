@@ -5614,7 +5614,18 @@ async def handle_webapp_data(
             reply_markup=_support_keyboard(lang),
         )
         return FILL_FORM
-
+    # Band-1 Fix (Notes2): If supplier switched language inside the webapp form,
+    # persist the new language so future bot interactions use the correct language.
+    _form_lang = str(payload.get("form_lang", "")).strip().lower()
+    if _form_lang and _form_lang in ("ar", "tr", "en") and _form_lang != lang:
+        from bot.services.language_service import set_user_lang as _set_user_lang
+        _set_user_lang(user_id, _form_lang)
+        context.user_data["lang"] = _form_lang
+        lang = _form_lang
+        logger.info(
+            "handle_webapp_data: supplier %s updated language via form switcher → %s",
+            user_id, _form_lang,
+        )
     name         = str(payload.get("name", "")).strip()
     description  = str(payload.get("description", "")).strip()
     price_str    = str(payload.get("price", "0"))
@@ -5622,10 +5633,8 @@ async def handle_webapp_data(
     stock_count  = int(payload.get("stock_count", min_quantity))
     if stock_count < min_quantity:
         stock_count = min_quantity
-
     shared_attributes   = payload.get("shared_attributes",   {}) or {}
     selector_attributes = payload.get("selector_attributes", []) or []
-
     # Band-15 / Band-6 Fix (legacy path): same as handle_form_submitted —
     # store name/description under the supplier's language key so that
     # handle_details_edit can restore the correct text when re-opening the form.
