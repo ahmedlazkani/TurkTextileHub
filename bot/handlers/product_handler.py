@@ -5292,6 +5292,33 @@ async def handle_final_publish(
 # Cancel Handler
 # ══════════════════════════════════════════════════════════════════════════════
 
+async def recover_post_language_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> int:
+    """Recover a valid post-language callback if ConversationHandler state drifted.
+
+    The language keyboard is created only after ``product_details`` has been
+    assembled.  A callback from that keyboard must therefore never discard a
+    still-live product merely because the in-memory ConversationHandler state
+    is briefly behind the previous callback transition.  A real restart still
+    reaches ``handle_lost_state`` because no product details remain.
+    """
+    query = update.callback_query
+    if context.user_data.get("product_details"):
+        logger.warning(
+            "[POST_LANG_RECOVERY] Recovered callback=%s with live product session",
+            query.data if query else "<missing>",
+        )
+        return await handle_select_post_lang(update, context)
+
+    logger.warning(
+        "[POST_LANG_RECOVERY] No product session for callback=%s; using lost-state recovery",
+        query.data if query else "<missing>",
+    )
+    return await handle_lost_state(update, context)
+
+
 async def handle_lost_state(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -6285,6 +6312,12 @@ def get_product_conv_handler() -> ConversationHandler:
                     handle_confirm_details,
                     pattern=r"^(details_confirm|details_edit)$",
                 ),
+                # Defensive bridge for post-language buttons received while
+                # the preceding confirmation transition is still in flight.
+                CallbackQueryHandler(
+                    handle_select_post_lang,
+                    pattern=r"^post_lang_(toggle_(ar|tr|en)|confirm)$",
+                ),
                 # PRIORITY 3c: AI post review buttons (approve/regenerate/edit)
                 # Can arrive in FILL_FORM after re-submission flow.
                 CallbackQueryHandler(
@@ -6314,6 +6347,12 @@ def get_product_conv_handler() -> ConversationHandler:
                 CallbackQueryHandler(
                     handle_confirm_details,
                     pattern=r"^(details_confirm|details_edit)$",
+                ),
+                # Defensive bridge: a rapid second callback can be delivered
+                # before PTB applies the SELECT_POST_LANG state transition.
+                CallbackQueryHandler(
+                    handle_select_post_lang,
+                    pattern=r"^post_lang_(toggle_(ar|tr|en)|confirm)$",
                 ),
             ],
             SELECT_POST_LANG: [
@@ -6378,6 +6417,12 @@ def get_product_conv_handler() -> ConversationHandler:
             MessageHandler(filters.PHOTO, handle_lost_state),
             MessageHandler(filters.Document.IMAGE, handle_lost_state),
             MessageHandler(filters.TEXT & ~filters.COMMAND, handle_lost_state),
+            # Recover only the language-selection callbacks when product data
+            # is still live; all other unknown callbacks retain lost-state UX.
+            CallbackQueryHandler(
+                recover_post_language_callback,
+                pattern=r"^post_lang_(toggle_(ar|tr|en)|confirm)$",
+            ),
             CallbackQueryHandler(handle_lost_state),
         ],
         allow_reentry=True,
