@@ -511,15 +511,36 @@ class KayisoftAPI:
                         return None, text[:500]
                     try:
                         data = _j.loads(text) if text.strip() else {}
-                        # Log share_links from variants
+                        # KAYISOFT endpoints may return the entity directly or wrap it
+                        # in {"data": {...}}, {"result": {...}}, or {"product": {...}}.
+                        # Normalize only if the nested object demonstrably looks like a
+                        # created product; direct responses remain untouched.
                         if isinstance(data, dict):
-                            for _i, _v in enumerate(data.get("variants", [])):
-                                logger.info(
-                                    "create_product variant[%d] id=%s | share_links=%s",
-                                    _i, _v.get("id", "?"), _v.get("share_links", {})
-                                )
+                            for _wrapper_key in ("data", "result", "product"):
+                                _candidate = data.get(_wrapper_key)
+                                if (
+                                    isinstance(_candidate, dict)
+                                    and any(key in _candidate for key in ("id", "variants", "share_links"))
+                                ):
+                                    logger.info(
+                                        "create_product_with_error: unwrapped product response key=%s",
+                                        _wrapper_key,
+                                    )
+                                    data = _candidate
+                                    break
+                            logger.info(
+                                "create_product_with_error: product response keys=%s | top_share_links=%s",
+                                list(data.keys()), data.get("share_links", {}),
+                            )
+                            for _i, _v in enumerate(data.get("variants", []) or []):
+                                if isinstance(_v, dict):
+                                    logger.info(
+                                        "create_product variant[%d] id=%s | share_links=%s",
+                                        _i, _v.get("id", "?"), _v.get("share_links", {}),
+                                    )
                         return data if data is not None else {}, None
-                    except Exception:
+                    except Exception as exc:
+                        logger.error("create_product_with_error: invalid JSON response: %s", exc)
                         return {}, None
             except Exception as exc:
                 logger.error("create_product_with_error network error: %s", exc)

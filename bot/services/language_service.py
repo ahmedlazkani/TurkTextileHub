@@ -104,7 +104,9 @@ _translations = load_translations()
 
 # ── Persistent language store ────────────────────────────────────────────────
 # Saves user language preferences to disk so they survive Railway restarts.
-# File location priority: /data > /app/data > /tmp (same logic as channel_handler)
+# File location priority: explicit LANGS_FILE > Railway Volume (/data) > /tmp.
+# Never create /app/data here: it belongs to the container filesystem and is
+# wiped on Railway redeploys, even when the real Volume is mounted at /data.
 
 import os as _os
 
@@ -114,15 +116,10 @@ def _resolve_langs_file() -> str:
     if env_path:
         return env_path
     data_dir = "/data"
+    # A Railway Volume must already be mounted at /data. Do not create that
+    # directory ourselves; doing so would silently write to ephemeral storage.
     if _os.path.isdir(data_dir) and _os.access(data_dir, _os.W_OK):
         return _os.path.join(data_dir, "user_langs.json")
-    app_data_dir = "/app/data"
-    try:
-        _os.makedirs(app_data_dir, exist_ok=True)
-        if _os.access(app_data_dir, _os.W_OK):
-            return _os.path.join(app_data_dir, "user_langs.json")
-    except Exception:
-        pass
     return "/tmp/user_langs.json"
 
 _LANGS_FILE = _resolve_langs_file()

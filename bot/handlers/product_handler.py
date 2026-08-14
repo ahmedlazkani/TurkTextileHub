@@ -465,6 +465,69 @@ def _parse_price(raw) -> float:
         return 0.0
 
 
+def _merge_partial_edit_details(old_details: dict, extracted_data: dict, edit_text: str) -> tuple[dict, list[str]]:
+    """Merge an AI extraction into existing product data for a partial edit.
+
+    The extractor returns a full product-shaped payload even when a supplier asks
+    for a single change. Scalar fields are therefore accepted only when their
+    field was explicitly named in the supplier's edit instruction. Attribute
+    dictionaries/lists remain editable because they are the intended path for
+    requests such as "add green colour".
+    """
+    text_lower = (edit_text or "").lower()
+    field_keywords = {
+        "name": (
+            "name", "title", "اسم", "عنوان", "isim", "başlık",
+            "name_ar", "name_tr", "name_en",
+        ),
+        "description": (
+            "description", "desc", "وصف", "açıklama",
+            "description_ar", "description_tr", "description_en",
+        ),
+        "price": ("price", "سعر", "fiyat"),
+        "min_quantity": (
+            "minimum order", "min order", "min. order", "minimum quantity",
+            "min quantity", "moq", "الحد الأدنى", "الحد الادنى", "أقل طلب",
+            "minimum sipariş", "min sipariş",
+        ),
+        "stock_count": ("stock", "stok", "مخزون", "stock_count"),
+        "product_code": ("product code", "code", "ürün kodu", "kod", "كود", "رمز"),
+        "notes": ("notes", "note", "notlar", "not", "ملاحظات", "ملاحظة"),
+    }
+    explicit_fields = {
+        field for field, keywords in field_keywords.items()
+        if any(keyword in text_lower for keyword in keywords)
+    }
+    scalar_field_groups = {
+        "name": {"name", "name_ar", "name_tr", "name_en"},
+        "description": {"description", "description_ar", "description_tr", "description_en"},
+        "price": {"price"},
+        "min_quantity": {"min_quantity", "min_order", "minimum_order"},
+        "stock_count": {"stock_count", "stock"},
+        "product_code": {"product_code", "product_no"},
+        "notes": {"notes"},
+    }
+    scalar_to_intent = {
+        key: intent for intent, keys in scalar_field_groups.items() for key in keys
+    }
+    merged = dict(old_details or {})
+    for key, value in (extracted_data or {}).items():
+        if key in ("post_languages", "_source", "category_id"):
+            continue
+        intent = scalar_to_intent.get(key)
+        if intent and intent not in explicit_fields:
+            continue
+        if isinstance(value, dict) and value:
+            merged[key] = value
+        elif isinstance(value, list) and value:
+            merged[key] = value
+        elif isinstance(value, str) and value.strip() and value.strip() not in ("0", "—"):
+            merged[key] = value
+        elif isinstance(value, (int, float)) and value not in (0, 0.0, 1, 100):
+            merged[key] = value
+    return merged, sorted(explicit_fields)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Variant Builder
 # Auto-builds variants from the primary variant selector attribute
@@ -2344,42 +2407,15 @@ async def handle_form_input(
         )
         if not extracted_data:
             extracted_data = {}
-        # Detect if supplier explicitly mentioned name or description in their edit text
-        _text_lower = text.lower()
-        _name_keywords = (
-            "name", "title", "اسم", "عنوان", "isim", "başlık",
-            "name_ar", "name_tr", "name_en",
+        extracted_data, _explicit_fields = _merge_partial_edit_details(
+            old_details=old_details,
+            extracted_data=extracted_data,
+            edit_text=text,
         )
-        _desc_keywords = (
-            "description", "desc", "وصف", "açıklama",
-            "description_ar", "description_tr", "description_en",
-        )
-        _supplier_changed_name = any(kw in _text_lower for kw in _name_keywords)
-        _supplier_changed_desc = any(kw in _text_lower for kw in _desc_keywords)
-        # Merge: only update fields that the AI actually extracted (non-default values)
-        merged = dict(old_details)
-        for k, v in extracted_data.items():
-            # Never overwrite meta fields in partial edit
-            if k in ("post_languages", "_source", "category_id"):
-                continue
-            # Protect name/description unless supplier explicitly mentioned them
-            if k in ("name", "name_ar", "name_tr", "name_en") and not _supplier_changed_name:
-                continue  # keep old name
-            if k in ("description", "description_ar", "description_tr", "description_en") and not _supplier_changed_desc:
-                continue  # keep old description
-            if isinstance(v, dict) and v:
-                merged[k] = v
-            elif isinstance(v, list) and v:
-                merged[k] = v
-            elif isinstance(v, str) and v.strip() and v.strip() not in ("0", "—"):
-                merged[k] = v
-            elif isinstance(v, (int, float)) and v not in (0, 0.0, 1, 100):
-                merged[k] = v
-        extracted_data = merged
         logger.info(
-            "handle_form_input: partial edit mode — merged fields for user %s "
-            "(name_protected=%s, desc_protected=%s)",
-            user_id, not _supplier_changed_name, not _supplier_changed_desc,
+            "handle_form_input: partial edit merged fields for user %s "
+            "(explicit_scalar_fields=%s)",
+            user_id, _explicit_fields,
         )
     else:
         # Full extraction mode (first entry)
@@ -3347,7 +3383,13 @@ async def handle_ai_post_review(
             # shared_attributes may use either UUID keys (from webapp) or key strings
             # (from a previous publish cycle where id_to_key conversion was applied).
             attr_info = all_attrs.get(attr_id) or _all_attrs_by_key_regen.get(attr_id) or {}
-            attr_name = _deduplicate_name(attr_info.get("name", "") or attr_id)
+            if not attr_info:
+                logger.warning("[REGEN_IDS] Skipping unresolved shared attribute id=%s", str(attr_id)[:32])
+                continue
+            attr_name = _deduplicate_name(attr_info.get("name", "") or attr_info.get("key", ""))
+            if not attr_name:
+                logger.warning("[REGEN_IDS] Skipping shared attribute without readable name id=%s", str(attr_id)[:32])
+                continue
             seen_oids = set()
             option_names = []
             for opt_id in (option_ids if isinstance(option_ids, list) else [option_ids]):
@@ -3386,19 +3428,16 @@ async def handle_ai_post_review(
                                 break
                         if _found_opt_label:
                             break
-                # Absolute last resort: use opt_id only if it looks human-readable (not a UUID).
-                # Band-2 Fix (Notes2): skip UUID values entirely instead of showing "?" or raw UUID.
-                import re as _re_shared
-                _UUID_PAT_S = _re_shared.compile(
-                    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
-                    _re_shared.I,
-                )
+                # A value that did not resolve through the category metadata is
+                # an implementation identifier, not presentation text. Do not
+                # expose it even when it is not UUID-shaped (some APIs use numeric
+                # or short opaque option IDs).
                 if not _found_opt_label:
-                    if _UUID_PAT_S.match(str(opt_id)):
-                        logger.warning("[REGEN_IDS] Skipping unresolved UUID opt_id=%s for attr_id=%s", opt_id[:8] if len(opt_id) > 8 else opt_id, attr_id[:8] if len(attr_id) > 8 else attr_id)
-                        continue  # skip — don't show raw UUID in post
-                    _found_opt_label = opt_id  # non-UUID string: safe to show as-is
-                    logger.warning("[REGEN_IDS] Using raw opt_id string (non-UUID): %s", opt_id)
+                    logger.warning(
+                        "[REGEN_IDS] Skipping unresolved shared option id=%s for attr_id=%s",
+                        str(opt_id)[:32], str(attr_id)[:32],
+                    )
+                    continue
                 option_names.append(_found_opt_label)
             if option_names:
                 attrs_list.append({"name": attr_name, "value": ", ".join(option_names)})
@@ -3411,13 +3450,23 @@ async def handle_ai_post_review(
             if not a_id:
                 continue
             if a_id not in sel_grouped_regen:
-                sel_grouped_regen[a_id] = {"attr_info": all_attrs.get(a_id, {}), "opt_ids": [], "seen": set()}
+                sel_grouped_regen[a_id] = {
+                    "attr_info": all_attrs.get(a_id) or _all_attrs_by_key_regen.get(a_id) or {},
+                    "opt_ids": [],
+                    "seen": set(),
+                }
             if o_id and o_id not in sel_grouped_regen[a_id]["seen"]:
                 sel_grouped_regen[a_id]["seen"].add(o_id)
                 sel_grouped_regen[a_id]["opt_ids"].append(o_id)
         for a_id, grp in sel_grouped_regen.items():
             a_info = grp["attr_info"]
-            a_name = _deduplicate_name(a_info.get("name", "") or a_id)
+            if not a_info:
+                logger.warning("[REGEN_IDS] Skipping unresolved selector attribute id=%s", str(a_id)[:32])
+                continue
+            a_name = _deduplicate_name(a_info.get("name", "") or a_info.get("key", ""))
+            if not a_name:
+                logger.warning("[REGEN_IDS] Skipping selector attribute without readable name id=%s", str(a_id)[:32])
+                continue
             o_names = []
             for o_id in grp["opt_ids"]:
                 # Band 8 fix: resolve option label properly (not just o_id[:8])
@@ -3452,21 +3501,12 @@ async def handle_ai_post_review(
                                 break
                         if _found_label:
                             break
-                # Absolute last resort: use o_id as-is if it looks human-readable (not a UUID).
-                # Band-2 Fix (Notes2): skip UUID values entirely instead of showing "?" or raw UUID.
-                import re as _re_regen
-                _UUID_PAT = _re_regen.compile(
-                    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
-                    _re_regen.I,
-                )
                 if not _found_label:
-                    if _UUID_PAT.match(o_id):
-                        logger.warning("[REGEN_IDS] Skipping unresolved UUID selector opt_id=%s", o_id[:8] if len(o_id) > 8 else o_id)
-                        continue  # skip — don't show raw UUID in post
-                    _found_label = o_id  # non-UUID string: safe to show as-is
-                    logger.warning("[REGEN_IDS] Using raw selector opt_id string (non-UUID): %s", o_id)
+                    logger.warning("[REGEN_IDS] Skipping unresolved selector option id=%s", str(o_id)[:32])
+                    continue
                 o_names.append(_found_label)
-            attrs_list.append({"name": a_name, "value": ", ".join(o_names)})
+            if o_names:
+                attrs_list.append({"name": a_name, "value": ", ".join(o_names)})
 
         # Band 5 fix: add free-text sizes only if no size attribute already in structured attrs.
         # Band 5 improvement: check 'name', 'key', AND 'label' fields to catch Turkish/Arabic names.
@@ -4534,12 +4574,20 @@ async def handle_final_publish(
     results = await asyncio.gather(
         *[_download_one(query.get_bot(), fid) for fid in image_file_ids]
     )
-    image_bytes_list = [r for r in results if isinstance(r, bytes) and r]
+    # Preserve each Telegram file ID beside its bytes. The original positional
+    # implementation assumed KAYISOFT returned signed URLs in request order;
+    # that is unsafe when the API reorders URLs or a single download fails.
+    downloaded_images = [
+        (fid, image_bytes)
+        for fid, image_bytes in zip(image_file_ids, results)
+        if isinstance(image_bytes, bytes) and image_bytes
+    ]
 
     # ── Step 2: Generate filenames (ISO-8601 timestamp + SHA-256) ─────────────
-    uploaded_file_names = []
-    if image_bytes_list:
-        file_names = [_generate_filename(img) for img in image_bytes_list]
+    uploaded_file_names: list[str] = []
+    uploaded_image_records: list[dict] = []  # [{file_id, file_name}] after confirmed S3 PUT
+    if downloaded_images:
+        file_names = [_generate_filename(image_bytes) for _, image_bytes in downloaded_images]
 
         # ── Step 3: Get signed S3 URLs from KAYISOFT API ─────────────────────
         logger.info("🔗 Requesting signed URLs for %d files, category=%s", len(file_names), category_id)
@@ -4549,22 +4597,38 @@ async def handle_final_publish(
         )
         logger.info("🔗 get_signed_urls response: %s", str(signed_urls)[:500] if signed_urls else "None/Empty")
 
-        # ── Step 4: Upload images to S3 ────────────────────────────────────────────────────
+        # ── Step 4: Upload images to S3 ───────────────────────────────────────
         if signed_urls:
-            for i, signed in enumerate(signed_urls):
-                if i < len(image_bytes_list):
-                    s3_url = signed.get("url", "")
-                    file_name = signed.get("fileName", "")
-                    logger.info("☁️ Uploading image %d/%d to S3: fileName=%s", i + 1, len(image_bytes_list), file_name)
-                    success = await api.upload_media_to_s3(
-                        signed_url=s3_url,
-                        file_bytes=image_bytes_list[i],
+            # Match by the requested filename, never by API response position.
+            # This makes the colour→image assignment deterministic even if the
+            # signed URL service changes its response order.
+            signed_by_file_name = {
+                str(signed.get("fileName", "")): signed
+                for signed in signed_urls
+                if isinstance(signed, dict) and signed.get("fileName") and signed.get("url")
+            }
+            for index, ((file_id, image_bytes), requested_name) in enumerate(
+                zip(downloaded_images, file_names), start=1
+            ):
+                signed = signed_by_file_name.get(requested_name)
+                if not signed:
+                    logger.error(
+                        "[IMG_DIST] Missing signed URL for requested filename=%s; image is not published",
+                        requested_name,
                     )
-                    if success:
-                        uploaded_file_names.append(file_name)
-                        logger.info("✅ S3 upload success %d/%d: %s", i + 1, len(image_bytes_list), file_name)
-                    else:
-                        logger.warning("❌ S3 upload FAILED for image %d/%d (url=%s)", i + 1, len(image_bytes_list), s3_url[:80])
+                    continue
+                s3_url = signed["url"]
+                logger.info("☁️ Uploading image %d/%d to S3: fileName=%s", index, len(file_names), requested_name)
+                success = await api.upload_media_to_s3(
+                    signed_url=s3_url,
+                    file_bytes=image_bytes,
+                )
+                if success:
+                    uploaded_file_names.append(requested_name)
+                    uploaded_image_records.append({"file_id": file_id, "file_name": requested_name})
+                    logger.info("✅ S3 upload success %d/%d: %s", index, len(file_names), requested_name)
+                else:
+                    logger.warning("❌ S3 upload FAILED for image %d/%d (url=%s)", index, len(file_names), s3_url[:80])
         else:
             logger.warning("❌ Could not get signed URLs for user %s — signed_urls=%s", user_id, signed_urls)
 
@@ -4587,43 +4651,25 @@ async def handle_final_publish(
         )
         return ConversationHandler.END
 
-    # ── Band 12 Fix: Build per-color uploaded filename map ───────────────────────
-    # image_file_ids is a flat list built by extending color_images_map_final in order:
-    #   all_images = []; for c in colors: all_images.extend(color_images_map.get(c["id"], []))
-    #
-    # The key insight: results[i] corresponds EXACTLY to image_file_ids[i].
-    # uploaded_file_names is built by iterating results IN ORDER and appending only
-    # successful uploads — so we must track the same positional order.
-    #
-    # Bug in previous version: used list.index(fid) which returns the FIRST occurrence,
-    # causing wrong S3 filename assignment when the same file_id appeared multiple times,
-    # or when a failed download shifted the upload_idx counter incorrectly.
-    #
-    # Fix: iterate image_file_ids with explicit enumerate so each position maps correctly
-    # to results[i] (download success/fail) and uploaded_file_names (upload order).
+    # ── Build per-color uploaded filename map ─────────────────────────────────
+    # Build it from confirmed file_id→file_name records rather than parallel
+    # list positions. Therefore one failed download, one failed PUT, or a
+    # reordered signed-URL response cannot shift images into another colour.
     color_uploaded_map: dict = {}  # {color_option_id: [s3_filename, ...]}
-    if color_images_map_final and uploaded_file_names:
-        # Build file_id → s3_filename index using explicit positional mapping
-        file_id_to_s3: dict = {}
-        upload_idx = 0
-        for pos, fid in enumerate(image_file_ids):
-            # results[pos] is the download result for image_file_ids[pos]
-            # isinstance(..., bytes) means download succeeded → was uploaded to S3
-            if pos < len(results) and isinstance(results[pos], bytes):
-                if upload_idx < len(uploaded_file_names):
-                    # Map this file_id to its S3 filename
-                    # Note: if same file_id appears twice (duplicate), last wins — acceptable
-                    file_id_to_s3[fid] = uploaded_file_names[upload_idx]
-                    upload_idx += 1
-        # Now map each color to its S3 filenames, preserving upload order per color
-        for color_id, fids in color_images_map_final.items():
-            s3_names = [file_id_to_s3[fid] for fid in fids if fid in file_id_to_s3]
+    if color_images_map_final and uploaded_image_records:
+        file_id_to_s3_names: dict = {}
+        for record in uploaded_image_records:
+            file_id_to_s3_names.setdefault(record["file_id"], []).append(record["file_name"])
+        for color_id, file_ids in color_images_map_final.items():
+            s3_names = []
+            for file_id in file_ids:
+                s3_names.extend(file_id_to_s3_names.get(file_id, []))
             if s3_names:
                 color_uploaded_map[color_id] = s3_names
         logger.info(
-            "🎨 Band-12: color_uploaded_map built: %d colors → %s",
+            "[IMG_DIST] color_uploaded_map built: %d colors → %s",
             len(color_uploaded_map),
-            {cid[:8]: len(imgs) for cid, imgs in color_uploaded_map.items()}
+            {cid[:8]: len(images) for cid, images in color_uploaded_map.items()},
         )
 
     # ── Step 5: Build product payload ───────────────────────────────────────────
