@@ -5292,6 +5292,29 @@ async def handle_final_publish(
 # Cancel Handler
 # ══════════════════════════════════════════════════════════════════════════════
 
+async def handle_direct_partial_edit(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> int:
+    """Treat text sent from the details summary as a scoped product edit.
+
+    Suppliers naturally type corrections such as ``اللون أبيض`` immediately
+    below the summary.  The summary state previously accepted callbacks only,
+    so such a valid correction fell into the generic lost-session fallback.
+    Preserve the product session and reuse the tested partial-edit merger.
+    """
+    if context.user_data.get("product_details"):
+        context.user_data["_partial_edit_mode"] = True
+        logger.info(
+            "[DIRECT_PARTIAL_EDIT] Received text edit from details summary: user_id=%s",
+            str(update.effective_user.id) if update.effective_user else "<unknown>",
+        )
+        return await handle_form_input(update, context)
+
+    logger.warning("[DIRECT_PARTIAL_EDIT] No product session; using lost-state recovery")
+    return await handle_lost_state(update, context)
+
+
 async def recover_post_language_callback(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -6343,6 +6366,12 @@ def get_product_conv_handler() -> ConversationHandler:
                 ),
             ],
             CONFIRM_DETAILS: [
+                # A supplier can type a focused correction directly below the
+                # summary (for example: "اللون أبيض") without first tapping Edit.
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    handle_direct_partial_edit,
+                ),
                 # Supplier presses ✅ Confirm or ✏️ Edit below the AI summary
                 CallbackQueryHandler(
                     handle_confirm_details,
