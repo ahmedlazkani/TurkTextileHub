@@ -846,6 +846,7 @@ async def generate_channel_post(
         "   \u2192 NEVER add, invent, or infer attributes not in the data (e.g. do NOT add Gender if not in attributes).\n"
         "   \u2192 Map each attribute to the correct label in each language.\n"
         "   \u2192 If an attribute is not in the data \u2192 OMIT that line completely. NEVER write '\u063a\u064a\u0631 \u0645\u062d\u062f\u062f' or 'Belirtilmemi\u015f' or 'Not specified'.\n"
+        "   → NEVER print technical identifiers: UUIDs, option IDs, attribute IDs, keys, or opaque codes. If a value looks technical rather than readable, OMIT that attribute line.\n"
         "C. SIZE: ONLY show sizes if there is a size/measurement attribute in the data.\n"
         "   → If no size attribute exists → OMIT the size line entirely. Do NOT write 'غير محدد'.\n"
         "D. FABRIC: Use ONLY the fabric/material from Attributes. Do not invent.\n"

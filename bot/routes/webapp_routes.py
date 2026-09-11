@@ -32,6 +32,7 @@ ARCHITECTURE NOTE:
 
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, Optional
 
@@ -295,6 +296,16 @@ async def proxy_attributes(
             return parts[0]
         return name
 
+    _UUID_RE = re.compile(
+        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        re.IGNORECASE,
+    )
+    _OPAQUE_ID_RE = re.compile(r"^(?=.*[a-zA-Z])(?=.*\d)[a-zA-Z0-9_-]{16,}$")
+
+    def _is_opaque_option_id(value: object) -> bool:
+        text = str(value or "").strip()
+        return bool(text and (_UUID_RE.fullmatch(text) or _OPAQUE_ID_RE.fullmatch(text)))
+
     # ── NORMALIZE: ensure every option has a valid 'id' field ─────────────────
     # KAYISOFT may return options with different field names depending on the endpoint.
     # The WebApp HTML relies on opt.id for the value to send back.
@@ -309,6 +320,7 @@ async def proxy_attributes(
             options = attr.get("options", [])
             if not isinstance(options, list):
                 continue
+            normalized_options = []
             for opt in options:
                 if not isinstance(opt, dict):
                     continue
@@ -321,17 +333,24 @@ async def proxy_attributes(
                         opt.get("value") or
                         ""
                     )
-                # Ensure 'label' is set for display (extract from pipe-separated value if needed)
+                # Ensure 'label' is display-safe.  KAYISOFT may store a UUID in
+                # value; it is valid transport data but must never be rendered.
                 raw_val = str(opt.get("value", ""))
-                if not opt.get("label"):
-                    if raw_val and "|" in raw_val:
-                        parts = raw_val.split("|")
-                        opt["label"] = _dedup(parts[-1].strip())  # last part = human-readable name
-                    else:
-                        opt["label"] = _dedup(raw_val)
+                explicit_label = opt.get("label") or opt.get("name") or ""
+                if explicit_label:
+                    display_label = _dedup(str(explicit_label))
+                elif raw_val and "|" in raw_val:
+                    display_label = _dedup(raw_val.rsplit("|", 1)[-1].strip())
                 else:
-                    # Label already set — still deduplicate it
-                    opt["label"] = _dedup(opt["label"])
+                    display_label = _dedup(raw_val)
+                if _is_opaque_option_id(display_label):
+                    logger.warning(
+                        "proxy_attributes: omitting option without readable value attr=%s option_id=%s",
+                        attr.get("id") or attr.get("key"),
+                        str(opt.get("id", ""))[:32],
+                    )
+                    continue
+                opt["label"] = display_label
 
                 # ── Normalize hex_code: convert KAYISOFT ARGB (#AARRGGBB) → CSS RGB (#RRGGBB) ──
                 # KAYISOFT stores colors as "#AARRGGBB|name" where AA is the alpha channel.
@@ -356,6 +375,8 @@ async def proxy_attributes(
                         opt["hex_code"] = f"#{h[0]*2}{h[1]*2}{h[2]*2}"
                     else:
                         opt["hex_code"] = ""  # let HTML handle fallback
+                normalized_options.append(opt)
+            attr["options"] = normalized_options
 
         logger.info(
             "proxy_attributes: normalized %d attributes with options",

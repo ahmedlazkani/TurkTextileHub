@@ -122,6 +122,7 @@ import json          # ← مطلوب لـ json.loads() في handle_webapp_data 
 import logging
 import math
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -970,30 +971,24 @@ def _build_variants_preview(lang: str, variants: list, attr_map: dict) -> str:
     header = headers.get(lang, headers["en"])
 
     # ── Helper: resolve a single option UUID → human display value ──────────
-    def _resolve_option(attr_obj: dict, option_uuid: str) -> str:
+    def _resolve_option(attr_obj: dict, option_uuid: str) -> Optional[str]:
+        # Use the shared resolver so this preview follows the same rule as the
+        # channel-post path: an internal option ID is never display text.
+        display = _resolve_option_display(attr_obj, option_uuid)
+        if not display:
+            return None
         for opt in attr_obj.get("options", []):
-            if opt.get("id") == option_uuid:
-                raw_val   = opt.get("value", "")
-                label_val = opt.get("label") or opt.get("name") or ""
-                # Handle pipe-separated: "#FF000000|Siyah"
-                if "|" in raw_val:
-                    hex_part, lbl = raw_val.split("|", 1)
-                    raw_val = hex_part.strip()
-                    if not label_val:
-                        label_val = lbl.strip()
-                elif "|" in label_val:
-                    hex_part, lbl = label_val.split("|", 1)
-                    raw_val = hex_part.strip()
-                    label_val = lbl.strip()
-                # Prefer human label
-                display = label_val if label_val else (raw_val if raw_val else option_uuid)
-                # Add color emoji
-                if raw_val and _re_prev.match(r'^#?[0-9A-Fa-f]{6,8}$', raw_val.strip()):
-                    emoji = _render_color_value(raw_val)
-                    is_hex = _re_prev.match(r'^#?[0-9A-Fa-f]{6,8}$', display.strip())
-                    display = emoji if is_hex else f"{emoji} {display}"
-                return display
-        return option_uuid
+            if not _option_matches_identifier(opt, option_uuid):
+                continue
+            raw_val = str(opt.get("value", ""))
+            if "|" in raw_val:
+                raw_val = raw_val.split("|", 1)[0].strip()
+            if raw_val and _re_prev.match(r'^#?[0-9A-Fa-f]{6,8}$', raw_val.strip()):
+                emoji = _render_color_value(raw_val)
+                is_hex = _re_prev.match(r'^#?[0-9A-Fa-f]{6,8}$', display.strip())
+                return emoji if is_hex else f"{emoji} {display}"
+            break
+        return display
 
     # ── Collect unique values per attribute across all variants ─────────────
     # attr_key → (attr_name, [unique_display_values], seen_set)
@@ -1017,12 +1012,16 @@ def _build_variants_preview(lang: str, variants: list, attr_map: dict) -> str:
                         if attr_obj.get("key") == attr_key:
                             attr_names[attr_key] = attr_obj.get("name", attr_key)
                             break
-                # Resolve option display
-                display = option_uuid
+                # Resolve option display.  If metadata cannot provide a human
+                # value, omit it rather than exposing the transport identifier.
+                display = None
                 for _, attr_obj in attr_map.items():
                     if attr_obj.get("key") == attr_key:
                         display = _resolve_option(attr_obj, option_uuid)
                         break
+                if not display:
+                    logger.warning("[VARIANT_PREVIEW] Skipping unresolved option id=%r", option_uuid)
+                    continue
                 if display not in attr_seen[attr_key]:
                     attr_seen[attr_key].add(display)
                     attr_values[attr_key].append(display)
@@ -1041,6 +1040,9 @@ def _build_variants_preview(lang: str, variants: list, attr_map: dict) -> str:
                     attr_values[attr_key] = []
                     attr_seen[attr_key]   = set()
                 display = _resolve_option(attr_obj, option_id)
+                if not display:
+                    logger.warning("[VARIANT_PREVIEW] Skipping unresolved option id=%r", option_id)
+                    continue
                 if display not in attr_seen[attr_key]:
                     attr_seen[attr_key].add(display)
                     attr_values[attr_key].append(display)
@@ -1062,7 +1064,8 @@ def _build_variants_preview(lang: str, variants: list, attr_map: dict) -> str:
     for attr_key in attr_order:
         name   = attr_names.get(attr_key, attr_key)
         values = attr_values.get(attr_key, [])
-        lines.append(f"🎨 <b>{name}:</b> {', '.join(values)}")
+        if values:
+            lines.append(f"🎨 <b>{name}:</b> {', '.join(values)}")
 
     lines.append("")
     # Band-14 Fix: price is always displayed in USD ($) not TL (₺)
@@ -1532,6 +1535,120 @@ def _deduplicate_name(name: str) -> str:
     return name
 
 
+# KAYISOFT option identifiers are transport data, never presentation text.  The
+# API can expose a UUID either in `id` or, for some option types, in `value`.
+# Keep ordinary human numeric values (such as garment size 38) valid while
+# rejecting only identifier-shaped strings.
+_UUID_VALUE_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+_OPAQUE_OPTION_ID_RE = re.compile(r"^(?=.*[a-zA-Z])(?=.*\d)[a-zA-Z0-9_-]{16,}$")
+
+
+def _is_option_identifier(value: object) -> bool:
+    """Return whether *value* is an opaque KAYISOFT option identifier."""
+    text = str(value or "").strip()
+    return bool(text and (_UUID_VALUE_RE.fullmatch(text) or _OPAQUE_OPTION_ID_RE.fullmatch(text)))
+
+
+def _human_option_value(value: object, option_id: object = "") -> Optional[str]:
+    """Normalize a candidate display value and reject raw technical identifiers."""
+    text = str(value or "").strip()
+    if "|" in text:
+        # KAYISOFT color values are often '#AARRGGBB|Color name'.
+        text = text.rsplit("|", 1)[-1].strip()
+    text = _deduplicate_name(text)
+    if not text or _is_option_identifier(text):
+        return None
+    # A non-UUID ID may be copied into `label` by a legacy proxy.  It is only
+    # safe to present the same value when it is human-readable (e.g. 'M', '38').
+    if str(text) == str(option_id or "") and _is_option_identifier(option_id):
+        return None
+    return text
+
+
+def _option_matches_identifier(option: dict, option_id: object) -> bool:
+    """Match a selected option against all KAYISOFT identifier aliases."""
+    target = str(option_id or "").strip()
+    if not target:
+        return False
+    for field in ("id", "uuid", "option_id", "key"):
+        if str(option.get(field) or "").strip() == target:
+            return True
+    raw_value = str(option.get("value") or "").strip()
+    value_label = raw_value.rsplit("|", 1)[-1].strip() if "|" in raw_value else raw_value
+    return target == raw_value or target == value_label
+
+
+def _resolve_option_display(
+    attr_info: dict,
+    option_id: object,
+    raw_attributes: Optional[list] = None,
+) -> Optional[str]:
+    """Resolve a selected option to a human value; never return a raw option ID.
+
+    The resolver accepts KAYISOFT's inconsistent field shapes (`id`, `uuid`,
+    `option_id`, `key`, and `value`).  It prefers explicit labels/names, then a
+    pipe-delimited display value.  If no readable value exists, it returns None
+    so callers omit the option rather than leak implementation data to Telegram.
+    """
+    target = str(option_id or "").strip()
+    if not target:
+        return None
+
+    sources: list[dict] = []
+    if isinstance(attr_info, dict):
+        sources.append(attr_info)
+    for raw_attr in raw_attributes or []:
+        if not isinstance(raw_attr, dict) or raw_attr is attr_info:
+            continue
+        sources.append(raw_attr)
+
+    # First find the option selected by its API identifier in the intended
+    # attribute.  The global fallback handles id/key mismatches after reloads.
+    for source in sources:
+        for option in source.get("options") or []:
+            if not isinstance(option, dict) or not _option_matches_identifier(option, target):
+                continue
+            for field in ("label", "name"):
+                candidate = _human_option_value(option.get(field), target)
+                if candidate:
+                    return candidate
+            candidate = _human_option_value(option.get("value"), target)
+            if candidate:
+                return candidate
+
+    # A few legacy payloads store an already-readable option value instead of an
+    # option ID.  Preserve it only if it is not an opaque technical identifier.
+    return _human_option_value(target, target)
+
+
+def _sanitize_post_attributes(attributes: list[dict]) -> list[dict]:
+    """Keep only human-readable attribute values before sending data to AI.
+
+    This is a final defence-in-depth boundary for both initial generation and
+    Regenerate.  Upstream resolver bugs or future KAYISOFT field changes cannot
+    make opaque option IDs part of the prompt that becomes a Telegram post.
+    """
+    sanitized: list[dict] = []
+    for attribute in attributes or []:
+        if not isinstance(attribute, dict):
+            continue
+        name = str(attribute.get("name") or "").strip()
+        raw_value = str(attribute.get("value") or "")
+        values = []
+        for item in raw_value.split(","):
+            display = _human_option_value(item.strip(), item.strip())
+            if display:
+                values.append(display)
+            elif item.strip():
+                logger.warning("[POST_IDS] Removed opaque option value before AI generation")
+        if name and values:
+            sanitized.append({"name": name, "value": ", ".join(values)})
+    return sanitized
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # AI Extraction Summary Builder
 # Shows supplier a clean summary of what the AI understood
@@ -1652,41 +1769,18 @@ def _build_extraction_summary(
                     seen_opt_ids.append(oid)
             option_values = []
             for opt_id in seen_opt_ids:
+                display = _resolve_option_display(attr, opt_id)
+                if not display:
+                    logger.warning("[SUMMARY_IDS] Skipping unresolved shared option id=%r", opt_id)
+                    continue
+                raw_val = ""
                 for opt in attr.get("options", []):
-                    if opt.get("id") == opt_id:
-                        # Prefer label/name over value (which may be a raw hex code)
-                        # label = human-readable color name (e.g. "Bej", "بيج")
-                        # value = raw hex code (e.g. "#FFF5F5DC") — used for API, not display
-                        # Prefer label (already deduped by webapp_routes proxy)
-                        # over name (may still contain 'نسائي نسائي' from raw API)
-                        raw_display = (
-                            opt.get("label")
-                            or opt.get("name")
-                            or opt.get("value", opt_id)
-                        )
-                        # Strip pipe-separated hex prefix if present: "#FF0000|أحمر" → "أحمر"
-                        if "|" in (raw_display or ""):
-                            raw_display = raw_display.split("|", 1)[-1].strip()
-                        display = _deduplicate_name(raw_display)
-                        option_values.append((display, opt.get("value", "")))
+                    if _option_matches_identifier(opt, opt_id):
+                        raw_val = str(opt.get("value", ""))
                         break
-                else:
-                    # opt_id not found in options list — try fuzzy match by UUID prefix
-                    # (AI sometimes generates a UUID with a single-char typo)
-                    _fuzzy_display = None
-                    for opt in attr.get("options", []):
-                        real_id = opt.get("id", "")
-                        if real_id and opt_id[:20].lower() == real_id[:20].lower():
-                            raw_d = opt.get("label") or opt.get("name") or opt.get("value", "")
-                            if "|" in (raw_d or ""):
-                                raw_d = raw_d.split("|", 1)[-1].strip()
-                            _fuzzy_display = _deduplicate_name(raw_d) if raw_d else None
-                            break
-                    if _fuzzy_display:
-                        option_values.append((_fuzzy_display, ""))
-                    else:
-                        # Last resort: show UUID as-is (shouldn't happen in normal flow)
-                        option_values.append((_deduplicate_name(str(opt_id)), ""))
+                option_values.append((display, raw_val))
+            if not option_values:
+                continue
             # ── Color rendering: show emoji + human label (never raw hex) ──────────────
             # Handle "#RRGGBBAA|label" format from API (pipe-separated hex|name)
             rendered_values = []
@@ -1740,42 +1834,27 @@ def _build_extraction_summary(
             attr_name = grp["name"]
             rendered_values = []
             for option_id in grp["values"]:
-                display_val = option_id
-                raw_val     = ""
+                display_val = _resolve_option_display(attr, option_id)
+                if not display_val:
+                    logger.warning("[SUMMARY_IDS] Skipping unresolved selector option id=%r", option_id)
+                    continue
+                raw_val = ""
                 for opt in attr.get("options", []):
-                    if opt.get("id") == option_id:
-                        # Prefer human label over raw hex value
-                        # Prefer label (already deduped) over name (may have 'نسائي نسائي')
-                        raw_name = (
-                            opt.get("label")
-                            or opt.get("name")
-                            or opt.get("value", option_id)
-                        )
-                        raw_val  = opt.get("value", "")
-                        # Parse pipe-separated format: "#FFFFFFFF|أبيض" → label="أبيض"
-                        if "|" in raw_name:
-                            _, display_val = raw_name.split("|", 1)
-                            display_val = display_val.strip()
-                            raw_val = raw_name.split("|", 1)[0].strip()
-                        elif "|" in raw_val:
-                            raw_val, lbl = raw_val.split("|", 1)
-                            raw_val = raw_val.strip()
-                            display_val = lbl.strip() if lbl.strip() else raw_name
-                        else:
-                            display_val = raw_name
-                        display_val = _deduplicate_name(display_val)
+                    if _option_matches_identifier(opt, option_id):
+                        raw_val = str(opt.get("value", ""))
                         break
-                # Strip any remaining hex from display_val
-                if "|" in display_val:
-                    _, display_val = display_val.split("|", 1)
-                    display_val = display_val.strip()
+                if "|" in raw_val:
+                    raw_val = raw_val.split("|", 1)[0].strip()
                 if _re.match(r'^#?[0-9A-Fa-f]{6,8}$', display_val.strip()):
                     display_val = ""  # pure hex — use emoji only
-                emoji = _render_color_value(raw_val if raw_val else option_id)
+                emoji = _render_color_value(raw_val if raw_val else display_val)
                 if display_val:
                     rendered_values.append(f"{emoji} {display_val}" if emoji != display_val else display_val)
                 else:
                     rendered_values.append(emoji)
+            # If every selected option was unresolved, omit this selector line.
+            if not rendered_values:
+                continue
             # Each attribute on its own line with separator
             values_str = ' | '.join(rendered_values)
             lines.append(f"  ┣ <b>{attr_name}:</b> {values_str}")
@@ -2899,35 +2978,13 @@ async def handle_confirm_details(
         #   1. Match opt.id == opt_id  (normal case)
         #   2. Match opt.value == opt_id  (proxy may set id = value for non-UUID values)
         #   3. opt_id is already human-readable (not a UUID pattern)
-        import re as _re_uuid
-        _UUID_RE = _re_uuid.compile(
-            r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
-            _re_uuid.I,
-        )
-
-        def _resolve_opt_label(attr_info: dict, opt_id: str) -> str:
-            """Return human-readable label for opt_id from attr_info.options."""
-            options = attr_info.get("options", [])
-            # Pass 1: match by id (UUID)
-            for opt in options:
-                if opt.get("id") == opt_id:
-                    raw_n = opt.get("label") or opt.get("name") or str(opt.get("value", ""))
-                    if "|" in raw_n:
-                        raw_n = raw_n.split("|", 1)[-1].strip()
-                    return _deduplicate_name(raw_n) if raw_n else opt_id
-            # Pass 2: match by value (proxy sets opt.id = opt.value for non-UUID options)
-            for opt in options:
-                raw_val = str(opt.get("value", ""))
-                cmp_val = raw_val.split("|", 1)[-1].strip() if "|" in raw_val else raw_val
-                if cmp_val == opt_id or raw_val == opt_id:
-                    raw_n = opt.get("label") or opt.get("name") or cmp_val
-                    if "|" in raw_n:
-                        raw_n = raw_n.split("|", 1)[-1].strip()
-                    return _deduplicate_name(raw_n) if raw_n else opt_id
-            # Pass 3: opt_id is already a human-readable string (not a UUID)
-            if not _UUID_RE.match(opt_id):
-                return _deduplicate_name(opt_id)
-            return opt_id  # last resort: return UUID as-is
+        def _resolve_opt_label(attr_info: dict, opt_id: object) -> Optional[str]:
+            """Resolve an option for the AI input without ever exposing an ID."""
+            return _resolve_option_display(
+                attr_info,
+                opt_id,
+                context.user_data.get("raw_attributes", []),
+            )
 
         # ── Build secondary lookup by key (some attrs use 'key' instead of 'id') ─────
         _all_attrs_by_key = {
@@ -2961,7 +3018,13 @@ async def handle_confirm_details(
                     "[AI_RESOLVE] shared attr_id=%r opt_id=%r → label=%r",
                     attr_id, opt_id, label,
                 )
-                option_names.append(label)
+                if label:
+                    option_names.append(label)
+                else:
+                    logger.warning(
+                        "[AI_RESOLVE] Skipping unresolved shared option id=%r for attr_id=%r",
+                        opt_id, attr_id,
+                    )
             if option_names:
                 attrs_list.append({"name": attr_name, "value": ", ".join(option_names)})
 
@@ -2988,9 +3051,17 @@ async def handle_confirm_details(
                     "[AI_RESOLVE] selector attr_id=%r opt_id=%r → label=%r",
                     attr_id, oid, label,
                 )
-                opt_names.append(label)
-            attrs_list.append({"name": attr_name, "value": ", ".join(opt_names)})
+                if label:
+                    opt_names.append(label)
+                else:
+                    logger.warning(
+                        "[AI_RESOLVE] Skipping unresolved selector option id=%r for attr_id=%r",
+                        oid, attr_id,
+                    )
+            if opt_names:
+                attrs_list.append({"name": attr_name, "value": ", ".join(opt_names)})
 
+        attrs_list = _sanitize_post_attributes(attrs_list)
         import json as _jdebug
         logger.info("[AI_ATTRS_DEBUG] attrs_list=%s", _jdebug.dumps(attrs_list, ensure_ascii=False))
         logger.info("[AI_ATTRS_DEBUG] languages=%s", languages)
@@ -3026,6 +3097,8 @@ async def handle_confirm_details(
         if sizes_val and not _has_size_attr and not _attrs_list_has_size:
             attrs_list.append({"name": "المقاسات", "value": sizes_val})
 
+        # The final list is the only data passed to the copywriter.
+        attrs_list = _sanitize_post_attributes(attrs_list)
         post_data = {
             "name":         product_details.get("name", ""),
             "description":  product_details.get("description", ""),
@@ -3473,42 +3546,11 @@ async def handle_ai_post_review(
                 if opt_id in seen_oids:
                     continue
                 seen_oids.add(opt_id)
-                _found_opt_label = None
-                for opt in attr_info.get("options", []):
-                    if opt.get("id") == opt_id:
-                        # Prefer label (already deduped by proxy) over name
-                        raw_n = opt.get("label") or opt.get("name", "") or opt_id
-                        if "|" in (raw_n or ""):
-                            raw_n = raw_n.split("|", 1)[-1].strip()
-                        _found_opt_label = _deduplicate_name(raw_n)
-                        break
-                # Band-8 Fix: fallback — search by value if id lookup failed
-                if not _found_opt_label:
-                    for opt in attr_info.get("options", []):
-                        raw_val = str(opt.get("value", ""))
-                        cmp_val = raw_val.split("|", 1)[-1].strip() if "|" in raw_val else raw_val
-                        if cmp_val == opt_id or raw_val == opt_id:
-                            raw_n = opt.get("label") or opt.get("name") or cmp_val
-                            if "|" in (raw_n or ""):
-                                raw_n = raw_n.split("|", 1)[-1].strip()
-                            _found_opt_label = _deduplicate_name(raw_n) if raw_n else None
-                            break
-                # Last resort: search raw_attributes directly for this option
-                if not _found_opt_label:
-                    for _raw_attr in context.user_data.get("raw_attributes", []):
-                        for _raw_opt in _raw_attr.get("options", []):
-                            if _raw_opt.get("id") == opt_id:
-                                _rn = _raw_opt.get("label") or _raw_opt.get("name") or _raw_opt.get("value", "")
-                                if "|" in (_rn or ""):
-                                    _rn = _rn.split("|", 1)[-1].strip()
-                                _found_opt_label = _deduplicate_name(_rn) if _rn else None
-                                break
-                        if _found_opt_label:
-                            break
-                # A value that did not resolve through the category metadata is
-                # an implementation identifier, not presentation text. Do not
-                # expose it even when it is not UUID-shaped (some APIs use numeric
-                # or short opaque option IDs).
+                _found_opt_label = _resolve_option_display(
+                    attr_info,
+                    opt_id,
+                    context.user_data.get("raw_attributes", []),
+                )
                 if not _found_opt_label:
                     logger.warning(
                         "[REGEN_IDS] Skipping unresolved shared option id=%s for attr_id=%s",
@@ -3546,38 +3588,11 @@ async def handle_ai_post_review(
                 continue
             o_names = []
             for o_id in grp["opt_ids"]:
-                # Band 8 fix: resolve option label properly (not just o_id[:8])
-                _found_label = None
-                for opt in a_info.get("options", []):
-                    if opt.get("id") == o_id:
-                        raw_n = opt.get("label") or opt.get("name") or opt.get("value", "")
-                        if "|" in (raw_n or ""):
-                            raw_n = raw_n.split("|", 1)[-1].strip()
-                        _found_label = _deduplicate_name(raw_n) if raw_n else None
-                        break
-                # Fallback: check by value (proxy sets opt.id = opt.value for non-UUID options)
-                if not _found_label:
-                    for opt in a_info.get("options", []):
-                        raw_val = str(opt.get("value", ""))
-                        cmp_val = raw_val.split("|", 1)[-1].strip() if "|" in raw_val else raw_val
-                        if cmp_val == o_id or raw_val == o_id:
-                            raw_n = opt.get("label") or opt.get("name") or cmp_val
-                            if "|" in (raw_n or ""):
-                                raw_n = raw_n.split("|", 1)[-1].strip()
-                            _found_label = _deduplicate_name(raw_n) if raw_n else None
-                            break
-                # Last resort: search raw_attributes directly
-                if not _found_label:
-                    for _raw_attr2 in context.user_data.get("raw_attributes", []):
-                        for _raw_opt2 in _raw_attr2.get("options", []):
-                            if _raw_opt2.get("id") == o_id:
-                                _rn2 = _raw_opt2.get("label") or _raw_opt2.get("name") or _raw_opt2.get("value", "")
-                                if "|" in (_rn2 or ""):
-                                    _rn2 = _rn2.split("|", 1)[-1].strip()
-                                _found_label = _deduplicate_name(_rn2) if _rn2 else None
-                                break
-                        if _found_label:
-                            break
+                _found_label = _resolve_option_display(
+                    a_info,
+                    o_id,
+                    context.user_data.get("raw_attributes", []),
+                )
                 if not _found_label:
                     logger.warning("[REGEN_IDS] Skipping unresolved selector option id=%s", str(o_id)[:32])
                     continue
@@ -3605,6 +3620,10 @@ async def handle_ai_post_review(
         _regen_sizes_val = (product_details.get("sizes") or "").strip()
         if _regen_sizes_val and not _regen_has_size:
             attrs_list.append({"name": "المقاسات", "value": _regen_sizes_val})
+
+        # Defense in depth: never allow a latent technical option ID into the
+        # regenerated AI prompt, even if KAYISOFT metadata was inconsistent.
+        attrs_list = _sanitize_post_attributes(attrs_list)
 
         # Band-6 Fix (Regenerate path): resolve name/description from the supplier's
         # language slot so DeepSeek receives the correct language text.
@@ -6010,34 +6029,13 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
     from collections import OrderedDict as _OD
 
     def _clean_option_display(opt: dict, fallback: str = "") -> tuple:
-        """
-        Returns (display_label, raw_hex) from an option dict.
-        Handles pipe-separated format: '#FF000000|Siyah' → ('Siyah', '#FF000000')
-        Never returns raw hex codes in the display label.
-        """
-        raw_name  = opt.get("name") or opt.get("label") or opt.get("value", fallback)
-        raw_value = opt.get("value", "")
-        display   = raw_name
-        hex_val   = raw_value
-
-        # Handle pipe-separated: '#FF000000|Siyah' in name or value
-        if "|" in display:
-            hex_part, lbl = display.split("|", 1)
-            display = lbl.strip()
-            hex_val = hex_part.strip()
-        elif "|" in hex_val:
-            hex_part, lbl = hex_val.split("|", 1)
-            hex_val = hex_part.strip()
-            if not display or _re.match(r'^#?[0-9A-Fa-f]{6,8}$', display.strip()):
-                display = lbl.strip()
-
-        # If display is still a raw hex code, clear it (will show emoji only)
-        if _re.match(r'^#?[0-9A-Fa-f]{6,8}$', display.strip()):
+        """Return a display-safe option label and its colour source, if any."""
+        display = _resolve_option_display({"options": [opt]}, fallback) or ""
+        raw_value = str(opt.get("value", ""))
+        hex_val = raw_value.split("|", 1)[0].strip() if "|" in raw_value else raw_value
+        # If display is still a raw hex code, clear it (the caller shows an emoji).
+        if display and _re.match(r'^#?[0-9A-Fa-f]{6,8}$', display.strip()):
             display = ""
-
-        # Remove duplicated words from API (e.g. 'XS XS' → 'XS', 'Satin Satin' → 'Satin')
-        display = _deduplicate_name(display)
-
         return display, hex_val
 
     if shared_attrs or selector_attrs:
@@ -6084,14 +6082,21 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
                                 rendered.append(f"{emoji} {display}")
                             else:
                                 rendered.append(emoji)
+                        elif display:
+                            rendered.append(display)
                         else:
-                            rendered.append(display if display else str(opt_id))
+                            _log_ws.warning("[SUMMARY_IDS] Skipping non-displayable option id=%r", opt_id)
                         break
                 else:
-                    # opt_id may itself be the option name (text-type attrs)
-                    _log_ws.info(f"[SUMMARY_DEBUG]   opt_id NOT found in options, using as text: {opt_id!r}")
-                    rendered.append(_deduplicate_name(str(opt_id)))
-            lines.append(f"  • {attr_name}: {', '.join(rendered)}")
+                    # Text-type values are allowed only when they are readable,
+                    # never when they are opaque KAYISOFT identifiers.
+                    direct_value = _human_option_value(opt_id, opt_id)
+                    if direct_value:
+                        rendered.append(direct_value)
+                    else:
+                        _log_ws.warning("[SUMMARY_IDS] Skipping unresolved option id=%r", opt_id)
+            if rendered:
+                lines.append(f"  • {attr_name}: {', '.join(rendered)}")
 
         # ── Selector attributes — GROUP by attribute_id (one line per attr) ──
         # Before: 🎨 Beden: M / 🎨 Beden: L / 🎨 Beden: XL  (3 lines)
@@ -6134,13 +6139,20 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
                                 rendered.append(f"{emoji} {display}")
                             else:
                                 rendered.append(emoji)
+                        elif display:
+                            rendered.append(display)
                         else:
-                            rendered.append(display if display else str(o_id))
+                            logger.warning("[SUMMARY_IDS] Skipping non-displayable selector option id=%r", o_id)
                         break
                 else:
-                    # o_id may itself be the option name (text-type attrs)
-                    rendered.append(_deduplicate_name(str(o_id)))
-            lines.append(f"  🎨 {attr_name}: {', '.join(rendered)}")
+                    # Text-type values are allowed only when they are readable.
+                    direct_value = _human_option_value(o_id, o_id)
+                    if direct_value:
+                        rendered.append(direct_value)
+                    else:
+                        logger.warning("[SUMMARY_IDS] Skipping unresolved selector option id=%r", o_id)
+            if rendered:
+                lines.append(f"  🎨 {attr_name}: {', '.join(rendered)}")
 
     # ── Notes and product_code ─────────────────────────────────────────────────
     notes_val    = product_details.get("notes")        or ""
