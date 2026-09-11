@@ -124,6 +124,7 @@ import math
 import os
 import re
 import uuid
+from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -524,6 +525,70 @@ def _missing_dimension_fields(data: dict, lang: str) -> list[str]:
     return [f"{dim_header}: {label}" for label in _dimension_labels(lang, errors)]
 
 
+def _merge_missing_required_details(old_details: dict, extracted_data: dict, processed_attrs: dict) -> dict:
+    """Accept only fields that were genuinely missing before a correction.
+
+    ``FIX_MISSING`` re-runs AI with the original description plus a short
+    correction.  That response contains a full product payload, so assigning it
+    wholesale would overwrite attributes that the supplier never touched.  This
+    helper transfers only previously absent required KAYISOFT attributes and
+    missing dimensions.  All established title, description, scalar values and
+    completed attributes remain byte-for-byte unchanged.
+    """
+    old = deepcopy(old_details or {})
+    incoming = extracted_data or {}
+    if not old:
+        return incoming
+
+    old_shared = old.get("shared_attributes") or {}
+    incoming_shared = incoming.get("shared_attributes") or {}
+    old_selector = old.get("selector_attributes") or []
+    incoming_selector = incoming.get("selector_attributes") or []
+    old_selector_ids = {
+        str(value.get("attribute_id"))
+        for value in old_selector
+        if isinstance(value, dict) and value.get("attribute_id")
+    }
+
+    allowed_shared_ids = {
+        str(attribute.get("id"))
+        for attribute in processed_attrs.get("shared_required", [])
+        if attribute.get("id") and not old_shared.get(attribute.get("id"))
+    }
+    allowed_selector_ids = {
+        str(attribute.get("id"))
+        for attribute in processed_attrs.get("selector_required", [])
+        if attribute.get("id") and str(attribute.get("id")) not in old_selector_ids
+    }
+
+    if allowed_shared_ids:
+        merged_shared = deepcopy(old_shared)
+        for attr_id, value in incoming_shared.items():
+            if str(attr_id) in allowed_shared_ids and value:
+                merged_shared[attr_id] = deepcopy(value)
+        old["shared_attributes"] = merged_shared
+
+    if allowed_selector_ids:
+        additions = [
+            deepcopy(value) for value in incoming_selector
+            if isinstance(value, dict)
+            and str(value.get("attribute_id")) in allowed_selector_ids
+        ]
+        if additions:
+            old["selector_attributes"] = deepcopy(old_selector) + additions
+
+    normalized_dimensions, _ = _normalize_dimensions(incoming.get("dimensions"))
+    _, old_dimension_errors = _normalize_dimensions(old.get("dimensions"))
+    if old_dimension_errors and normalized_dimensions:
+        old["dimensions"] = normalized_dimensions
+
+    logger.info(
+        "[FIX_MISSING_SCOPE] accepted_shared=%s accepted_selector=%s dimensions_repaired=%s",
+        sorted(allowed_shared_ids), sorted(allowed_selector_ids), bool(old_dimension_errors and normalized_dimensions),
+    )
+    return old
+
+
 def _merge_partial_edit_details(
     old_details: dict,
     extracted_data: dict,
@@ -699,7 +764,7 @@ def _merge_partial_edit_details(
                 merged_values.extend(values)
         return merged_values
 
-    merged = dict(old_details or {})
+    merged = deepcopy(old_details or {})
     for key, value in (extracted_data or {}).items():
         if key in ("post_languages", "_source", "category_id"):
             continue
@@ -2762,8 +2827,11 @@ async def handle_form_input(
             extracted_data = merged
 
     context.user_data["product_details"] = extracted_data
-    # Save the original raw text so handle_fix_missing can combine it with corrections
-    context.user_data["original_text"] = text
+    # Keep the initial product description stable across any number of partial
+    # edits.  A later FIX_MISSING correction must not use only the last phrase
+    # (for example, "change colour to white") as if it were the full product.
+    if not _partial_edit:
+        context.user_data["original_text"] = text
 
     await processing_msg.delete()
 
@@ -2899,24 +2967,16 @@ async def handle_fix_missing(
     if _saved_langs2 and "post_languages" not in extracted_data:
         extracted_data["post_languages"] = _saved_langs2
 
-    # BUG FIX (Band 15): Merge new extraction with existing product_details
-    # so that only the fields the user explicitly corrected get updated.
+    # A correction can repair only data that was missing before the correction.
+    # Never replace the complete draft with an AI-shaped response here: that was
+    # the source of unrelated colours/sizes changing after several edit rounds.
     old_details2 = context.user_data.get("product_details", {})
     if old_details2 and extracted_data is not old_details2:
-        merged2 = dict(old_details2)
-        for k, v in extracted_data.items():
-            if k in ("post_languages", "_source", "category_id"):
-                merged2[k] = v
-                continue
-            if isinstance(v, dict) and v:
-                merged2[k] = v
-            elif isinstance(v, list) and v:
-                merged2[k] = v
-            elif isinstance(v, str) and v.strip():
-                merged2[k] = v
-            elif isinstance(v, (int, float)) and v not in (0, 0.0, 1, 100):
-                merged2[k] = v
-        extracted_data = merged2
+        extracted_data = _merge_missing_required_details(
+            old_details=old_details2,
+            extracted_data=extracted_data,
+            processed_attrs=processed_attrs,
+        )
 
     context.user_data["product_details"] = extracted_data
 
