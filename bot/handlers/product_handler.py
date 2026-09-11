@@ -524,16 +524,21 @@ def _missing_dimension_fields(data: dict, lang: str) -> list[str]:
     return [f"{dim_header}: {label}" for label in _dimension_labels(lang, errors)]
 
 
-def _merge_partial_edit_details(old_details: dict, extracted_data: dict, edit_text: str) -> tuple[dict, list[str]]:
-    """Merge an AI extraction into existing product data for a partial edit.
+def _merge_partial_edit_details(
+    old_details: dict,
+    extracted_data: dict,
+    edit_text: str,
+    raw_attributes: Optional[list] = None,
+) -> tuple[dict, list[str]]:
+    """Merge exactly the supplier-requested changes into a product draft.
 
-    The extractor returns a full product-shaped payload even when a supplier asks
-    for a single change. Scalar fields are therefore accepted only when their
-    field was explicitly named in the supplier's edit instruction. Attribute
-    dictionaries/lists remain editable because they are the intended path for
-    requests such as "add green colour".
+    The AI extractor always returns a complete product-shaped payload.  A partial
+    request such as ``"change colour to white"`` must *not* make that payload
+    replace size, material, title, description, or any other existing data.
+    Scalar fields and KAYISOFT attributes therefore have two separate allowlists:
+    a field/attribute is accepted only when it was explicitly named in the text.
     """
-    text_lower = (edit_text or "").lower()
+    text_lower = (edit_text or "").casefold()
     field_keywords = {
         "name": (
             "name", "title", "اسم", "عنوان", "isim", "başlık",
@@ -557,10 +562,11 @@ def _merge_partial_edit_details(old_details: dict, extracted_data: dict, edit_te
             "أبعاد", "الابعاد", "طول", "عرض", "ارتفاع", "وزن",
             "ölçü", "olcu", "uzunluk", "genişlik", "genislik", "yükseklik", "yukseklik", "ağırlık", "agirlik",
         ),
+        "size": ("size", "sizes", "beden", "مقاس", "المقاس", "المقاسات", "قياس", "قياسات", "ebat", "boyut", "ölçü", "olcu"),
     }
     explicit_fields = {
         field for field, keywords in field_keywords.items()
-        if any(keyword in text_lower for keyword in keywords)
+        if any(keyword.casefold() in text_lower for keyword in keywords)
     }
     scalar_field_groups = {
         "name": {"name", "name_ar", "name_tr", "name_en"},
@@ -571,13 +577,137 @@ def _merge_partial_edit_details(old_details: dict, extracted_data: dict, edit_te
         "product_code": {"product_code", "product_no"},
         "notes": {"notes"},
         "dimensions": {"dimensions"},
+        # A legacy manual path can return free-text `sizes`; protect it with
+        # the same explicit-size intent as the selector attribute.
+        "size": {"sizes"},
     }
     scalar_to_intent = {
         key: intent for intent, keys in scalar_field_groups.items() for key in keys
     }
+
+    # Map every metadata alias to the canonical KAYISOFT attribute id.  The
+    # WebApp may store an id while an older/manual payload may use `key`.
+    alias_to_id: dict[str, str] = {}
+    attribute_terms: dict[str, set[str]] = {}
+    for attribute in raw_attributes or []:
+        if not isinstance(attribute, dict):
+            continue
+        canonical_id = str(attribute.get("id") or attribute.get("key") or "").strip()
+        if not canonical_id:
+            continue
+        aliases = [
+            canonical_id, attribute.get("key"), attribute.get("name"),
+            attribute.get("label"), attribute.get("display_name"),
+        ]
+        terms = set()
+        for alias in aliases:
+            alias_text = str(alias or "").strip().casefold()
+            if alias_text:
+                alias_to_id[alias_text] = canonical_id
+                # Never search technical IDs in supplier prose; only readable
+                # names/keys are valid edit intent terms.
+                if not _is_option_identifier(alias_text) and len(alias_text) > 1:
+                    terms.add(alias_text)
+        attribute_terms[canonical_id] = terms
+
+    # Stable multilingual synonyms cover API keys that are overly generic or
+    # names returned in a language different from the supplier's edit text.
+    semantic_attribute_terms = {
+        "color": {"color", "colour", "renk", "لون", "اللون", "ألوان", "الالوان"},
+        "size": {"size", "sizes", "beden", "مقاس", "المقاس", "المقاسات", "قياس", "قياسات", "ebat", "boyut", "ölçü", "olcu"},
+        "material": {"material", "fabric", "kumaş", "kumas", "مادة", "المادة", "قماش", "القماش"},
+        "pattern": {"pattern", "desen", "نقشة", "النقشة"},
+        "brand": {"brand", "marka", "ماركة", "الماركة"},
+        "gender": {"gender", "cinsiyet", "جنس", "الجنس"},
+    }
+    for canonical_id, terms in attribute_terms.items():
+        metadata = next(
+            (a for a in raw_attributes or [] if isinstance(a, dict) and str(a.get("id") or a.get("key") or "").strip() == canonical_id),
+            {},
+        )
+        key_or_name = " ".join(str(metadata.get(field) or "").casefold() for field in ("key", "name", "label"))
+        for semantic, synonyms in semantic_attribute_terms.items():
+            if semantic in key_or_name or any(word in key_or_name for word in synonyms):
+                terms.update(word.casefold() for word in synonyms)
+
+    requested_attribute_ids = {
+        canonical_id
+        for canonical_id, terms in attribute_terms.items()
+        if any(term in text_lower for term in terms)
+    }
+
+    def _canonical_attribute_id(value: object) -> str:
+        raw = str(value or "").strip()
+        return alias_to_id.get(raw.casefold(), raw)
+
+    def _merge_shared_attributes(old_shared: object, new_shared: object) -> dict:
+        base = dict(old_shared or {}) if isinstance(old_shared, dict) else {}
+        incoming = dict(new_shared or {}) if isinstance(new_shared, dict) else {}
+        if not requested_attribute_ids:
+            return base
+        # Remove existing values only for requested attributes, then replace
+        # them with the values the extractor found for those same attributes.
+        for key in list(base):
+            if _canonical_attribute_id(key) in requested_attribute_ids:
+                base.pop(key)
+        for key, value in incoming.items():
+            if _canonical_attribute_id(key) in requested_attribute_ids and value:
+                base[key] = value
+        return base
+
+    def _merge_selector_attributes(old_selector: object, new_selector: object) -> list:
+        """Replace requested selector values in place, preserving selector order.
+
+        Selector order is meaningful: the first selector is the primary variant
+        dimension and drives colour-image assignment.  Appending an edited colour
+        after size would silently change that primary dimension, so requested
+        values must occupy their original position in the list.
+        """
+        old_values = list(old_selector or []) if isinstance(old_selector, list) else []
+        new_values = list(new_selector or []) if isinstance(new_selector, list) else []
+        if not requested_attribute_ids:
+            return old_values
+
+        incoming_by_attr: dict[str, list] = {}
+        for value in new_values:
+            if not isinstance(value, dict):
+                continue
+            canonical_id = _canonical_attribute_id(value.get("attribute_id"))
+            if canonical_id in requested_attribute_ids:
+                incoming_by_attr.setdefault(canonical_id, []).append(value)
+
+        merged_values: list = []
+        replaced_ids: set[str] = set()
+        for value in old_values:
+            if not isinstance(value, dict):
+                merged_values.append(value)
+                continue
+            canonical_id = _canonical_attribute_id(value.get("attribute_id"))
+            if canonical_id not in requested_attribute_ids:
+                merged_values.append(value)
+                continue
+            # Replace the whole attribute group once where it originally was;
+            # skip remaining old options of that group.
+            if canonical_id not in replaced_ids:
+                merged_values.extend(incoming_by_attr.get(canonical_id, []))
+                replaced_ids.add(canonical_id)
+
+        # Support a newly requested selector attribute that did not previously
+        # exist, without disturbing the ordering of all current selectors.
+        for canonical_id, values in incoming_by_attr.items():
+            if canonical_id not in replaced_ids:
+                merged_values.extend(values)
+        return merged_values
+
     merged = dict(old_details or {})
     for key, value in (extracted_data or {}).items():
         if key in ("post_languages", "_source", "category_id"):
+            continue
+        if key == "shared_attributes":
+            merged[key] = _merge_shared_attributes(merged.get(key), value)
+            continue
+        if key == "selector_attributes":
+            merged[key] = _merge_selector_attributes(merged.get(key), value)
             continue
         intent = scalar_to_intent.get(key)
         if intent and intent not in explicit_fields:
@@ -590,6 +720,11 @@ def _merge_partial_edit_details(old_details: dict, extracted_data: dict, edit_te
             merged[key] = value
         elif isinstance(value, (int, float)) and value not in (0, 0.0, 1, 100):
             merged[key] = value
+
+    logger.info(
+        "[PARTIAL_EDIT] scalar_intents=%s requested_attribute_ids=%s",
+        sorted(explicit_fields), sorted(requested_attribute_ids),
+    )
     return merged, sorted(explicit_fields)
 
 
@@ -2564,6 +2699,7 @@ async def handle_form_input(
             old_details=old_details,
             extracted_data=extracted_data,
             edit_text=text,
+            raw_attributes=raw_attributes,
         )
         logger.info(
             "handle_form_input: partial edit merged fields for user %s "
