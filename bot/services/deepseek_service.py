@@ -138,6 +138,12 @@ def _build_extraction_prompt(user_text: str, attributes: List[dict]) -> str:
         "price": "120",
         "min_quantity": 200,
         "stock_count": 4000,
+        "dimensions": {
+            "length": 20.0,
+            "width": 15.0,
+            "height": 5.0,
+            "weight": 0.25
+        },
         "shared_attributes": {
             "<GROUP_B_attr_uuid>": ["<option_uuid_from_valid_options>"]
         },
@@ -222,6 +228,10 @@ RULE 4 — TOP-LEVEL FIELDS (all required unless missing from input):
   "min_quantity":  Integer — "300 قطعة" → 300
   "stock_count":   Integer — "4000 قطعة" → 4000
   If only ONE quantity mentioned → use it for BOTH min_quantity AND stock_count.
+  "dimensions": Object required by KAYISOFT for EVERY variant:
+      {{"length": number, "width": number, "height": number, "weight": number}}
+      Use centimetres for length/width/height and kilograms for weight.
+      Extract only explicit supplier values. Never invent dimensions or use 0.
 
 RULE 5 — MISSING VALUES:
   If a field is not found in the supplier text → OMIT it entirely.
@@ -485,6 +495,7 @@ class DeepSeekService:
             "price":               str (numeric only, e.g. "120"),
             "min_quantity":        int,
             "stock_count":         int,
+            "dimensions":          {"length": float, "width": float, "height": float, "weight": float},
             "shared_attributes":   { "<attr_uuid>": ["<option_uuid>"] },
             "selector_attributes": [ {"attribute_id": "<uuid>", "option_id": "<uuid>"} ]
           }
@@ -550,6 +561,7 @@ class DeepSeekService:
                 "price":               "0",
                 "min_quantity":        1,
                 "stock_count":         100,
+                "dimensions":          {},
                 "shared_attributes":   {},
                 "selector_attributes": [],
             }

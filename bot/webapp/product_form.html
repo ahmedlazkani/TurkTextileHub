@@ -878,7 +878,23 @@
       />
     </div>
 
-    <!-- ─── 6. الخصائص الديناميكية (placeholder during load) ── -->
+    <!-- ─── 6. أبعاد المنتج (إلزامية لكل variant في KAYISOFT) ── -->
+    <div class="field-card is-required" id="card-dimensions">
+      <div class="field-label">
+        <span class="icon">📐</span>
+        أبعاد المنتج
+        <span class="required-star">*</span>
+      </div>
+      <div class="dimensions-grid" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
+        <label class="dimension-input-label"><span id="label-dim-length">الطول (سم)</span><input type="number" id="field-dim-length" min="0.01" step="0.01" inputmode="decimal" placeholder="مثال: 20" /></label>
+        <label class="dimension-input-label"><span id="label-dim-width">العرض (سم)</span><input type="number" id="field-dim-width" min="0.01" step="0.01" inputmode="decimal" placeholder="مثال: 15" /></label>
+        <label class="dimension-input-label"><span id="label-dim-height">الارتفاع (سم)</span><input type="number" id="field-dim-height" min="0.01" step="0.01" inputmode="decimal" placeholder="مثال: 5" /></label>
+        <label class="dimension-input-label"><span id="label-dim-weight">الوزن (كغ)</span><input type="number" id="field-dim-weight" min="0.001" step="0.001" inputmode="decimal" placeholder="مثال: 0.25" /></label>
+      </div>
+      <div class="field-error" id="error-dimensions">أدخل قيماً موجبة للطول والعرض والارتفاع والوزن</div>
+    </div>
+
+    <!-- ─── 7. الخصائص الديناميكية (placeholder during load) ── -->
     <div class="section-divider" id="attrs-divider" style="display:none;">الخصائص</div>
     <div id="attrs-container">
       <!-- Skeleton shown while loading -->
@@ -1015,6 +1031,12 @@
         error_minqty:       "يجب أن يكون الحد الأدنى 1 على الأقل",
         label_stock:        "كمية المخزون",
         placeholder_stock:  "مثال: 500",
+        label_dimensions:   "أبعاد المنتج",
+        label_dim_length:   "الطول (سم)",
+        label_dim_width:    "العرض (سم)",
+        label_dim_height:   "الارتفاع (سم)",
+        label_dim_weight:   "الوزن (كغ)",
+        error_dimensions:   "أدخل قيماً موجبة للطول والعرض والارتفاع والوزن",
         label_code:         "كود المنتج",
         placeholder_code:   "مثال: TK-143",
         optional:           "اختياري",
@@ -1051,6 +1073,12 @@
         error_minqty:       "Minimum miktar en az 1 olmalıdır",
         label_stock:        "Stok Miktarı",
         placeholder_stock:  "Örnek: 500",
+        label_dimensions:   "Ürün Ölçüleri",
+        label_dim_length:   "Uzunluk (cm)",
+        label_dim_width:    "Genişlik (cm)",
+        label_dim_height:   "Yükseklik (cm)",
+        label_dim_weight:   "Ağırlık (kg)",
+        error_dimensions:   "Uzunluk, genişlik, yükseklik ve ağırlık için pozitif değer girin",
         label_code:         "Ürün Kodu",
         placeholder_code:   "Örnek: TK-143",
         optional:           "isteğe bağlı",
@@ -1087,6 +1115,12 @@
         error_minqty:       "Minimum quantity must be at least 1",
         label_stock:        "Stock Quantity",
         placeholder_stock:  "Example: 500",
+        label_dimensions:   "Product Dimensions",
+        label_dim_length:   "Length (cm)",
+        label_dim_width:    "Width (cm)",
+        label_dim_height:   "Height (cm)",
+        label_dim_weight:   "Weight (kg)",
+        error_dimensions:   "Enter positive values for length, width, height, and weight",
         label_code:         "Product Code",
         placeholder_code:   "Example: TK-143",
         optional:           "optional",
@@ -1231,8 +1265,12 @@
       setLabelText("card-desc",   T.label_desc);
       setLabelText("card-price",  T.label_price);
       setLabelText("card-minqty", T.label_minqty);
-      setLabelText("card-stock",  T.label_stock);
-      setLabelText("card-code",   T.label_code);
+      setLabelText("card-stock",      T.label_stock);
+      setLabelText("card-dimensions", T.label_dimensions);
+      setLabelText("card-code",       T.label_code);
+      [["label-dim-length", T.label_dim_length], ["label-dim-width", T.label_dim_width], ["label-dim-height", T.label_dim_height], ["label-dim-weight", T.label_dim_weight]].forEach(([id, text]) => {
+        const el = document.getElementById(id); if (el) el.textContent = text;
+      });
       setLabelText("card-notes",  T.label_notes);
 
       // Post languages section label and language checkbox labels
@@ -1271,6 +1309,7 @@
       setError("error-name",  T.error_name);
       setError("error-desc",  T.error_desc);
       setError("error-price", T.error_price);
+      setError("error-dimensions", T.error_dimensions);
 
       // Attributes section divider
       const attrDiv = document.getElementById("attrs-divider");
@@ -1336,8 +1375,12 @@
       setLabelText2("card-desc",   newT.label_desc);
       setLabelText2("card-price",  newT.label_price);
       setLabelText2("card-minqty", newT.label_minqty);
-      setLabelText2("card-stock",  newT.label_stock);
-      setLabelText2("card-code",   newT.label_code);
+      setLabelText2("card-stock",      newT.label_stock);
+      setLabelText2("card-dimensions", newT.label_dimensions);
+      setLabelText2("card-code",       newT.label_code);
+      [["label-dim-length", newT.label_dim_length], ["label-dim-width", newT.label_dim_width], ["label-dim-height", newT.label_dim_height], ["label-dim-weight", newT.label_dim_weight]].forEach(([id, text]) => {
+        const el = document.getElementById(id); if (el) el.textContent = text;
+      });
       setLabelText2("card-notes",  newT.label_notes);
       // Post language labels
       const labelLangs  = document.getElementById("label-langs");  if (labelLangs)  labelLangs.textContent  = newT.label_langs;
@@ -1360,6 +1403,7 @@
       se("error-name",  newT.error_name);
       se("error-desc",  newT.error_desc);
       se("error-price", newT.error_price);
+      se("error-dimensions", newT.error_dimensions);
       // Attrs divider
       const attrDiv = document.getElementById("attrs-divider"); if (attrDiv) attrDiv.textContent = newT.attrs_divider;
       // Info card
@@ -1602,6 +1646,21 @@
         document.getElementById("card-price").classList.add("is-filled");
       }
 
+      // Dimensions — all four are required by KAYISOFT for every variant.
+      const dimFieldIds = ["field-dim-length", "field-dim-width", "field-dim-height", "field-dim-weight"];
+      const dimsValid = dimFieldIds.every(id => {
+        const value = Number(document.getElementById(id)?.value);
+        return Number.isFinite(value) && value > 0;
+      });
+      if (!dimsValid) {
+        showError("card-dimensions", "error-dimensions");
+        document.getElementById("card-dimensions")?.classList.remove("is-filled");
+        valid = false;
+      } else {
+        clearError("card-dimensions", "error-dimensions");
+        document.getElementById("card-dimensions")?.classList.add("is-filled");
+      }
+
       // Stock — hidden field with default value 500, no validation needed
       // Min Quantity — optional visible field with default value 100, no validation needed
       // Post Languages — hidden, all 3 sent by default
@@ -1648,7 +1707,12 @@
       const name  = document.getElementById("field-name").value.trim();
       const desc  = document.getElementById("field-desc").value.trim();
       const price = parseFloat(document.getElementById("field-price").value);
-      const basicOk = name.length >= 3 && desc.length >= 3 && price >= 0.01;
+      const dimFieldIds = ["field-dim-length", "field-dim-width", "field-dim-height", "field-dim-weight"];
+      const dimsValid = dimFieldIds.every(id => {
+        const value = Number(document.getElementById(id)?.value);
+        return Number.isFinite(value) && value > 0;
+      });
+      const basicOk = name.length >= 3 && desc.length >= 3 && price >= 0.01 && dimsValid;
 
       // Band-3 Fix: sync both Telegram MainButton and fallback HTML button
       if (tg && tg.MainButton) {
@@ -1676,6 +1740,15 @@
       validateAndToggleMainButton();
       const filled = this.value.trim().length >= 3;
       document.getElementById("card-desc").classList.toggle("is-filled", filled);
+    });
+    ["field-dim-length", "field-dim-width", "field-dim-height", "field-dim-weight"].forEach(id => {
+      document.getElementById(id)?.addEventListener("input", function() {
+        const allValid = ["field-dim-length", "field-dim-width", "field-dim-height", "field-dim-weight"].every(dimId => Number(document.getElementById(dimId)?.value) > 0);
+        const card = document.getElementById("card-dimensions");
+        if (allValid) clearError("card-dimensions", "error-dimensions");
+        card?.classList.toggle("is-filled", allValid);
+        validateAndToggleMainButton();
+      });
     });
 
 
@@ -2076,6 +2149,11 @@
       setVal('field-code',   PREFILL.product_code);
       setVal('field-notes',  PREFILL.notes);
       if (PREFILL.stock_count) setVal('field-stock', PREFILL.stock_count);
+      const prefillDimensions = PREFILL.dimensions || {};
+      setVal('field-dim-length', prefillDimensions.length);
+      setVal('field-dim-width', prefillDimensions.width);
+      setVal('field-dim-height', prefillDimensions.height);
+      setVal('field-dim-weight', prefillDimensions.weight);
 
       // Update char counters for text fields (counter IDs: counter-name, counter-desc, counter-notes)
       const counterMap = { 'field-name': 'counter-name', 'field-desc': 'counter-desc', 'field-notes': 'counter-notes' };
@@ -2094,6 +2172,7 @@
         { cardId: 'card-name',   fieldId: 'field-name',   errorId: 'error-name'  },
         { cardId: 'card-desc',   fieldId: 'field-desc',   errorId: 'error-desc'  },
         { cardId: 'card-price',  fieldId: 'field-price',  errorId: 'error-price' },
+        { cardId: 'card-dimensions', fieldId: 'field-dim-length', errorId: 'error-dimensions' },
       ];
       BASE_FIELD_CARD_MAP.forEach(({ cardId, fieldId, errorId }) => {
         const card  = document.getElementById(cardId);
@@ -2225,6 +2304,12 @@
       const minQty   = parseInt(document.getElementById("field-minqty").value) || 100;
       const stockRaw = document.getElementById("field-stock").value;
       const stock    = stockRaw ? parseInt(stockRaw) : minQty;
+      const dimensions = {
+        length: Number(document.getElementById("field-dim-length").value),
+        width:  Number(document.getElementById("field-dim-width").value),
+        height: Number(document.getElementById("field-dim-height").value),
+        weight: Number(document.getElementById("field-dim-weight").value),
+      };
 
       // Build shared_attributes and selector_attributes from attrState
       const sharedAttrs   = {};
@@ -2260,6 +2345,7 @@
         price:               price,
         min_quantity:        minQty,
         stock_count:         stock,
+        dimensions,
         product_code:        code  || null,
         notes:               notes || null,
         post_languages:      langs.length ? langs : ["ar"],

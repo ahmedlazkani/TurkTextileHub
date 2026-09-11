@@ -120,6 +120,7 @@ import asyncio
 import hashlib
 import json          # ← مطلوب لـ json.loads() في handle_webapp_data و handle_form_submitted
 import logging
+import math
 import os
 import uuid
 from datetime import datetime, timezone
@@ -465,6 +466,63 @@ def _parse_price(raw) -> float:
         return 0.0
 
 
+_DIMENSION_FIELDS = ("length", "width", "height", "weight")
+
+
+def _normalize_dimensions(raw_dimensions) -> tuple[dict | None, list[str]]:
+    """Validate KAYISOFT variant dimensions without inventing supplier data.
+
+    KAYISOFT requires a numeric, strictly positive length, width, height, and
+    weight for every variant.  Suppliers may use Arabic digits or a decimal
+    comma, so these accepted formats are normalized before constructing the
+    API payload.  An incomplete object is never silently defaulted.
+    """
+    if not isinstance(raw_dimensions, dict):
+        return None, list(_DIMENSION_FIELDS)
+
+    normalized: dict[str, float] = {}
+    invalid_fields: list[str] = []
+    arabic_to_ascii = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
+
+    for field in _DIMENSION_FIELDS:
+        raw_value = raw_dimensions.get(field)
+        if isinstance(raw_value, bool) or raw_value is None:
+            invalid_fields.append(field)
+            continue
+        try:
+            value_text = str(raw_value).translate(arabic_to_ascii).strip().replace(",", ".")
+            value = float(value_text)
+        except (TypeError, ValueError):
+            invalid_fields.append(field)
+            continue
+        if not math.isfinite(value) or value <= 0:
+            invalid_fields.append(field)
+            continue
+        normalized[field] = value
+
+    return (normalized, []) if not invalid_fields else (None, invalid_fields)
+
+
+def _dimension_labels(lang: str, fields: list[str]) -> list[str]:
+    """Return localised field labels for dimensions validation messages."""
+    labels = {
+        "ar": {"length": "الطول", "width": "العرض", "height": "الارتفاع", "weight": "الوزن"},
+        "tr": {"length": "Uzunluk", "width": "Genişlik", "height": "Yükseklik", "weight": "Ağırlık"},
+        "en": {"length": "Length", "width": "Width", "height": "Height", "weight": "Weight"},
+    }
+    active = labels.get(lang, labels["en"])
+    return [active.get(field, field) for field in fields]
+
+
+def _missing_dimension_fields(data: dict, lang: str) -> list[str]:
+    """Return each required KAYISOFT dimension that is absent or invalid."""
+    _, errors = _normalize_dimensions((data or {}).get("dimensions"))
+    if not errors:
+        return []
+    dim_header = {"ar": "أبعاد المنتج", "tr": "Ürün Ölçüleri", "en": "Product dimensions"}.get(lang, "Product dimensions")
+    return [f"{dim_header}: {label}" for label in _dimension_labels(lang, errors)]
+
+
 def _merge_partial_edit_details(old_details: dict, extracted_data: dict, edit_text: str) -> tuple[dict, list[str]]:
     """Merge an AI extraction into existing product data for a partial edit.
 
@@ -493,6 +551,11 @@ def _merge_partial_edit_details(old_details: dict, extracted_data: dict, edit_te
         "stock_count": ("stock", "stok", "مخزون", "stock_count"),
         "product_code": ("product code", "code", "ürün kodu", "kod", "كود", "رمز"),
         "notes": ("notes", "note", "notlar", "not", "ملاحظات", "ملاحظة"),
+        "dimensions": (
+            "dimensions", "dimension", "length", "width", "height", "weight",
+            "أبعاد", "الابعاد", "طول", "عرض", "ارتفاع", "وزن",
+            "ölçü", "olcu", "uzunluk", "genişlik", "genislik", "yükseklik", "yukseklik", "ağırlık", "agirlik",
+        ),
     }
     explicit_fields = {
         field for field, keywords in field_keywords.items()
@@ -506,6 +569,7 @@ def _merge_partial_edit_details(old_details: dict, extracted_data: dict, edit_te
         "stock_count": {"stock_count", "stock"},
         "product_code": {"product_code", "product_no"},
         "notes": {"notes"},
+        "dimensions": {"dimensions"},
     }
     scalar_to_intent = {
         key: intent for intent, keys in scalar_field_groups.items() for key in keys
@@ -551,6 +615,7 @@ def _build_variants(
     product_name_ar: str = "",
     description_ar: str = "",
     color_uploaded_map: dict = None,  # BUG FIX Band 12: {color_option_id: [s3_filename]}
+    dimensions: Optional[dict] = None,
 ) -> list:
     """
     Builds the variants list for the KAYISOFT product payload.
@@ -579,6 +644,13 @@ def _build_variants(
     Returns:
         list: List of variant dicts matching KAYISOFT API spec
     """
+    normalized_dimensions, dimension_errors = _normalize_dimensions(dimensions)
+    if dimension_errors:
+        raise ValueError(
+            "KAYISOFT requires positive dimensions for every variant: "
+            + ", ".join(dimension_errors)
+        )
+
     # ── Helper: convert [{attribute_id, option_id}] → {attr_key: [option_uuid]} ───────────
     # KAYISOFT API PDF spec: selector_attributes in each variant must be a dict
     # where key = attribute.key (e.g. "color", "size") and value = [option_uuid]
@@ -693,7 +765,7 @@ def _build_variants(
             "prices":              [{"min_quantity": min_quantity, "price": price_float}],
             "images":              uploaded_file_names,
             "videos":              [],
-            "dimensions":          None,
+            "dimensions":          dict(normalized_dimensions),
         }]
 
     # ── KAYISOFT API RULE: each variant's selector_attributes must have EXACTLY ONE option
@@ -730,7 +802,7 @@ def _build_variants(
             "prices":              [{"min_quantity": min_quantity, "price": price_float}],
             "images":              uploaded_file_names,
             "videos":              [],
-            "dimensions":          None,
+            "dimensions":          dict(normalized_dimensions),
         }]
 
     # Step 2: Identify the PRIMARY variant attribute (is_primary_variant_attribute=True)
@@ -859,7 +931,7 @@ def _build_variants(
             "prices":              [{"min_quantity": min_quantity, "price": price_float}],
             "images":              variant_images,
             "videos":              [],
-            "dimensions":          None,
+            "dimensions":          dict(normalized_dimensions),
         })
 
     return variants
@@ -1512,6 +1584,7 @@ def _build_extraction_summary(
     )
     price       = data.get("price", "—")
     min_qty     = data.get("min_quantity", data.get("min_order", "1"))
+    dimensions  = data.get("dimensions") or {}
 
     # Build reverse lookup: attr_key → attr dict (for cases where attr_id is UUID but attr_map uses UUID too)
     attr_key_map = {v.get("key", ""): v for v in attr_map.values() if v.get("key")}
@@ -1534,9 +1607,9 @@ def _build_extraction_summary(
         "en": "🤖 <b>AI Extraction Summary</b>",
     }
     field_labels = {
-        "tr": {"name": "🏷️ Ürün Adı", "desc": "📝 Açıklama", "price": "💰 Fiyat", "min": "📦 Min. Sipariş"},
-        "ar": {"name": "🏷️ اسم المنتج", "desc": "📝 الوصف", "price": "💰 السعر", "min": "📦 الحد الأدنى"},
-        "en": {"name": "🏷️ Product Name", "desc": "📝 Description", "price": "💰 Price", "min": "📦 Min. Order"},
+        "tr": {"name": "🏷️ Ürün Adı", "desc": "📝 Açıklama", "price": "💰 Fiyat", "min": "📦 Min. Sipariş", "dimensions": "📐 Ölçüler"},
+        "ar": {"name": "🏷️ اسم المنتج", "desc": "📝 الوصف", "price": "💰 السعر", "min": "📦 الحد الأدنى", "dimensions": "📐 الأبعاد"},
+        "en": {"name": "🏷️ Product Name", "desc": "📝 Description", "price": "💰 Price", "min": "📦 Min. Order", "dimensions": "📐 Dimensions"},
     }
 
     L      = field_labels.get(lang, field_labels["en"])
@@ -1558,6 +1631,7 @@ def _build_extraction_summary(
         f"{L['price']}: <b>{price} $</b>",
         # Band-2 Fix: min_quantity was missing from the AI summary — now shown
         f"{L['min']}: {min_qty}",
+        f"{L['dimensions']}: {dimensions.get('length', '—')} × {dimensions.get('width', '—')} × {dimensions.get('height', '—')} cm | {dimensions.get('weight', '—')} kg",
     ]
 
     # Show extracted attributes if any
@@ -2480,6 +2554,7 @@ async def handle_form_input(
 
     # Validate: check for missing required attributes
     missing = _check_missing_required(extracted_data, processed_attrs)
+    missing.extend(_missing_dimension_fields(extracted_data, lang))
 
     if missing:
         # ── Build clear, prominent missing-fields alert ───────────────────────────────────────
@@ -2634,6 +2709,7 @@ async def handle_fix_missing(
 
     # Re-validate
     missing = _check_missing_required(extracted_data, processed_attrs)
+    missing.extend(_missing_dimension_fields(extracted_data, lang))
 
     if missing:
         # ── Still missing — show persistent prominent alert ──────────────────────────────────────
@@ -3070,6 +3146,7 @@ async def handle_confirm_details(
                 "price":               str(product_details.get("price", "")),
                 "min_quantity":        product_details.get("min_quantity", 1),
                 "stock_count":         product_details.get("stock_count", 500),
+                "dimensions":          product_details.get("dimensions", {}),
                 "product_code":        product_details.get("product_code", ""),
                 "notes":               product_details.get("notes", ""),
                 "post_languages":      product_details.get("post_languages", ["ar"]),
@@ -4181,6 +4258,7 @@ async def handle_color_action(
             ai_selector_attrs   = ai_selector_attrs,
             raw_attributes      = raw_attributes,
             id_to_key           = id_to_key_prev,
+            dimensions          = product_details.get("dimensions"),
         )
         context.user_data["preview_variants"] = preview_variants
 
@@ -4438,6 +4516,7 @@ async def handle_variants_confirmation(
         ai_selector_attrs   = ai_selector_attrs,
         raw_attributes      = raw_attributes,
         id_to_key           = id_to_key_preview,
+        dimensions          = product_details.get("dimensions"),
     )
 
     # Store preview variants for use in publish step
@@ -4919,6 +4998,7 @@ async def handle_final_publish(
         description_ar      = description_ar,
         description_tr      = description_tr,
         description_en      = description_en,
+        dimensions          = product_details.get("dimensions"),
         # BUG FIX (Band 12): pass per-color S3 filename map
         color_uploaded_map  = color_uploaded_map,
     )
@@ -5512,6 +5592,11 @@ async def handle_form_submitted(
     # and KAYISOFT payload builder never received them.
     product_code = str(payload.get("product_code") or "").strip() or None
     notes        = str(payload.get("notes")        or "").strip() or None
+    dimensions, _dimension_errors = _normalize_dimensions(payload.get("dimensions"))
+    # `_validate_webapp_payload` already rejects incomplete dimensions.  This
+    # guard documents the invariant before the data reaches every variant.
+    if _dimension_errors:
+        raise ValueError(f"Validated WebApp payload has invalid dimensions: {_dimension_errors}")
 
     # ── Band 6 Fix: Store name/description under the supplier's language key ──────
     # This ensures _build_titles / _build_descriptions in _build_variants can
@@ -5555,6 +5640,7 @@ async def handle_form_submitted(
         "price":               price_str,
         "min_quantity":        min_quantity,
         "stock_count":         stock_count,
+        "dimensions":          dimensions,
         # Band-3 Fix: merge shared_attributes (new over old) so that attributes
         # the supplier did NOT change in this edit session are preserved.
         # e.g. if supplier only changed colours, size/material attributes stay intact.
@@ -5741,6 +5827,9 @@ async def handle_webapp_data(
     _legacy_desc_key = f"description_{_legacy_lang}" if _legacy_lang in ("ar", "tr", "en") else "description_tr"
     product_code_legacy = str(payload.get("product_code") or "").strip() or None
     notes_legacy        = str(payload.get("notes")        or "").strip() or None
+    dimensions_legacy, _dimension_errors = _normalize_dimensions(payload.get("dimensions"))
+    if _dimension_errors:
+        raise ValueError(f"Validated legacy WebApp payload has invalid dimensions: {_dimension_errors}")
 
     product_details = {
         "name":                name,
@@ -5750,6 +5839,7 @@ async def handle_webapp_data(
         "price":               price_str,
         "min_quantity":        min_quantity,
         "stock_count":         stock_count,
+        "dimensions":          dimensions_legacy,
         "shared_attributes":   shared_attributes,
         "selector_attributes": selector_attributes,
         "post_languages":      payload.get("post_languages") or context.user_data.get("post_languages") or ["ar", "tr", "en"],
@@ -5792,9 +5882,9 @@ def _validate_webapp_payload(payload: dict, lang: str) -> list:
     """
     errors = []
     field_labels = {
-        "ar": {"name": "اسم المنتج", "price": "السعر", "min": "الحد الأدنى", "stock": "المخزون"},
-        "tr": {"name": "Ürün adı",   "price": "Fiyat", "min": "Min. miktar", "stock": "Stok"},
-        "en": {"name": "Product name","price": "Price", "min": "Min. qty",   "stock": "Stock"},
+        "ar": {"name": "اسم المنتج", "price": "السعر", "min": "الحد الأدنى", "stock": "المخزون", "dimensions": "الأبعاد"},
+        "tr": {"name": "Ürün adı",   "price": "Fiyat", "min": "Min. miktar", "stock": "Stok", "dimensions": "Ölçüler"},
+        "en": {"name": "Product name","price": "Price", "min": "Min. qty",   "stock": "Stock", "dimensions": "Dimensions"},
     }
     L = field_labels.get(lang, field_labels["en"])
 
@@ -5815,6 +5905,14 @@ def _validate_webapp_payload(payload: dict, lang: str) -> list:
             errors.append(f"{L['min']}: يجب أن يكون 1 على الأقل")
     except (ValueError, TypeError):
         errors.append(f"{L['min']}: قيمة غير صالحة")
+
+    dimensions, dimension_errors = _normalize_dimensions(payload.get("dimensions"))
+    if dimension_errors:
+        errors.append(
+            f"{L['dimensions']}: "
+            + ", ".join(_dimension_labels(lang, dimension_errors))
+            + " — يجب أن تكون قيماً موجبة"
+        )
 
     stock_raw = payload.get("stock_count")
     if stock_raw is not None:
@@ -5857,6 +5955,7 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
     price       = product_details.get("price", "0")
     min_qty     = product_details.get("min_quantity", 1)
     stock       = product_details.get("stock_count", min_qty)
+    dimensions  = product_details.get("dimensions") or {}
     shared_attrs   = product_details.get("shared_attributes",   {}) or {}
     selector_attrs = product_details.get("selector_attributes", []) or []
 
@@ -5892,9 +5991,9 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
         "en": "📋 <b>Product Summary</b> (from form)",
     }
     field_labels = {
-        "tr": {"name": "🏷️ Ürün Adı",  "desc": "📝 Açıklama", "price": "💰 Fiyat", "min": "📦 Min. Sipariş", "stock": "🏭 Stok"},
-        "ar": {"name": "🏷️ اسم المنتج","desc": "📝 الوصف",   "price": "💰 السعر", "min": "📦 الحد الأدنى",   "stock": "🏭 المخزون"},
-        "en": {"name": "🏷️ Name",       "desc": "📝 Desc.",   "price": "💰 Price", "min": "📦 Min. Order",    "stock": "🏭 Stock"},
+        "tr": {"name": "🏷️ Ürün Adı",  "desc": "📝 Açıklama", "price": "💰 Fiyat", "min": "📦 Min. Sipariş", "stock": "🏭 Stok", "dimensions": "📐 Ölçüler"},
+        "ar": {"name": "🏷️ اسم المنتج","desc": "📝 الوصف",   "price": "💰 السعر", "min": "📦 الحد الأدنى",   "stock": "🏭 المخزون", "dimensions": "📐 الأبعاد"},
+        "en": {"name": "🏷️ Name",       "desc": "📝 Desc.",   "price": "💰 Price", "min": "📦 Min. Order",    "stock": "🏭 Stock", "dimensions": "📐 Dimensions"},
     }
     header = headers.get(lang, headers["en"])
     L      = field_labels.get(lang, field_labels["en"])
@@ -5912,6 +6011,7 @@ def _build_webapp_summary(product_details: dict, lang: str, context) -> str:
         # Band-2 Fix: min_quantity was missing from the summary — now shown
         f"{L['min']}: {min_qty}",
         f"{L['stock']}: {stock}",
+        f"{L['dimensions']}: {dimensions.get('length', '—')} × {dimensions.get('width', '—')} × {dimensions.get('height', '—')} cm | {dimensions.get('weight', '—')} kg",
     ]
 
     import re as _re
