@@ -5533,7 +5533,7 @@ async def handle_form_submitted(
     except ImportError:
         logger.error("handle_form_submitted: could not import pending_submissions")
         await update.effective_message.reply_text(
-            "❌ حدث خطأ داخلي. يرجى المحاولة مجدداً.",
+            get_string(lang, "webapp_internal_error"),
             parse_mode=ParseMode.HTML,
         )
         return FILL_FORM
@@ -5564,11 +5564,7 @@ async def handle_form_submitted(
     validation_errors = _validate_webapp_payload(payload, lang)
     if validation_errors:
         error_lines = "\n".join(f"  • {e}" for e in validation_errors)
-        msg = {
-            "ar": f"❌ <b>خطأ في بيانات النموذج:</b>\n{error_lines}\n\nيرجى العودة وتصحيح البيانات.",
-            "tr": f"❌ <b>Form verilerinde hata:</b>\n{error_lines}\n\nLütfen geri dönüp düzeltin.",
-            "en": f"❌ <b>Form validation error:</b>\n{error_lines}\n\nPlease go back and fix the issues.",
-        }.get(lang, f"❌ Validation error:\n{error_lines}")
+        msg = get_string(lang, "webapp_validation_error").format(errors=error_lines)
         await update.effective_message.reply_text(msg, parse_mode=ParseMode.HTML)
         return FILL_FORM
 
@@ -5762,7 +5758,7 @@ async def handle_webapp_data(
     if not web_app_data or not web_app_data.data:
         logger.warning("handle_webapp_data: empty web_app_data for user_id=%s", user_id)
         await update.effective_message.reply_text(
-            "❌ لم يتم استقبال بيانات من النموذج. يرجى المحاولة مجدداً.",
+            get_string(lang, "webapp_empty_payload"),
             parse_mode=ParseMode.HTML,
             reply_markup=_support_keyboard(lang),
         )
@@ -5776,7 +5772,7 @@ async def handle_webapp_data(
             user_id, exc, web_app_data.data[:200],
         )
         await update.effective_message.reply_text(
-            "❌ بيانات النموذج غير صالحة. يرجى إعادة المحاولة.",
+            get_string(lang, "webapp_invalid_payload"),
             parse_mode=ParseMode.HTML,
             reply_markup=_support_keyboard(lang),
         )
@@ -5785,11 +5781,7 @@ async def handle_webapp_data(
     validation_errors = _validate_webapp_payload(payload, lang)
     if validation_errors:
         error_lines = "\n".join(f"  • {e}" for e in validation_errors)
-        msg = {
-            "ar": f"❌ <b>خطأ في بيانات النموذج:</b>\n{error_lines}\n\nيرجى العودة وتصحيح البيانات.",
-            "tr": f"❌ <b>Form verilerinde hata:</b>\n{error_lines}\n\nLütfen geri dönüp düzeltin.",
-            "en": f"❌ <b>Form validation error:</b>\n{error_lines}\n\nPlease go back and fix the issues.",
-        }.get(lang, f"❌ Validation error:\n{error_lines}")
+        msg = get_string(lang, "webapp_validation_error").format(errors=error_lines)
         await update.effective_message.reply_text(
             msg,
             parse_mode=ParseMode.HTML,

@@ -843,7 +843,7 @@
     <div class="field-card" id="card-minqty">
       <div class="field-label">
         <span class="icon">📦</span>
-        <span id="label-minqty">الحد الأدنى للطلب</span>
+        <span id="label-minqty" data-i18n="label_minqty">الحد الأدنى للطلب</span>
         <span class="optional-tag" id="tag-optional-minqty">اختياري</span>
       </div>
       <input
@@ -864,7 +864,7 @@
     <div class="field-card" id="card-stock">
       <div class="field-label">
         <span class="icon">📦</span>
-        <span id="label-stock">كمية المخزون</span>
+        <span id="label-stock" data-i18n="label_stock">كمية المخزون</span>
         <span class="optional-tag" id="tag-optional-stock">اختياري</span>
       </div>
       <input
@@ -886,10 +886,10 @@
         <span class="required-star">*</span>
       </div>
       <div class="dimensions-grid" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
-        <label class="dimension-input-label"><span id="label-dim-length">الطول (سم)</span><input type="number" id="field-dim-length" min="0.01" step="0.01" inputmode="decimal" placeholder="مثال: 20" /></label>
-        <label class="dimension-input-label"><span id="label-dim-width">العرض (سم)</span><input type="number" id="field-dim-width" min="0.01" step="0.01" inputmode="decimal" placeholder="مثال: 15" /></label>
-        <label class="dimension-input-label"><span id="label-dim-height">الارتفاع (سم)</span><input type="number" id="field-dim-height" min="0.01" step="0.01" inputmode="decimal" placeholder="مثال: 5" /></label>
-        <label class="dimension-input-label"><span id="label-dim-weight">الوزن (كغ)</span><input type="number" id="field-dim-weight" min="0.001" step="0.001" inputmode="decimal" placeholder="مثال: 0.25" /></label>
+        <label class="dimension-input-label"><span id="label-dim-length" data-i18n="label_dim_length">الطول (سم)</span><input type="number" id="field-dim-length" min="0.01" step="0.01" inputmode="decimal" data-i18n-placeholder="placeholder_dim_length" placeholder="مثال: 20" /></label>
+        <label class="dimension-input-label"><span id="label-dim-width" data-i18n="label_dim_width">العرض (سم)</span><input type="number" id="field-dim-width" min="0.01" step="0.01" inputmode="decimal" data-i18n-placeholder="placeholder_dim_width" placeholder="مثال: 15" /></label>
+        <label class="dimension-input-label"><span id="label-dim-height" data-i18n="label_dim_height">الارتفاع (سم)</span><input type="number" id="field-dim-height" min="0.01" step="0.01" inputmode="decimal" data-i18n-placeholder="placeholder_dim_height" placeholder="مثال: 5" /></label>
+        <label class="dimension-input-label"><span id="label-dim-weight" data-i18n="label_dim_weight">الوزن (كغ)</span><input type="number" id="field-dim-weight" min="0.001" step="0.001" inputmode="decimal" data-i18n-placeholder="placeholder_dim_weight" placeholder="مثال: 0.25" /></label>
       </div>
       <div class="field-error" id="error-dimensions">أدخل قيماً موجبة للطول والعرض والارتفاع والوزن</div>
     </div>
@@ -1036,7 +1036,14 @@
         label_dim_width:    "العرض (سم)",
         label_dim_height:   "الارتفاع (سم)",
         label_dim_weight:   "الوزن (كغ)",
+        placeholder_dim_length: "مثال: 20",
+        placeholder_dim_width:  "مثال: 15",
+        placeholder_dim_height: "مثال: 5",
+        placeholder_dim_weight: "مثال: 0.25",
         error_dimensions:   "أدخل قيماً موجبة للطول والعرض والارتفاع والوزن",
+        bool_yes:          "نعم",
+        bool_no:           "لا",
+        variant_badge:     "خيارات",
         label_code:         "كود المنتج",
         placeholder_code:   "مثال: TK-143",
         optional:           "اختياري",
@@ -1078,7 +1085,14 @@
         label_dim_width:    "Genişlik (cm)",
         label_dim_height:   "Yükseklik (cm)",
         label_dim_weight:   "Ağırlık (kg)",
+        placeholder_dim_length: "Örnek: 20",
+        placeholder_dim_width:  "Örnek: 15",
+        placeholder_dim_height: "Örnek: 5",
+        placeholder_dim_weight: "Örnek: 0.25",
         error_dimensions:   "Uzunluk, genişlik, yükseklik ve ağırlık için pozitif değer girin",
+        bool_yes:          "Evet",
+        bool_no:           "Hayır",
+        variant_badge:     "Varyant",
         label_code:         "Ürün Kodu",
         placeholder_code:   "Örnek: TK-143",
         optional:           "isteğe bağlı",
@@ -1120,7 +1134,14 @@
         label_dim_width:    "Width (cm)",
         label_dim_height:   "Height (cm)",
         label_dim_weight:   "Weight (kg)",
+        placeholder_dim_length: "Example: 20",
+        placeholder_dim_width:  "Example: 15",
+        placeholder_dim_height: "Example: 5",
+        placeholder_dim_weight: "Example: 0.25",
         error_dimensions:   "Enter positive values for length, width, height, and weight",
+        bool_yes:          "Yes",
+        bool_no:           "No",
+        variant_badge:     "Variant",
         label_code:         "Product Code",
         placeholder_code:   "Example: TK-143",
         optional:           "optional",
@@ -1142,6 +1163,21 @@
       },
     };
     const T = I18N[LANG] || I18N["en"];
+    // The URL parameter supplies only the initial language. Static UI text must
+    // always read this mutable value after the supplier changes language.
+    let _currentLang = LANG;
+    const getCurrentT = () => I18N[_currentLang] || I18N["en"];
+
+    function applyDataI18n(locale) {
+      document.querySelectorAll("[data-i18n]").forEach(el => {
+        const key = el.dataset.i18n;
+        if (key && locale[key] !== undefined) el.textContent = locale[key];
+      });
+      document.querySelectorAll("[data-i18n-placeholder]").forEach(el => {
+        const key = el.dataset.i18nPlaceholder;
+        if (key && locale[key] !== undefined) el.placeholder = locale[key];
+      });
+    }
 
     // ── Band-9 Fix (v9): Attribute name translation map ────────────────────────
     // KAYISOFT API returns attribute names in Turkish only (e.g. "Renk", "Beden").
@@ -1218,11 +1254,12 @@
      * @returns {string}     - Translated name in LANG
      */
     function translateAttrName(name, key) {
-      if (LANG === "tr") return name;  // Turkish — use API name as-is
+      const activeLang = _currentLang || LANG;
+      if (activeLang === "tr") return name;  // Turkish — use API name as-is
       const lookupKey  = (key  || "").toLowerCase().trim();
       const lookupName = (name || "").toLowerCase().trim();
       const entry = ATTR_NAME_MAP[lookupKey] || ATTR_NAME_MAP[lookupName];
-      if (entry) return entry[LANG] || entry["en"] || name;
+      if (entry) return entry[activeLang] || entry["en"] || name;
       return name;  // No translation found — show original
     }
 
@@ -1244,6 +1281,9 @@
 
     // ── Apply translations to all static text elements ───────────────────────
     (function applyTranslations() {
+      // Nested static labels use data-i18n so they update independently of
+      // their parent field label (e.g. minimum order quantity and stock).
+      applyDataI18n(T);
       // Header
       const hTitle = document.querySelector(".header-title");
       const hSub   = document.querySelector(".header-sub");
@@ -1342,14 +1382,15 @@
        Also re-renders the dynamic attributes section so attribute names
        are translated to the new language immediately.
     ──────────────────────────────────────────────────────── */
-    // Mutable LANG reference (LANG const is read-only, so we use a wrapper)
-    let _currentLang = LANG;  // starts from URL param
-
     function switchLang(newLang) {
       if (_currentLang === newLang) return;  // no-op
       _currentLang = newLang;
       // Update global T to new language
       const newT = I18N[newLang] || I18N["en"];
+      // Update all elements that carry an explicit translation key. This covers
+      // nested text such as the minimum order quantity that a parent-node update
+      // cannot replace safely.
+      applyDataI18n(newT);
       // Update header
       const hTitle = document.querySelector(".header-title");
       const hSub   = document.querySelector(".header-sub");
@@ -1383,6 +1424,8 @@
       });
       setLabelText2("card-notes",  newT.label_notes);
       // Post language labels
+      const labelMinQty = document.getElementById("label-minqty"); if (labelMinQty) labelMinQty.textContent = newT.label_minqty;
+      const labelStock  = document.getElementById("label-stock");  if (labelStock)  labelStock.textContent  = newT.label_stock;
       const labelLangs  = document.getElementById("label-langs");  if (labelLangs)  labelLangs.textContent  = newT.label_langs;
       const labelLangAr = document.getElementById("label-lang-ar"); if (labelLangAr) labelLangAr.textContent = newT.lang_ar;
       const labelLangTr = document.getElementById("label-lang-tr"); if (labelLangTr) labelLangTr.textContent = newT.lang_tr;
@@ -1396,6 +1439,10 @@
       ph("field-price",  newT.placeholder_price);
       ph("field-minqty", newT.placeholder_minqty);
       ph("field-stock",  newT.placeholder_stock);
+      ph("field-dim-length", newT.placeholder_dim_length);
+      ph("field-dim-width",  newT.placeholder_dim_width);
+      ph("field-dim-height", newT.placeholder_dim_height);
+      ph("field-dim-weight", newT.placeholder_dim_weight);
       ph("field-code",   newT.placeholder_code);
       ph("field-notes",  newT.placeholder_notes);
       // Error messages
@@ -1412,6 +1459,13 @@
       if (tg && tg.MainButton) tg.MainButton.setText(newT.btn_save);
       const fallbackBtn = document.getElementById('fallback-submit-btn'); if (fallbackBtn) fallbackBtn.textContent = newT.btn_save;
       const doneBtn = document.getElementById('done-btn'); if (doneBtn) doneBtn.textContent = newT.done_btn;
+      // Dynamic control text is rendered after attributes load; update it in place
+      // so changing language never discards a supplier's existing selections.
+      document.querySelectorAll('[data-i18n-select-placeholder]').forEach(el => { el.textContent = newT.select_placeholder; });
+      document.querySelectorAll('[data-i18n-field-required]').forEach(el => { el.textContent = newT.field_required; });
+      document.querySelectorAll('[data-i18n-variant-badge]').forEach(el => { el.textContent = `🎨 ${newT.variant_badge}`; });
+      document.querySelectorAll('[data-i18n-bool="yes"]').forEach(el => { el.textContent = newT.bool_yes; });
+      document.querySelectorAll('[data-i18n-bool="no"]').forEach(el => { el.textContent = newT.bool_no; });
       // Re-render dynamic attribute labels with new language
       // (translateAttrName uses LANG global — we shadow it temporarily)
       document.querySelectorAll(".attr-section-title").forEach(el => {
@@ -1688,10 +1742,8 @@
       // ── Band 3 FIX: show toast with count of missing fields ──
       if (!valid) {
         const errCount = document.querySelectorAll('.field-card.has-error, .field-card[class*="has-error"]').length;
-        const T = I18N[LANG] || I18N.ar;
-        const msg = T.toast_required_fields
-          ? T.toast_required_fields.replace('{n}', errCount)
-          : `يرجى تعبئة جميع الحقول المطلوبة (محددة باللون الأحمر)`;
+        const currentT = getCurrentT();
+        const msg = currentT.toast_required_fields || I18N.en.toast_required_fields;
         showToast(msg, 'error');
 
         // Scroll to first error field
@@ -1763,7 +1815,7 @@
 
       try {
         // Proxy endpoint served by our FastAPI server
-        const res  = await fetch(`/api/attributes/${CATEGORY_ID}?user_id=${USER_ID}&lang=${LANG}`);
+        const res  = await fetch(`/api/attributes/${CATEGORY_ID}?user_id=${USER_ID}&lang=${_currentLang}`);
         const json = await res.json();
         const attrs = normalizeAttributes(json);
 
@@ -1894,7 +1946,7 @@
             <span class="icon">${isVar ? "🎨" : "📌"}</span>
             ${escHtml(translateAttrName(attr.name, attr.key))}
             ${isReq  ? '<span class="required-star">*</span>' : ""}
-            ${isVar  ? `<span class="variant-badge">🎨 ${LANG === 'ar' ? 'خيارات' : (LANG === 'tr' ? 'Varyant' : 'Variant')}</span>` : ""}
+            ${isVar  ? `<span class="variant-badge" data-i18n-variant-badge>🎨 ${getCurrentT().variant_badge}</span>` : ""}
           </div>
         `;
 
@@ -1979,7 +2031,7 @@
           controlHtml = `
             <div class="select-wrapper">
               <select id="ctrl-attr-${attrId}" data-attr="${attrId}">
-                <option value="">${T.select_placeholder}</option>
+                <option value="" data-i18n-select-placeholder>${getCurrentT().select_placeholder}</option>
                 ${opts}
               </select>
             </div>
@@ -2011,17 +2063,17 @@
 
         } else if (uiType === "bool") {
           // ── Boolean toggle (Yes / No) ────────────────────────
-          const yesLabel = LANG === "ar" ? "نعم" : (LANG === "tr" ? "Evet" : "Yes");
-          const noLabel  = LANG === "ar" ? "لا"  : (LANG === "tr" ? "Hayır" : "No");
+          const yesLabel = getCurrentT().bool_yes;
+          const noLabel  = getCurrentT().bool_no;
           controlHtml = `
             <div class="bool-toggle">
               <label class="bool-option">
                 <input type="radio" name="attr_${attrId}" value="true"  data-attr="${attrId}" />
-                <span>${yesLabel}</span>
+                <span data-i18n-bool="yes">${yesLabel}</span>
               </label>
               <label class="bool-option">
                 <input type="radio" name="attr_${attrId}" value="false" data-attr="${attrId}" />
-                <span>${noLabel}</span>
+                <span data-i18n-bool="no">${noLabel}</span>
               </label>
             </div>
           `;
@@ -2038,7 +2090,7 @@
 
         const errorHtml = `
           <div class="field-error" id="error-attr-${attrId}">
-            ${T.field_required}
+            <span data-i18n-field-required>${getCurrentT().field_required}</span>
           </div>
         `;
 
@@ -2372,7 +2424,7 @@
         en: "Closing window...",
       };
       const successSub = document.getElementById("success-sub");
-      if (successSub) successSub.textContent = _closingHint[LANG] || _closingHint.en;
+      if (successSub) successSub.textContent = _closingHint[_currentLang] || _closingHint.en;
 
       // Disable MainButton to prevent double submission
       if (tg) {

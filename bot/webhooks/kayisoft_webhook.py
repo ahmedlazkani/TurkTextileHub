@@ -28,14 +28,20 @@ import hashlib
 import hmac
 import logging
 import os
-from typing import Any, Optional
+from typing import Optional
 
 import httpx        # ← async HTTP client لتجنب حجب event loop
 import requests     # ← محتفظ للتوافق مع الدوال المتزامنة الأخرى
 
 from bot.config import BOT_TOKEN
+from bot.services.language_service import get_string, get_user_lang
 
 logger = logging.getLogger(__name__)
+
+
+def _notification_lang(telegram_id: int | str) -> str:
+    """Resolve the recipient's explicit TopKap language for Webhook notices."""
+    return get_user_lang(str(telegram_id))
 
 # ──────────────────────────────────────────────────────────
 # إعداد الأمان والثوابت
@@ -161,21 +167,14 @@ async def _handle_supplier_approved(data: dict) -> dict:
         dict: {"status": "ok" | "error", "message": str}
     """
     telegram_id = data.get("telegram_id")
-    company_name = data.get("company_name", "شركتكم")
 
     if not telegram_id:
         logger.error("❌ supplier.approved: telegram_id مفقود في البيانات")
         return {"status": "error", "message": "telegram_id مفقود"}
 
-    text = (
-        f"🎉 <b>تهانينا! تمت الموافقة على حسابكم.</b>\n\n"
-        f"🏭 <b>{company_name}</b> — مرحباً بكم في TurkTextileHub!\n\n"
-        f"يمكنكم الآن:\n"
-        f"• ➕ إضافة منتجاتكم\n"
-        f"• 🔗 ربط قنوات تليجرام\n"
-        f"• 📦 استقبال طلبات عروض الأسعار\n\n"
-        f"ابدأ بكتابة /start"
-    )
+    lang = _notification_lang(telegram_id)
+    company_name = data.get("company_name") or get_string(lang, "webhook_default_company")
+    text = get_string(lang, "webhook_supplier_approved").format(company_name=company_name)
 
     success = await _send_telegram_message(int(telegram_id), text)
     return {"status": "ok" if success else "error", "message": "supplier approval sent"}
@@ -200,13 +199,9 @@ async def _handle_supplier_rejected(data: dict) -> dict:
         logger.error("❌ supplier.rejected: telegram_id مفقود")
         return {"status": "error", "message": "telegram_id مفقود"}
 
-    reason_line = f"\n📝 <b>السبب:</b> {reason}" if reason else ""
-
-    text = (
-        f"⚠️ <b>بخصوص طلب تسجيلكم</b>\n\n"
-        f"نأسف لإبلاغكم بأنه لم تتم الموافقة على طلبكم في الوقت الحالي.{reason_line}\n\n"
-        f"للمزيد من المعلومات أو لإعادة التقديم، اكتب /start"
-    )
+    lang = _notification_lang(telegram_id)
+    reason_line = get_string(lang, "webhook_reason_line").format(reason=reason) if reason else ""
+    text = get_string(lang, "webhook_supplier_rejected").format(reason_line=reason_line)
 
     success = await _send_telegram_message(int(telegram_id), text)
     return {"status": "ok" if success else "error", "message": "supplier rejection sent"}
@@ -226,17 +221,14 @@ async def _handle_product_approved(data: dict) -> dict:
         dict: {"status": "ok" | "error", "message": str}
     """
     telegram_id = data.get("supplier_telegram_id")
-    product_title = data.get("product_title", "المنتج")
 
     if not telegram_id:
         logger.error("❌ product.approved: supplier_telegram_id مفقود")
         return {"status": "error", "message": "supplier_telegram_id مفقود"}
 
-    text = (
-        f"✅ <b>تمت الموافقة على منتجكم!</b>\n\n"
-        f"📦 <b>{product_title}</b>\n\n"
-        f"المنتج الآن مرئي للتجار ويمكنهم طلب عروض أسعار."
-    )
+    lang = _notification_lang(telegram_id)
+    product_title = data.get("product_title") or get_string(lang, "webhook_default_product")
+    text = get_string(lang, "webhook_product_approved").format(product_title=product_title)
 
     success = await _send_telegram_message(int(telegram_id), text)
     return {"status": "ok" if success else "error", "message": "product approval sent"}
@@ -256,19 +248,17 @@ async def _handle_product_rejected(data: dict) -> dict:
         dict: {"status": "ok" | "error", "message": str}
     """
     telegram_id = data.get("supplier_telegram_id")
-    product_title = data.get("product_title", "المنتج")
     reason = data.get("reason", "")
 
     if not telegram_id:
         logger.error("❌ product.rejected: supplier_telegram_id مفقود")
         return {"status": "error", "message": "supplier_telegram_id مفقود"}
 
-    reason_line = f"\n📝 <b>السبب:</b> {reason}" if reason else ""
-
-    text = (
-        f"❌ <b>لم تتم الموافقة على منتجكم</b>\n\n"
-        f"📦 <b>{product_title}</b>{reason_line}\n\n"
-        f"يمكنكم تعديله وإعادة إرساله عبر /add_product"
+    lang = _notification_lang(telegram_id)
+    product_title = data.get("product_title") or get_string(lang, "webhook_default_product")
+    reason_line = get_string(lang, "webhook_reason_line").format(reason=reason) if reason else ""
+    text = get_string(lang, "webhook_product_rejected").format(
+        product_title=product_title, reason_line=reason_line,
     )
 
     success = await _send_telegram_message(int(telegram_id), text)
@@ -290,19 +280,19 @@ async def _handle_quote_replied(data: dict) -> dict:
         dict: {"status": "ok" | "error", "message": str}
     """
     telegram_id = data.get("trader_telegram_id")
-    supplier_name = data.get("supplier_name", "المورد")
-    product_title = data.get("product_title", "المنتج")
     reply_message = data.get("reply_message", "")
 
     if not telegram_id:
         logger.error("❌ quote.replied: trader_telegram_id مفقود")
         return {"status": "error", "message": "trader_telegram_id مفقود"}
 
-    text = (
-        f"📋 <b>رد على طلب عرض سعرك</b>\n\n"
-        f"🏭 <b>المورد:</b> {supplier_name}\n"
-        f"📦 <b>المنتج:</b> {product_title}\n\n"
-        f"💬 <b>الرد:</b>\n{reply_message}"
+    lang = _notification_lang(telegram_id)
+    supplier_name = data.get("supplier_name") or get_string(lang, "webhook_default_supplier")
+    product_title = data.get("product_title") or get_string(lang, "webhook_default_product")
+    text = get_string(lang, "webhook_quote_replied").format(
+        supplier_name=supplier_name,
+        product_title=product_title,
+        reply_message=reply_message,
     )
 
     success = await _send_telegram_message(int(telegram_id), text)
