@@ -68,5 +68,8 @@
   "color_upload_skip_notice": "⏭️ <b>{color_name}</b> skipped.\n\n📱 You can upload photos later anytime from the TopKap app.",
   "color_upload_no_photo_warning": "⚠️ No photos uploaded for <b>{color_name}</b> yet.\n\n📊 Photos help buyers filter by color and increase your sales.\nUpload at least 1 photo or skip this color.",
   "color_upload_multicolor_ask": "🌈 <b>Multi-Color</b> product — send all product photos\n━━━━━━━━━━━━━━━━━━━━\n📸 1 to 5 photos.",
-  "color_upload_all_done": "✅ All color photos uploaded successfully!"
+  "color_upload_all_done": "✅ Photos for all colors have been received.\n\n📤 They will be uploaded to the server after you confirm publishing.",
+  "color_upload_publish_failed": "❌ <b>Product photos could not be fully uploaded.</b>\n\nThe product was not published and photos will not be mixed between colors. Review the details and try again:",
+  "color_upload_failure_line": "• <b>{color_name}</b>: {uploaded} of {received} photo(s) uploaded successfully.",
+  "color_upload_retry_btn": "🔄 Retry Photo Upload"
 }

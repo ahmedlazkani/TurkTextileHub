@@ -68,5 +68,8 @@
   "color_upload_skip_notice": "⏭️ <b>{color_name}</b> rengi atlandı.\n\n📱 Fotoğrafları daha sonra TopKap uygulamasından istediğiniz zaman yükleyebilirsiniz.",
   "color_upload_no_photo_warning": "⚠️ <b>{color_name}</b> için henüz fotoğraf yüklemediniz.\n\n📊 Fotoğraf yüklemek, alıcıların renk bazlı filtreleme yapmasını sağlar ve satışlarınızı artırır.\nEn az 1 fotoğraf yükleyin veya bu rengi atlayın.",
   "color_upload_multicolor_ask": "🌈 <b>Çok Renkli</b> ürün için tüm fotoğrafları gönderin\n━━━━━━━━━━━━━━━━━━━━\n📸 En fazla 5 fotoğraf yükleyebilirsiniz.",
-  "color_upload_all_done": "✅ Tüm renkler için fotoğraf yükleme tamamlandı!"
+  "color_upload_all_done": "✅ Tüm renklerin fotoğrafları alındı.\n\n📤 Onayladıktan sonra sunucuya yüklenecek.",
+  "color_upload_publish_failed": "❌ <b>Ürün fotoğrafları tamamen yüklenemedi.</b>\n\nÜrün yayınlanmayacak ve fotoğraflar renkler arasında karışmayacak. Ayrıntıları kontrol edip tekrar deneyin:",
+  "color_upload_failure_line": "• <b>{color_name}</b>: {received} fotoğrafın {uploaded} tanesi başarıyla yüklendi.",
+  "color_upload_retry_btn": "🔄 Fotoğraf Yüklemeyi Tekrar Dene"
 }

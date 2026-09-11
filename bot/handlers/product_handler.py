@@ -815,8 +815,9 @@ def _build_variants(
     description_tr: str = "",
     product_name_ar: str = "",
     description_ar: str = "",
-    color_uploaded_map: dict = None,  # BUG FIX Band 12: {color_option_id: [s3_filename]}
+    color_uploaded_map: dict = None,  # {color_option_id: [confirmed_s3_filename]}
     dimensions: Optional[dict] = None,
+    require_color_images: bool = False,
 ) -> list:
     """
     Builds the variants list for the KAYISOFT product payload.
@@ -1037,56 +1038,67 @@ def _build_variants(
     else:
         combinations = [(opt,) for opt in primary_options]
 
-    # Step 4: Distribute images across variants
-    # BUG FIX (Band 12): If color_uploaded_map is provided, use it to assign
-    # each color variant its own images instead of distributing evenly.
-    # Strategy:
-    #   - color_uploaded_map provided → assign per-color images to matching variants
-    #   - 1 variant  → all images
-    #   - N variants, images >= N → distribute evenly
-    #   - N variants, images < N  → all images duplicated to every variant
+    # Step 4: Distribute images across variants.
+    # A colour-upload session is a strict ownership contract: a variant may use
+    # only images confirmed for its own colour.  It must never fall back to the
+    # first/all images from another colour.
     n_variants = len(combinations)
     n_images   = len(uploaded_file_names)
     images_per_variant: list[list] = []
 
-    if color_uploaded_map and n_variants > 1:
-        # Band-12 Fix: Per-color image assignment.
-        # Each variant (primary option) gets ONLY its own color's images.
-        # If a color has no images in the map, it gets an empty list — NOT all images.
-        # The old fallback (color_imgs = uploaded_file_names) was the root cause:
-        # it assigned ALL uploaded images to every unmatched color, making every
-        # color appear to have the same photos as the first color.
-        # Collect all available images as a fallback pool
-        _all_available = uploaded_file_names or []
-        # Band-6 Fix (Notes2): detailed logging to diagnose intermittent image distribution issues
-        logger.info(
-            "[IMG_DIST] color_uploaded_map keys: %s",
-            [k[:8] for k in color_uploaded_map.keys()]
+    if require_color_images or (color_uploaded_map and n_variants > 1):
+        color_uploaded_map = color_uploaded_map or {}
+
+        def _is_colour_attribute(attribute: dict) -> bool:
+            terms = " ".join(str(attribute.get(field) or "").casefold() for field in ("key", "name", "label"))
+            return any(term in terms for term in ("color", "colour", "renk", "لون", "اللون"))
+
+        color_attr_id = next(
+            (
+                attribute.get("id")
+                for attribute in raw_attributes
+                if attribute.get("id") in attr_groups and _is_colour_attribute(attribute)
+            ),
+            None,
         )
+        # A legacy category may not label the colour attribute clearly.  In that
+        # exceptional case only use the primary axis when all of its options are
+        # present in the uploaded-colour map; otherwise fail safely.
+        if not color_attr_id and all(option_id in color_uploaded_map for option_id in primary_options):
+            color_attr_id = primary_attr_id
+        if not color_attr_id:
+            raise ValueError("Could not identify the colour selector for strict image assignment")
+
+        def _colour_option_for_combo(combo: tuple) -> str:
+            if color_attr_id == primary_attr_id:
+                return combo[0]
+            for secondary_attr_id, secondary_option_id in combo[1:]:
+                if secondary_attr_id == color_attr_id:
+                    return secondary_option_id
+            return ""
+
+        missing_colour_options = []
         for combo in combinations:
-            primary_opt_id = combo[0]
-            color_imgs = color_uploaded_map.get(primary_opt_id, [])
-            # Band-6 Fix: log each lookup so we can see if primary_opt_id matches map keys
-            if color_imgs:
-                logger.info(
-                    "[IMG_DIST] variant primary_opt_id=%s → %d images: %s",
-                    primary_opt_id[:8], len(color_imgs),
-                    [f[:20] for f in color_imgs]
-                )
-            else:
-                logger.warning(
-                    "[IMG_DIST] variant primary_opt_id=%s NOT FOUND in color_uploaded_map — "
-                    "using fallback image. Map keys: %s",
-                    primary_opt_id[:8],
-                    [k[:8] for k in color_uploaded_map.keys()]
-                )
-            # KAYISOFT requires at least 1 image per variant.
-            # If a color has no dedicated photos, use the first available image
-            # as a placeholder rather than sending images:[] which KAYISOFT rejects.
-            # This is a safe fallback — the supplier can update photos later.
-            if not color_imgs and _all_available:
-                color_imgs = [_all_available[0]]
-            images_per_variant.append(color_imgs)
+            colour_option_id = _colour_option_for_combo(combo)
+            colour_images = list(color_uploaded_map.get(colour_option_id) or [])
+            if not colour_option_id or not colour_images:
+                missing_colour_options.append(colour_option_id or "unknown")
+            images_per_variant.append(colour_images)
+
+        if missing_colour_options:
+            logger.error(
+                "[IMG_DIST] Missing confirmed image for colour options=%s; map_keys=%s",
+                missing_colour_options,
+                list(color_uploaded_map),
+            )
+            if require_color_images:
+                raise ValueError("Every colour requires at least one successfully uploaded image")
+
+        logger.info(
+            "[IMG_DIST] Strict colour assignment verified: %d variants, map=%s",
+            n_variants,
+            {str(option_id)[:8]: len(images) for option_id, images in color_uploaded_map.items()},
+        )
     elif n_variants <= 1 or n_images == 0:
         images_per_variant = [uploaded_file_names] * max(1, n_variants)
     elif n_images < n_variants:
@@ -3967,8 +3979,8 @@ def _get_color_options(context) -> list:
     Returns empty list if no color attribute found.
 
     Detection priority:
-      1. is_primary_variant_attribute=True + is_variant_selector=True
-      2. Attribute name contains a color keyword (renk / color / لون)
+      1. Attribute name/key contains a color keyword (renk / color / لون)
+      2. is_primary_variant_attribute=True + is_variant_selector=True
       3. Selector attribute with the most hex-value options (pipe-separated)
     """
     product_details = context.user_data.get("product_details", {})
@@ -3993,20 +4005,25 @@ def _get_color_options(context) -> list:
     color_attr_id    = None
     color_options_map = {}
 
-    # ── Priority 1: explicit primary variant attribute ────────────────────────
+    # ── Priority 1: real colour selector by key or localized name ─────────────
     for attr in raw_attributes:
-        if attr.get("is_primary_variant_attribute") and attr.get("is_variant_selector"):
+        if attr.get("id") not in used_selector_ids:
+            continue
+        identity = " ".join(
+            str(attr.get(field) or "").casefold()
+            for field in ("key", "name", "label")
+        )
+        if any(keyword in identity for keyword in _COLOR_ATTR_KEYWORDS):
             color_attr_id     = attr.get("id")
             color_options_map = _build_options_map(attr)
             break
 
-    # ── Priority 2: selector attribute whose name contains a color keyword ────
+    # ── Priority 2: explicit primary variant attribute ────────────────────────
     if not color_attr_id:
         for attr in raw_attributes:
             if attr.get("id") not in used_selector_ids:
                 continue
-            attr_name_lower = (attr.get("name") or "").lower()
-            if any(kw in attr_name_lower for kw in _COLOR_ATTR_KEYWORDS):
+            if attr.get("is_primary_variant_attribute") and attr.get("is_variant_selector"):
                 color_attr_id     = attr.get("id")
                 color_options_map = _build_options_map(attr)
                 break
@@ -4086,7 +4103,11 @@ async def _start_color_upload(
     # Initialise color upload state
     context.user_data["color_upload_list"]  = colors
     context.user_data["color_upload_index"] = 0
-    context.user_data["color_images_map"]   = {}   # {color_option_id: [file_id, ...]}
+    context.user_data["color_images_map"]   = {}   # {color_option_id: [telegram_file_id, ...]}
+    # Immutable ownership map for this product session.  A Telegram image may
+    # belong to one colour only; allowing it to be added again under another
+    # colour is a direct source of variant-image contamination.
+    context.user_data["color_file_owners"] = {}  # {telegram_file_id: color_option_id}
     # Band-21 Fix: reset image_hashes at the START of the color-upload session.
     # image_hashes is a global dedup set shared across all colors — if not cleared
     # here, hashes from a previous product session (or a previous attempt) remain
@@ -4227,15 +4248,27 @@ async def handle_color_image_upload(
         )
         return COLOR_UPLOAD
 
-    # Deduplicate
+    # Deduplicate and enforce ownership.  The same Telegram image cannot be
+    # reused for a different colour in the same product session.
     img_hash = hashlib.sha256(photo_file_id.encode()).hexdigest()[:16]
     if "image_hashes" not in context.user_data:
         context.user_data["image_hashes"] = set()
+    owners = context.user_data.setdefault("color_file_owners", {})
+    owner_color_id = owners.get(photo_file_id)
+    if owner_color_id and owner_color_id != color_id:
+        _owner_msg = {
+            "ar": "⚠️ هذه الصورة مرتبطة بلون آخر في هذا المنتج. أرسل صورة مختلفة لهذا اللون.",
+            "tr": "⚠️ Bu fotoğraf bu üründe başka bir renge bağlı. Bu renk için farklı bir fotoğraf gönderin.",
+            "en": "⚠️ This photo is already assigned to another color for this product. Send a different photo for this color.",
+        }
+        await update.message.reply_text(_owner_msg.get(lang, _owner_msg["en"]))
+        return COLOR_UPLOAD
     if img_hash in context.user_data["image_hashes"]:
         dup_msg = {"ar": "⚠️ هذه الصورة مضافة مسبقاً.", "tr": "⚠️ Bu fotoğraf zaten eklendi.", "en": "⚠️ Already added."}
         await update.message.reply_text(dup_msg.get(lang, dup_msg["en"]))
         return COLOR_UPLOAD
     context.user_data["image_hashes"].add(img_hash)
+    owners[photo_file_id] = color_id
     context.user_data["color_images_map"][color_id].append(photo_file_id)
 
     new_count = len(context.user_data["color_images_map"][color_id])
@@ -4387,12 +4420,10 @@ async def handle_color_action(
     context.user_data["color_upload_index"] = next_index
 
     if next_index < len(colors):
-        # Band-21 Fix: clear image_hashes when moving to the next color.
-        # Each color has its own independent photo set — hashes from the previous
-        # color must not block uploads for the next color.
-        # Note: we intentionally do NOT clear color_images_map here — it accumulates
-        # across all colors and is only read after all colors are done.
-        context.user_data["image_hashes"] = set()
+        # Keep image hashes and ownership for the entire product session.
+        # Resetting them here allowed the same Telegram image to be added under a
+        # later colour, which can make two colour variants point to one photo.
+        # ``color_images_map`` also remains intact until final publish.
 
         # Band-17 Fix: show a clear transition message so the supplier knows
         # the current color is done and the next color is starting.
@@ -4424,7 +4455,10 @@ async def handle_color_action(
 
     else:
         # ── All colors done ──────────────────────────────────────────────────────
-        color_images_map = context.user_data.get("color_images_map", {})
+        # Snapshot the ownership map at this point.  The final uploader reads
+        # this immutable copy, so a later message cannot move an image between
+        # colours while the supplier is reviewing the variants.
+        color_images_map = deepcopy(context.user_data.get("color_images_map", {}))
         all_images = []
         for c in colors:
             all_images.extend(color_images_map.get(c["id"], []))
@@ -4433,13 +4467,17 @@ async def handle_color_action(
 
         # Step 1: Send summary message (new message, not edit)
         total_photos = len(all_images)
-        summary_msg = {
-            "ar": f"✅ <b>تم رفع جميع الصور!</b>\n\n📸 إجمالي الصور: <b>{total_photos}</b> صورة",
-            "tr": f"✅ <b>Tüm fotoğraflar yüklendi!</b>\n\n📸 Toplam fotoğraf: <b>{total_photos}</b>",
-            "en": f"✅ <b>All photos uploaded!</b>\n\n📸 Total photos: <b>{total_photos}</b>",
-        }
+        summary_intro = get_string(lang, "color_upload_all_done")
+        if summary_intro == "color_upload_all_done":
+            summary_intro = {
+                "ar": "✅ تم استلام صور جميع الألوان.",
+                "tr": "✅ Tüm renklerin fotoğrafları alındı.",
+                "en": "✅ Photos for all colors have been received.",
+            }.get(lang, "✅ Photos for all colors have been received.")
+        total_label = {"ar": "إجمالي الصور", "tr": "Toplam fotoğraf", "en": "Total photos"}.get(lang, "Total photos")
+        summary_msg = f"{summary_intro}\n\n📸 {total_label}: <b>{total_photos}</b>"
         await query.message.reply_text(
-            summary_msg.get(lang, summary_msg["en"]),
+            summary_msg,
             parse_mode=ParseMode.HTML,
         )
 
@@ -4880,6 +4918,10 @@ async def handle_final_publish(
     # ── Step 2: Generate filenames (ISO-8601 timestamp + SHA-256) ─────────────
     uploaded_file_names: list[str] = []
     uploaded_image_records: list[dict] = []  # [{file_id, file_name}] after confirmed S3 PUT
+    # A publish may continue only when every received image was confirmed by S3.
+    # Store failures by Telegram file ID so they can be reported against the
+    # exact colour that owns the image.
+    upload_failures: dict[str, str] = {}  # {telegram_file_id: failure_reason}
     if downloaded_images:
         file_names = [_generate_filename(image_bytes) for _, image_bytes in downloaded_images]
 
@@ -4906,8 +4948,9 @@ async def handle_final_publish(
             ):
                 signed = signed_by_file_name.get(requested_name)
                 if not signed:
+                    upload_failures[file_id] = "missing_signed_url"
                     logger.error(
-                        "[IMG_DIST] Missing signed URL for requested filename=%s; image is not published",
+                        "[IMG_UPLOAD] Missing signed URL for requested filename=%s; image is not published",
                         requested_name,
                     )
                     continue
@@ -4922,28 +4965,33 @@ async def handle_final_publish(
                     uploaded_image_records.append({"file_id": file_id, "file_name": requested_name})
                     logger.info("✅ S3 upload success %d/%d: %s", index, len(file_names), requested_name)
                 else:
-                    logger.warning("❌ S3 upload FAILED for image %d/%d (url=%s)", index, len(file_names), s3_url[:80])
+                    upload_failures[file_id] = "s3_upload_failed"
+                    logger.warning(
+                        "❌ S3 upload FAILED for image %d/%d (fileName=%s)",
+                        index,
+                        len(file_names),
+                        requested_name,
+                    )
         else:
+            for file_id, _ in downloaded_images:
+                upload_failures[file_id] = "signed_urls_unavailable"
             logger.warning("❌ Could not get signed URLs for user %s — signed_urls=%s", user_id, signed_urls)
 
-    logger.info("📊 Image upload summary: %d/%d uploaded successfully", len(uploaded_file_names), len(image_file_ids))
+    # Download failures are also upload failures: the product must not be
+    # announced as successful when an image never reached the upload phase.
+    downloaded_file_ids = {file_id for file_id, _ in downloaded_images}
+    for file_id in image_file_ids:
+        if file_id not in downloaded_file_ids:
+            upload_failures[file_id] = "telegram_download_failed"
 
-    # ── Guard: KAYISOFT requires at least 1 image per variant ─────────────────
-    # If ALL S3 uploads failed (uploaded_file_names is empty), we must NOT send
-    # the payload to KAYISOFT — it will reject it with:
-    #   "in body.variants: The minimum number of images required... at least 1"
-    # Instead, show a clear error message and let the supplier retry.
-    if not uploaded_file_names and image_file_ids:
-        _no_img_msgs = {
-            "ar": "❌ <b>فشل رفع الصور إلى الخادم.</b>\n\nيرجى المحاولة مرة أخرى أو التواصل مع الدعم.",
-            "tr": "❌ <b>Görseller sunucuya yüklenemedi.</b>\n\nLütfen tekrar deneyin veya destek ekibiyle iletişime geçin.",
-            "en": "❌ <b>Failed to upload images to server.</b>\n\nPlease try again or contact support.",
-        }
-        await query.edit_message_text(
-            _no_img_msgs.get(lang, _no_img_msgs["ar"]),
-            parse_mode=ParseMode.HTML,
-        )
-        return ConversationHandler.END
+    logger.info(
+        "📊 Image upload summary: %d/%d uploaded successfully; failures=%d",
+        len(uploaded_file_names), len(image_file_ids), len(upload_failures),
+    )
+
+    # Do not end the conversation here, even if every upload failed.  The
+    # strict per-colour guard below formats the exact failure and leaves a retry
+    # button, so the supplier can retry without rebuilding the product draft.
 
     # ── Build per-color uploaded filename map ─────────────────────────────────
     # Build it from confirmed file_id→file_name records rather than parallel
@@ -4965,6 +5013,79 @@ async def handle_final_publish(
             len(color_uploaded_map),
             {cid[:8]: len(images) for cid, images in color_uploaded_map.items()},
         )
+
+    # Strict success contract: a partial upload is not a successful product
+    # upload.  Report affected colours and keep the conversation open so the
+    # same confirmation button retries the stored Telegram images.
+    expected_color_ids = list(color_images_map_final or {})
+    missing_success_colors = [
+        color_id for color_id in expected_color_ids
+        if not color_uploaded_map.get(color_id)
+    ]
+    if upload_failures or missing_success_colors:
+        colors_by_id = {
+            str(color.get("id")): str(color.get("name") or color.get("id"))
+            for color in context.user_data.get("color_upload_list", [])
+        }
+        received_counts = {
+            color_id: len(file_ids or [])
+            for color_id, file_ids in (color_images_map_final or {}).items()
+        }
+        uploaded_counts = {
+            color_id: len(file_names or [])
+            for color_id, file_names in color_uploaded_map.items()
+        }
+        impacted_color_ids = []
+        for color_id in expected_color_ids:
+            received = received_counts.get(color_id, 0)
+            uploaded = uploaded_counts.get(color_id, 0)
+            if uploaded < received or color_id in missing_success_colors:
+                impacted_color_ids.append(color_id)
+
+        failure_header = get_string(lang, "color_upload_publish_failed")
+        failure_line = get_string(lang, "color_upload_failure_line")
+        if failure_header == "color_upload_publish_failed":
+            failure_header = "❌ <b>Product images could not be fully uploaded.</b>"
+        if failure_line == "color_upload_failure_line":
+            failure_line = "• <b>{color_name}</b>: {uploaded}/{received} uploaded successfully."
+        detail_lines = [
+            failure_line.format(
+                color_name=colors_by_id.get(color_id, color_id),
+                received=received_counts.get(color_id, 0),
+                uploaded=uploaded_counts.get(color_id, 0),
+            )
+            for color_id in impacted_color_ids
+        ]
+        # Generic uploads (without a colour selector) still report a concrete
+        # failure instead of falsely publishing only the successful subset.
+        if not detail_lines and upload_failures:
+            generic_line = {
+                "ar": f"• فشل رفع {len(upload_failures)} صورة.",
+                "tr": f"• {len(upload_failures)} fotoğraf yüklenemedi.",
+                "en": f"• {len(upload_failures)} photo(s) failed to upload.",
+            }
+            detail_lines.append(generic_line.get(lang, generic_line["en"]))
+
+        retry_label = get_string(lang, "color_upload_retry_btn")
+        if retry_label == "color_upload_retry_btn":
+            retry_label = {"ar": "🔄 إعادة المحاولة", "tr": "🔄 Tekrar Dene", "en": "🔄 Retry"}.get(lang, "🔄 Retry")
+        cancel_label = get_string(lang, "btn_cancel")
+        if cancel_label == "btn_cancel":
+            cancel_label = {"ar": "❌ إلغاء", "tr": "❌ İptal", "en": "❌ Cancel"}.get(lang, "❌ Cancel")
+        logger.error(
+            "[IMG_UPLOAD] Blocking publish: failures=%s missing_success_colors=%s",
+            upload_failures,
+            missing_success_colors,
+        )
+        await query.edit_message_text(
+            failure_header + "\n\n" + "\n".join(detail_lines),
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton(retry_label, callback_data="publish_yes"),
+                InlineKeyboardButton(cancel_label, callback_data="publish_no"),
+            ]]),
+        )
+        return CONFIRM_PUBLISH
 
     # ── Step 5: Build product payload ───────────────────────────────────────────
     # Support both old format (name/description) and new multilingual format (name_ar/tr/en)
@@ -5214,8 +5335,9 @@ async def handle_final_publish(
         description_tr      = description_tr,
         description_en      = description_en,
         dimensions          = product_details.get("dimensions"),
-        # BUG FIX (Band 12): pass per-color S3 filename map
+        # Strictly bind each variant to confirmed files of its own colour.
         color_uploaded_map  = color_uploaded_map,
+        require_color_images=bool(color_images_map_final),
     )
 
     # Band-19 Fix: use the supplier's own product code if provided;
