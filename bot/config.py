@@ -37,8 +37,13 @@ TELEGRAM_BOT_CONNECT_BASE_URL = os.getenv(
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 
 # ── Admin ─────────────────────────────────────────────────────────────────────
-_admin_id_raw = os.getenv("ADMIN_TELEGRAM_ID", "5733520948").strip()
-ADMIN_TELEGRAM_ID = int(_admin_id_raw) if _admin_id_raw else 5733520948
+# No administrator identifier is embedded in source code.  DevOps must provide
+# this value through the deployment environment when administrative alerts are used.
+_admin_id_raw = os.getenv("ADMIN_TELEGRAM_ID", "").strip()
+try:
+    ADMIN_TELEGRAM_ID = int(_admin_id_raw) if _admin_id_raw else None
+except ValueError as exc:
+    raise ValueError("ADMIN_TELEGRAM_ID must be a numeric Telegram user ID.") from exc
 
 # ── Language Defaults ─────────────────────────────────────────────────────────
 DEFAULT_LANGUAGE    = "tr"                  # Turkish — default for Turkish suppliers
@@ -52,7 +57,7 @@ if not BOT_TOKEN:
     )
 
 if not KAYISOFT_API_TOKEN:
-    logger.warning(
-        "⚠️  KAYISOFT_API_TOKEN is not set in environment variables. "
-        "All KAYISOFT API calls will fail. Add KAYISOFT_API_TOKEN to .env or Railway Variables."
+    raise ValueError(
+        "KAYISOFT API credential is missing. Set KAYISOFT_API_TOKEN or "
+        "TELEGRAM_BOT_API_ENDPOINT_KEY in the deployment environment."
     )

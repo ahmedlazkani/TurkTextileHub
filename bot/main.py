@@ -31,6 +31,7 @@ Environment Variables Optional:
 import asyncio
 import logging
 import os
+import re
 import threading
 from contextlib import asynccontextmanager
 
@@ -44,70 +45,79 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
+class _SecretRedactionFilter(logging.Filter):
+    """Redact credential-shaped strings before any handler writes a log record."""
+
+    _telegram_token = re.compile(r"(?:bot)?\d{6,12}:[A-Za-z0-9_-]{20,}")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        redacted = self._telegram_token.sub("<redacted-telegram-token>", message)
+        if redacted != message:
+            record.msg = redacted
+            record.args = ()
+        return True
+
+
+for _handler in logging.getLogger().handlers:
+    _handler.addFilter(_SecretRedactionFilter())
+
+# PTB uses httpx internally.  Its INFO lines include full request URLs, which
+# contain the Telegram bot token for getUpdates/sendMessage endpoints.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# DIAGNOSTIC — Print all critical env vars at startup
+# DIAGNOSTIC — safe startup readiness summary
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _log_diagnostics() -> str:
-    """Logs all critical env vars and returns the resolved Railway domain."""
-    token = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("BOT_TOKEN", "")
-    kayisoft_token = (
-        os.getenv("KAYISOFT_API_TOKEN") or
-        os.getenv("TELEGRAM_BOT_API_ENDPOINT_KEY") or
-        ""
-    )
-    kayisoft_url = os.getenv("KAYISOFT_API_URL", "NOT SET")
-    deepseek_key = os.getenv("DEEPSEEK_API_KEY", "")
+def _validate_production_configuration() -> None:
+    """Fail fast only for an explicitly configured production deployment."""
+    if os.getenv("APP_ENV", "development").strip().lower() != "production":
+        return
 
-    # Auto-detect Railway domain from multiple env vars
-    _raw_static = os.getenv("RAILWAY_STATIC_URL", "")
-    _static_domain = _raw_static.replace("https://", "").replace("http://", "").rstrip("/")
-    railway_domain = (
-        os.getenv("RAILWAY_DOMAIN")
-        or os.getenv("RAILWAY_PUBLIC_DOMAIN")
-        or _static_domain
-        or "NOT SET"
-    )
-    webapp_port = os.getenv("PORT", "8080")
-
-    logger.info("=" * 60)
-    logger.info("DIAGNOSTIC -- Environment Variables at startup:")
-    logger.info("  KAYISOFT_API_URL              = %s", kayisoft_url)
-    logger.info("  KAYISOFT_API_TOKEN            = %s", kayisoft_token[:8] + "..." if kayisoft_token else "EMPTY !!!")
-    logger.info("  TELEGRAM_BOT_API_ENDPOINT_KEY = %s", (os.getenv("TELEGRAM_BOT_API_ENDPOINT_KEY") or "NOT SET")[:8] + "...")
-    logger.info("  DEEPSEEK_API_KEY              = %s", "SET" if deepseek_key else "NOT SET")
-    logger.info("  BOT_TOKEN (first 8 chars)     = %s...", token[:8] if token else "MISSING!")
-    logger.info("  RAILWAY_DOMAIN (manual)       = %s", os.getenv("RAILWAY_DOMAIN", "NOT SET"))
-    logger.info("  RAILWAY_PUBLIC_DOMAIN (auto)  = %s", os.getenv("RAILWAY_PUBLIC_DOMAIN", "NOT SET"))
-    logger.info("  RAILWAY_STATIC_URL (legacy)   = %s", os.getenv("RAILWAY_STATIC_URL", "NOT SET"))
-    logger.info("  RAILWAY_DOMAIN (resolved)     = %s", railway_domain)
-    logger.info("  PORT (FastAPI)                = %s", webapp_port)
-
-    # Log ALL Railway-prefixed env vars for debugging
-    railway_vars = {k: v for k, v in os.environ.items() if k.startswith("RAILWAY_")}
-    if railway_vars:
-        logger.info("  All RAILWAY_* env vars: %s", railway_vars)
-    else:
-        logger.warning("  No RAILWAY_* env vars found (not running on Railway or none injected)")
-
-    if not kayisoft_token:
-        logger.error("  *** KAYISOFT_API_TOKEN IS EMPTY -- all API calls will fail with 401 ***")
-
-    if railway_domain == "NOT SET":
-        logger.warning(
-            "  *** RAILWAY_DOMAIN could not be auto-detected -- WebApp Mini App button will be disabled ***\n"
-            "  Fix: In Railway Dashboard → your service → Variables, add:\n"
-            "  RAILWAY_DOMAIN = <your-service>.up.railway.app\n"
-            "  (Find your domain in Railway Dashboard → your service → Settings → Domains)"
+    required = {
+        "PUBLIC_BASE_URL": bool(os.getenv("PUBLIC_BASE_URL")),
+        "TELEGRAM_BOT_TOKEN": bool(os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("BOT_TOKEN")),
+        "KAYISOFT_API_URL": bool(os.getenv("KAYISOFT_API_URL")),
+        "KAYISOFT_API_TOKEN": bool(
+            os.getenv("KAYISOFT_API_TOKEN") or os.getenv("TELEGRAM_BOT_API_ENDPOINT_KEY")
+        ),
+        "AI_PROVIDER_KEY": bool(os.getenv("DEEPSEEK_API_KEY") or os.getenv("OPENAI_API_KEY")),
+        "CHANNELS_FILE": bool(os.getenv("CHANNELS_FILE")),
+        "LANGS_FILE": bool(os.getenv("LANGS_FILE")),
+    }
+    missing = [name for name, configured in required.items() if not configured]
+    if missing:
+        raise RuntimeError(
+            "Production configuration is incomplete. Missing environment variables: "
+            + ", ".join(missing)
         )
-    else:
-        logger.info("  ✅ WebApp Mini App URL will be: https://%s/webapp/product-form", railway_domain)
 
-    logger.info("=" * 60)
-    return railway_domain
+
+def _log_diagnostics() -> str:
+    """Log configuration readiness without exposing values or platform internals."""
+    from bot.services.runtime_config import get_public_base_url
+
+    token_present = bool(os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("BOT_TOKEN"))
+    kayisoft_token_present = bool(
+        os.getenv("KAYISOFT_API_TOKEN") or os.getenv("TELEGRAM_BOT_API_ENDPOINT_KEY")
+    )
+    public_base_url = get_public_base_url()
+
+    logger.info("TopKap startup configuration: bot_token=%s kayisoft_token=%s deepseek=%s public_url=%s port=%s",
+                "configured" if token_present else "missing",
+                "configured" if kayisoft_token_present else "missing",
+                "configured" if os.getenv("DEEPSEEK_API_KEY") else "not-configured",
+                "configured" if public_base_url else "missing",
+                os.getenv("PORT", "8080"))
+    if not kayisoft_token_present:
+        logger.error("KAYISOFT API credential is missing; API calls will fail.")
+    if not public_base_url:
+        logger.warning("PUBLIC_BASE_URL is not configured; Telegram WebApp buttons will be unavailable.")
+    return public_base_url
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -230,7 +240,8 @@ async def lifespan(app):
     """
     global _bot_task
 
-    # Log diagnostics
+    # Validate before starting either the HTTP server or Telegram polling.
+    _validate_production_configuration()
     _log_diagnostics()
 
     # Start Telegram bot as background async task

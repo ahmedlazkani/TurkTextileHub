@@ -146,6 +146,7 @@ from telegram.ext import (
 )
 
 from bot.services.language_service import get_string, get_user_lang
+from bot.services.runtime_config import get_public_base_url
 from bot.services.kayisoft_api import KayisoftAPI
 from bot.services.deepseek_service import deepseek_service, generate_channel_post, translate_product_titles
 from bot.handlers.channel_stats import track_product_published
@@ -2592,24 +2593,15 @@ async def _load_attributes_and_ask_form(
     user_id = str(query.from_user.id)
 
     # ── Build WebApp URL ───────────────────────────────────────────────────────
-    # Auto-detect Railway domain from multiple possible env vars:
-    #   RAILWAY_DOMAIN          — manually set by user in Railway Variables (highest priority)
-    #   RAILWAY_PUBLIC_DOMAIN   — set automatically by Railway for public services
-    #   RAILWAY_STATIC_URL      — legacy Railway env var (strip protocol prefix)
-    _raw_static = os.getenv("RAILWAY_STATIC_URL", "")
-    _static_domain = _raw_static.replace("https://", "").replace("http://", "").rstrip("/")
-    RAILWAY_DOMAIN = (
-        os.getenv("RAILWAY_DOMAIN")
-        or os.getenv("RAILWAY_PUBLIC_DOMAIN")
-        or _static_domain
-        or ""
-    )
+    # PUBLIC_BASE_URL is the canonical production configuration.  Railway
+    # variables remain supported in get_public_base_url() for backwards compatibility.
+    public_base_url = get_public_base_url()
     webapp_url = (
-        f"https://{RAILWAY_DOMAIN}/webapp/product-form"
+        f"{public_base_url}/webapp/product-form"
         f"?category_id={category_id}"
         f"&lang={lang}"
         f"&user_id={user_id}"
-    ) if RAILWAY_DOMAIN else None
+    ) if public_base_url else None
 
     # ── Build breadcrumb ───────────────────────────────────────────────────────
     cat_name = context.user_data.get("selected_category_name", "")
@@ -3386,21 +3378,15 @@ async def handle_confirm_details(
         product_details = context.user_data.get("product_details", {})
         source = product_details.get("_source", "")
 
-        # Detect Railway domain (same logic as _load_attributes_and_ask_form)
-        _raw_static = os.getenv("RAILWAY_STATIC_URL", "")
-        _static_domain = _raw_static.replace("https://", "").replace("http://", "").rstrip("/")
-        RAILWAY_DOMAIN = (
-            os.getenv("RAILWAY_DOMAIN")
-            or os.getenv("RAILWAY_PUBLIC_DOMAIN")
-            or _static_domain
-            or ""
-        )
+        # Resolve the public URL at interaction time.  This keeps edit links
+        # portable between Railway and the company server.
+        public_base_url = get_public_base_url()
 
         category_id = context.user_data.get("selected_subcategory", "")
         user_id_str = str(query.from_user.id)
 
-        # If data came from the webapp form AND we have a Railway domain → re-open form with prefill
-        if source in ("webapp", "webapp_post") and RAILWAY_DOMAIN and category_id:
+        # If data came from the webapp form and a public URL is configured, re-open it with prefill.
+        if source in ("webapp", "webapp_post") and public_base_url and category_id:
             # Build prefill JSON (only the fields the form knows about)
             # Band-15 Fix: always pass the canonical name/description that the
             # supplier originally typed (stored under name_<lang> by Band-6 fix).
@@ -3440,7 +3426,7 @@ async def handle_confirm_details(
             ).decode("ascii")
 
             webapp_url = (
-                f"https://{RAILWAY_DOMAIN}/webapp/product-form"
+                f"{public_base_url}/webapp/product-form"
                 f"?category_id={category_id}"
                 f"&lang={lang}"
                 f"&user_id={user_id_str}"

@@ -7,7 +7,7 @@
   
   [![Python Version](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://python.org)
   [![Telegram Bot API](https://img.shields.io/badge/Telegram%20Bot%20API-v20%2B-blue.svg)](https://core.telegram.org/bots/api)
-  [![Deployment](https://img.shields.io/badge/Deployment-Railway-purple.svg)](https://railway.app)
+  [![Deployment](https://img.shields.io/badge/Deployment-Docker%20%2B%20DevOps-2496ED.svg)](docs/DEVOPS_HANDOVER.md)
   [![License](https://img.shields.io/badge/License-Proprietary-red.svg)](#)
 </div>
 
@@ -70,42 +70,32 @@ The account linking and channel connection process is designed for maximum secur
 
 ## 🚀 Deployment Guide
 
-The project is fully containerized and optimized for deployment on **Railway**.
+The project is containerized for company-managed infrastructure. The production deployment contract is:
 
-### Prerequisites
-- Python 3.11+
-- Telegram Bot Token (from [@BotFather](https://t.me/BotFather))
-- KAYISOFT API Base URL & Token
-- DeepSeek API Key
+- `Dockerfile` builds a non-root Python 3.11 image with a `/health` check.
+- `docker-compose.yml` is the reference deployment for a single Telegram polling instance, persistent `/data`, and a reverse proxy terminating TLS.
+- `.env.example` contains **names and placeholders only**. The actual `.env` is owned by DevOps, ignored by Git, and never copied into the image.
 
-### Environment Variables (`.env`)
-```env
-BOT_TOKEN=your_telegram_bot_token
-KAYISOFT_API_URL=https://api-wholesale.dev.kayisoft.net
-KAYISOFT_API_TOKEN=your_kayisoft_api_token
-TELEGRAM_BOT_API_ENDPOINT_KEY=your_endpoint_key
-DEEPSEEK_API_KEY=your_deepseek_api_key
-ADMIN_TELEGRAM_ID=your_telegram_id
-```
+> Run exactly **one** Telegram polling instance for a bot token. Do not keep Railway and the company server polling concurrently during cutover.
 
-### Local Development
+### Quick local validation
+
 ```bash
-# 1. Clone the repository
 git clone https://github.com/ahmedlazkani/TurkTextileHub.git
 cd TurkTextileHub
-
-# 2. Install dependencies
-pip install -r requirements.txt
-
-# 3. Run the bot
-python -m bot.main
+cp .env.example .env
+# Fill .env locally; never commit it.
+docker compose --env-file .env config --quiet
+docker compose up --build
 ```
 
-### Railway Deployment
-1. Connect your GitHub repository to Railway.
-2. Railway will automatically detect the `Dockerfile` and `railway.json`.
-3. Add the required Environment Variables in the Railway Dashboard.
-4. Deploy! 🚀
+### Authoritative operations documentation
+
+| Document | Purpose |
+|---|---|
+| [`docs/DEVOPS_HANDOVER.md`](docs/DEVOPS_HANDOVER.md) | Server preparation, secrets, Docker, TLS, data migration, cutover, rollback, and operations. |
+| [`docs/AI_COLLABORATION_WORKFLOW.md`](docs/AI_COLLABORATION_WORKFLOW.md) | Change-management policy: AI/GitHub access only; DevOps owns secrets and production deployment. |
+| [`.env.example`](.env.example) | Environment-variable names, categorization, and safe placeholders. |
 
 ---
 

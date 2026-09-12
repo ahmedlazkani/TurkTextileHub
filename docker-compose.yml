@@ -1,0 +1,57 @@
+services:
+  topkap-bot:
+    # Build from the audited Dockerfile. DevOps may replace this with a pinned
+    # image from the company registry after CI publishes one.
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: topkap/telegram-bot:${IMAGE_TAG:-local}
+    container_name: topkap-telegram-bot
+    init: true
+    restart: unless-stopped
+
+    # This file is created and owned by DevOps on the server. It is ignored by Git.
+    env_file:
+      - .env
+    environment:
+      APP_ENV: production
+      PORT: "8080"
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?Set the external HTTPS URL, for example https://bot.company.example}
+      CHANNELS_FILE: /data/user_channels.json
+      LANGS_FILE: /data/user_langs.json
+
+    # Bind privately by default. The company reverse proxy should terminate TLS
+    # and forward HTTPS traffic to this port.
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${HOST_PORT:-8080}:8080"
+    volumes:
+      - topkap_data:/data
+
+    # The image also carries this healthcheck; duplicating it here makes the
+    # contract visible to DevOps and Docker Compose.
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json, urllib.request; payload=json.load(urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)); assert payload.get('status') == 'ok' and payload.get('bot_running') is True",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  topkap_data:
+    name: topkap_data

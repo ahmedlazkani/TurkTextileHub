@@ -29,6 +29,7 @@ from telegram import (
     WebAppInfo,
 )
 from bot.services.language_service import get_string
+from bot.services.runtime_config import get_public_base_url
 
 # TopKap Supplier Web App URL — opens inside Telegram WebApp (no external browser)
 # KAYISOFT should provide the production URL + deep link to orders page
@@ -57,15 +58,8 @@ def _get_miniapp_url() -> str | None:
     Reading env vars inside the function (not at module level) ensures we
     always get the latest value even if Railway injects them after import.
     """
-    _raw_static = os.getenv("RAILWAY_STATIC_URL", "")
-    _static_domain = _raw_static.replace("https://", "").replace("http://", "").rstrip("/")
-    domain = (
-        os.getenv("RAILWAY_DOMAIN")
-        or os.getenv("RAILWAY_PUBLIC_DOMAIN")
-        or _static_domain
-        or ""
-    )
-    return f"https://{domain}/webapp/download-app" if domain else None
+    public_base_url = get_public_base_url()
+    return f"{public_base_url}/webapp/download-app" if public_base_url else None
 
 # TopGate Buyer/Trader App URL — used for product post buttons
 TOPGATE_WEB_URL = os.getenv(

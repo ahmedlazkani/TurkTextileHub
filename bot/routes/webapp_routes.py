@@ -15,7 +15,7 @@ USAGE (register in your FastAPI app / main.py):
     app.include_router(webapp_router)
 
 ENVIRONMENT VARIABLES REQUIRED:
-    RAILWAY_DOMAIN          — public domain of this Railway service (e.g. "topkap.up.railway.app")
+    PUBLIC_BASE_URL         — public HTTPS address of the company-hosted bot
     KAYISOFT_API_BASE_URL   — base URL of KAYISOFT REST API
     TELEGRAM_BOT_API_ENDPOINT_KEY — same Bearer token used by the bot for all KAYISOFT calls
                               (used when no per-user token is in cache)
@@ -98,8 +98,6 @@ KAYISOFT_API_KEY = (
     os.getenv("KAYISOFT_API_KEY") or
     ""
 ).strip()
-RAILWAY_DOMAIN   = os.getenv("RAILWAY_DOMAIN", "localhost:8000")
-
 # Path to the compiled HTML form file
 # Adjust if your project layout differs
 FORM_HTML_PATH = Path(__file__).parent.parent / "webapp" / "product_form.html"
